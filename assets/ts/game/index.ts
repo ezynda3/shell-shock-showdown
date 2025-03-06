@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, query } from 'lit/decorators.js';
 import * as THREE from 'three';
+import { MapGenerator } from './map';
 
 @customElement('game-component')
 export class GameComponent extends LitElement {
@@ -34,6 +35,18 @@ export class GameComponent extends LitElement {
   
   // Assets
   private skyTexture?: THREE.Texture;
+  
+  // Projectiles
+  private shells: {
+    mesh: THREE.Mesh;
+    velocity: THREE.Vector3;
+    age: number;
+    exploded: boolean;
+  }[] = [];
+  private shellSpeed = 1.5;      // Increased for larger world
+  private gravity = 0.002;       // Reduced for better trajectories at scale
+  private lastShotTime = 0;
+  private shotCooldown = 500;    // ms between shots
 
   static styles = css`
     :host {
@@ -69,6 +82,7 @@ export class GameComponent extends LitElement {
         <div>A: Rotate tank left, D: Rotate tank right</div>
         <div>←/→: Rotate turret left/right</div>
         <div>↑/↓: Raise/lower barrel</div>
+        <div>Space: Fire shell</div>
       </div>
     `;
   }
@@ -136,12 +150,12 @@ export class GameComponent extends LitElement {
     // Create skybox
     this.createSkybox();
     
-    // Create camera
+    // Create camera with increased far plane for larger world
     this.camera = new THREE.PerspectiveCamera(
       60,
       this.canvas.clientWidth / this.canvas.clientHeight,
       0.1,
-      1000
+      100000 // Much larger far plane for the bigger world
     );
     
     // Create renderer
@@ -170,8 +184,8 @@ export class GameComponent extends LitElement {
     directionalLight.shadow.mapSize.height = 1024;
     this.scene.add(directionalLight);
     
-    // Create ground
-    const groundGeometry = new THREE.PlaneGeometry(100, 100);
+    // Create ground (100x larger)
+    const groundGeometry = new THREE.PlaneGeometry(10000, 10000);
     const groundMaterial = new THREE.MeshStandardMaterial({ 
       color: 0x4DA65B, // Slightly darker green
       roughness: 0.8,
@@ -199,195 +213,24 @@ export class GameComponent extends LitElement {
   private createTrees() {
     if (!this.scene) return;
     
-    // Create tree materials
-    const trunkMaterial = new THREE.MeshStandardMaterial({
-      color: 0x8B4513, // Brown
-      roughness: 0.9,
-      metalness: 0.0
-    });
-    
-    const leafMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2E8B57, // Dark green
-      roughness: 0.8,
-      metalness: 0.1
-    });
-    
-    // Create different tree models
-    const createPineTree = (scale: number, x: number, z: number) => {
-      const tree = new THREE.Group();
-      
-      // Tree trunk
-      const trunkGeometry = new THREE.CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 8);
-      const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
-      trunk.position.y = 0.75 * scale;
-      trunk.castShadow = true;
-      trunk.receiveShadow = true;
-      tree.add(trunk);
-      
-      // Tree foliage (cones)
-      const foliageGeometry1 = new THREE.ConeGeometry(1 * scale, 2 * scale, 8);
-      const foliage1 = new THREE.Mesh(foliageGeometry1, leafMaterial);
-      foliage1.position.y = 2 * scale;
-      foliage1.castShadow = true;
-      tree.add(foliage1);
-      
-      const foliageGeometry2 = new THREE.ConeGeometry(0.8 * scale, 1.8 * scale, 8);
-      const foliage2 = new THREE.Mesh(foliageGeometry2, leafMaterial);
-      foliage2.position.y = 3 * scale;
-      foliage2.castShadow = true;
-      tree.add(foliage2);
-      
-      const foliageGeometry3 = new THREE.ConeGeometry(0.6 * scale, 1.6 * scale, 8);
-      const foliage3 = new THREE.Mesh(foliageGeometry3, leafMaterial);
-      foliage3.position.y = 4 * scale;
-      foliage3.castShadow = true;
-      tree.add(foliage3);
-      
-      // Position tree
-      tree.position.set(x, 0, z);
-      
-      // Add to scene
-      this.scene!.add(tree);
-    };
-    
-    const createRoundTree = (scale: number, x: number, z: number) => {
-      const tree = new THREE.Group();
-      
-      // Tree trunk
-      const trunkGeometry = new THREE.CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 8);
-      const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
-      trunk.position.y = 0.75 * scale;
-      trunk.castShadow = true;
-      trunk.receiveShadow = true;
-      tree.add(trunk);
-      
-      // Tree foliage (sphere)
-      const foliageGeometry = new THREE.SphereGeometry(1.2 * scale, 8, 8);
-      const foliage = new THREE.Mesh(foliageGeometry, leafMaterial);
-      foliage.position.y = 2.5 * scale;
-      foliage.castShadow = true;
-      tree.add(foliage);
-      
-      // Position tree
-      tree.position.set(x, 0, z);
-      
-      // Add to scene
-      this.scene!.add(tree);
-    };
-    
-    // Place trees in various locations
-    // Pine trees
-    createPineTree(1.5, -15, -15);
-    createPineTree(1.2, -18, -10);
-    createPineTree(1.7, -14, -8);
-    
-    createPineTree(1.6, 16, 14);
-    createPineTree(1.3, 18, 10);
-    createPineTree(1.8, 20, 12);
-    
-    createPineTree(1.4, -10, 25);
-    createPineTree(1.6, -8, 22);
-    
-    // Round trees
-    createRoundTree(1.0, 12, -18);
-    createRoundTree(1.2, 15, -15);
-    createRoundTree(1.1, 10, -20);
-    
-    createRoundTree(1.3, -20, 10);
-    createRoundTree(1.1, -18, 8);
-    createRoundTree(1.0, -15, 12);
-    
-    createRoundTree(1.2, 25, -5);
-    createRoundTree(1.0, 22, -7);
+    // Create a map generator and build the tree layout
+    const mapGenerator = new MapGenerator(this.scene);
+    mapGenerator.createTrees();
   }
   
   private createRocks() {
     if (!this.scene) return;
     
-    // Create rock materials
-    const rockMaterial = new THREE.MeshStandardMaterial({
-      color: 0x808080, // Gray
-      roughness: 0.9,
-      metalness: 0.2
-    });
-    
-    // Function to create a rock cluster
-    const createRockCluster = (x: number, z: number) => {
-      const cluster = new THREE.Group();
-      
-      // Create 3-5 rocks of different sizes
-      const rockCount = 3 + Math.floor(Math.random() * 3);
-      
-      for (let i = 0; i < rockCount; i++) {
-        // Create a deformed geometry for more natural look
-        const rockGeometry = new THREE.DodecahedronGeometry(
-          0.5 + Math.random() * 0.5, // Size varies
-          0 // No subdivisions
-        );
-        
-        // Randomly deform vertices
-        const positions = rockGeometry.attributes.position;
-        for (let j = 0; j < positions.count; j++) {
-          const x = positions.getX(j);
-          const y = positions.getY(j);
-          const z = positions.getZ(j);
-          
-          // Add random displacement
-          positions.setX(j, x * (0.8 + Math.random() * 0.4));
-          positions.setY(j, y * (0.8 + Math.random() * 0.4));
-          positions.setZ(j, z * (0.8 + Math.random() * 0.4));
-        }
-        
-        // Create the rock mesh
-        const rock = new THREE.Mesh(rockGeometry, rockMaterial);
-        
-        // Position within the cluster
-        rock.position.set(
-          (Math.random() - 0.5) * 2,
-          Math.random() * 0.5,
-          (Math.random() - 0.5) * 2
-        );
-        
-        // Random rotation
-        rock.rotation.set(
-          Math.random() * Math.PI,
-          Math.random() * Math.PI,
-          Math.random() * Math.PI
-        );
-        
-        // Random scale
-        const scale = 0.5 + Math.random() * 1.5;
-        rock.scale.set(scale, scale * 0.8, scale);
-        
-        rock.castShadow = true;
-        rock.receiveShadow = true;
-        
-        cluster.add(rock);
-      }
-      
-      // Position the cluster
-      cluster.position.set(x, 0, z);
-      
-      // Add to scene
-      this.scene!.add(cluster);
-    };
-    
-    // Place rock clusters in various locations
-    createRockCluster(-8, -8);
-    createRockCluster(10, 12);
-    createRockCluster(-12, 6);
-    createRockCluster(15, -5);
-    createRockCluster(0, 20);
-    createRockCluster(-20, -2);
-    createRockCluster(8, -15);
-    createRockCluster(-15, 15);
+    // Create a map generator and build the rock layout
+    const mapGenerator = new MapGenerator(this.scene);
+    mapGenerator.createRocks();
   }
   
   private createSkybox() {
     if (!this.scene) return;
     
-    // Create a large sphere to serve as our sky
-    const skyGeometry = new THREE.SphereGeometry(500, 32, 32);
+    // Create a much larger sphere to serve as our sky
+    const skyGeometry = new THREE.SphereGeometry(50000, 32, 32);
     // Invert the geometry so that the faces point inward
     skyGeometry.scale(-1, 1, 1);
     
@@ -565,13 +408,155 @@ export class GameComponent extends LitElement {
     console.log('Key up:', key);
   }
   
+  private fireShell() {
+    if (!this.scene || !this.tank || !this.turretPivot || !this.barrel || !this.barrelPivot) return;
+    
+    // Check cooldown
+    const now = Date.now();
+    if (now - this.lastShotTime < this.shotCooldown) return;
+    this.lastShotTime = now;
+    
+    // Create the shell
+    const shellGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+    const shellMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0xdddddd,
+      emissive: 0x555555,
+      roughness: 0.5,
+      metalness: 0.7
+    });
+    const shell = new THREE.Mesh(shellGeometry, shellMaterial);
+    
+    // Get barrel end position in world space
+    const barrelEndPosition = new THREE.Vector3(0, 0, 2);
+    this.barrel.localToWorld(barrelEndPosition);
+    shell.position.copy(barrelEndPosition);
+    
+    // Calculate the direction of the barrel in world space
+    const barrelDirection = new THREE.Vector3();
+    
+    // Get turret's global rotation
+    const turretWorldQuaternion = new THREE.Quaternion();
+    this.turretPivot.getWorldQuaternion(turretWorldQuaternion);
+    
+    // Get barrel pivot's local rotation and combine with turret
+    const barrelLocalQuaternion = new THREE.Quaternion();
+    barrelLocalQuaternion.setFromEuler(new THREE.Euler(
+      this.barrelPivot.rotation.x,
+      0,
+      0
+    ));
+    
+    // Combine rotations
+    const combinedQuaternion = turretWorldQuaternion.multiply(barrelLocalQuaternion);
+    
+    // Set barrel direction based on the combined rotation
+    barrelDirection.set(0, 0, 1).applyQuaternion(combinedQuaternion);
+    
+    // Create the velocity vector for the shell
+    const velocity = barrelDirection.multiplyScalar(this.shellSpeed);
+    
+    // Add shell to the scene and to our shells array
+    this.scene.add(shell);
+    this.shells.push({
+      mesh: shell,
+      velocity: velocity,
+      age: 0,
+      exploded: false
+    });
+    
+    // Play sound (if available)
+    // this.playSound('fire');
+  }
+  
+  private updateShells() {
+    if (!this.scene) return;
+    
+    for (let i = this.shells.length - 1; i >= 0; i--) {
+      const shell = this.shells[i];
+      
+      // Skip exploded shells
+      if (shell.exploded) {
+        shell.age++;
+        
+        // Remove explosion after animation completes
+        if (shell.age > 30) { // 30 frames = ~0.5 seconds
+          this.scene.remove(shell.mesh);
+          this.shells.splice(i, 1);
+        }
+        continue;
+      }
+      
+      // Update shell position
+      shell.mesh.position.add(shell.velocity);
+      
+      // Apply gravity to velocity (increases over time)
+      shell.velocity.y -= this.gravity;
+      
+      // Increase age
+      shell.age++;
+      
+      // Check for ground collision
+      if (shell.mesh.position.y <= 0.1) {
+        this.explodeShell(i);
+      }
+      
+      // Remove shells that have been flying too long or went too far
+      if (shell.age > 1200 || // 20 seconds at 60fps (increased for larger map)
+          shell.mesh.position.distanceTo(this.tank!.position) > 10000) { // Much larger distance
+        this.scene.remove(shell.mesh);
+        this.shells.splice(i, 1);
+      }
+    }
+  }
+  
+  private explodeShell(index: number) {
+    if (!this.scene) return;
+    
+    const shell = this.shells[index];
+    if (shell.exploded) return;
+    
+    // Mark as exploded
+    shell.exploded = true;
+    shell.age = 0;
+    
+    // Removed old shell geometry
+    const oldPosition = shell.mesh.position.clone();
+    shell.mesh.geometry.dispose();
+    (shell.mesh.material as THREE.Material).dispose();
+    
+    // Create larger explosion
+    const explosionGeometry = new THREE.SphereGeometry(5, 16, 16);
+    const explosionMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff8800,
+      transparent: true,
+      opacity: 0.8
+    });
+    
+    // Replace the mesh
+    shell.mesh = new THREE.Mesh(explosionGeometry, explosionMaterial);
+    shell.mesh.position.copy(oldPosition);
+    shell.mesh.position.y = 0.1; // Just above ground
+    this.scene.add(shell.mesh);
+    
+    // Add a larger light for the explosion effect
+    const explosionLight = new THREE.PointLight(0xff5500, 10, 50);
+    explosionLight.position.copy(oldPosition);
+    explosionLight.position.y = 2;
+    this.scene.add(explosionLight);
+    
+    // Remove the light after a delay
+    setTimeout(() => {
+      if (this.scene) {
+        this.scene.remove(explosionLight);
+      }
+    }, 200);
+    
+    // Play sound (if available)
+    // this.playSound('explosion');
+  }
+  
   private updateTank() {
     if (!this.tank || !this.turretPivot || !this.barrel || !this.camera) return;
-    
-    // Debug active keys
-    if (Object.keys(this.keys).filter(k => this.keys[k]).length > 0) {
-      console.log('Active keys:', Object.keys(this.keys).filter(k => this.keys[k]));
-    }
     
     // Tank movement
     if (this.keys['w'] || this.keys['W']) {
@@ -611,7 +596,6 @@ export class GameComponent extends LitElement {
         this.minBarrelElevation,
         this.barrelPivot!.rotation.x - this.barrelElevationSpeed
       );
-      console.log('Barrel elevation angle:', this.barrelPivot!.rotation.x);
     }
     
     if (this.keys['arrowdown'] || this.keys['ArrowDown']) {
@@ -620,7 +604,11 @@ export class GameComponent extends LitElement {
         this.maxBarrelElevation,
         this.barrelPivot!.rotation.x + this.barrelElevationSpeed
       );
-      console.log('Barrel elevation angle:', this.barrelPivot!.rotation.x);
+    }
+    
+    // Fire shell with spacebar
+    if (this.keys[' '] || this.keys['Space']) {
+      this.fireShell();
     }
     
     // Camera follows tank
@@ -653,6 +641,7 @@ export class GameComponent extends LitElement {
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
     
     this.updateTank();
+    this.updateShells();
     
     if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);

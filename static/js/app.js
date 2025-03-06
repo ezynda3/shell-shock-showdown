@@ -10977,6 +10977,89 @@ class LightShadow {
     return object;
   }
 }
+var _projScreenMatrix = /* @__PURE__ */ new Matrix4;
+var _lightPositionWorld = /* @__PURE__ */ new Vector3;
+var _lookTarget = /* @__PURE__ */ new Vector3;
+
+class PointLightShadow extends LightShadow {
+  constructor() {
+    super(new PerspectiveCamera(90, 1, 0.5, 500));
+    this.isPointLightShadow = true;
+    this._frameExtents = new Vector2(4, 2);
+    this._viewportCount = 6;
+    this._viewports = [
+      new Vector4(2, 1, 1, 1),
+      new Vector4(0, 1, 1, 1),
+      new Vector4(3, 1, 1, 1),
+      new Vector4(1, 1, 1, 1),
+      new Vector4(3, 0, 1, 1),
+      new Vector4(1, 0, 1, 1)
+    ];
+    this._cubeDirections = [
+      new Vector3(1, 0, 0),
+      new Vector3(-1, 0, 0),
+      new Vector3(0, 0, 1),
+      new Vector3(0, 0, -1),
+      new Vector3(0, 1, 0),
+      new Vector3(0, -1, 0)
+    ];
+    this._cubeUps = [
+      new Vector3(0, 1, 0),
+      new Vector3(0, 1, 0),
+      new Vector3(0, 1, 0),
+      new Vector3(0, 1, 0),
+      new Vector3(0, 0, 1),
+      new Vector3(0, 0, -1)
+    ];
+  }
+  updateMatrices(light, viewportIndex = 0) {
+    const camera = this.camera;
+    const shadowMatrix = this.matrix;
+    const far = light.distance || camera.far;
+    if (far !== camera.far) {
+      camera.far = far;
+      camera.updateProjectionMatrix();
+    }
+    _lightPositionWorld.setFromMatrixPosition(light.matrixWorld);
+    camera.position.copy(_lightPositionWorld);
+    _lookTarget.copy(camera.position);
+    _lookTarget.add(this._cubeDirections[viewportIndex]);
+    camera.up.copy(this._cubeUps[viewportIndex]);
+    camera.lookAt(_lookTarget);
+    camera.updateMatrixWorld();
+    shadowMatrix.makeTranslation(-_lightPositionWorld.x, -_lightPositionWorld.y, -_lightPositionWorld.z);
+    _projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this._frustum.setFromProjectionMatrix(_projScreenMatrix);
+  }
+}
+
+class PointLight extends Light {
+  constructor(color, intensity, distance = 0, decay = 2) {
+    super(color, intensity);
+    this.isPointLight = true;
+    this.type = "PointLight";
+    this.distance = distance;
+    this.decay = decay;
+    this.shadow = new PointLightShadow;
+  }
+  get power() {
+    return this.intensity * 4 * Math.PI;
+  }
+  set power(power) {
+    this.intensity = power / (4 * Math.PI);
+  }
+  dispose() {
+    this.shadow.dispose();
+  }
+  copy(source, recursive) {
+    super.copy(source, recursive);
+    this.distance = source.distance;
+    this.decay = source.decay;
+    this.shadow = source.shadow.clone();
+    return this;
+  }
+}
+
 class OrthographicCamera extends Camera {
   constructor(left = -1, right = 1, top = 1, bottom = -1, near = 0.1, far = 2000) {
     super();
@@ -23680,7 +23763,7 @@ class WebGLRenderer {
     let _localClippingEnabled = false;
     this.transmissionResolutionScale = 1;
     const _currentProjectionMatrix = new Matrix4;
-    const _projScreenMatrix = new Matrix4;
+    const _projScreenMatrix2 = new Matrix4;
     const _vector3 = new Vector3;
     const _vector4 = new Vector4;
     const _emptyScene = { background: null, fog: null, environment: null, overrideMaterial: null, isScene: true };
@@ -24205,8 +24288,8 @@ class WebGLRenderer {
       currentRenderState = renderStates.get(scene, renderStateStack.length);
       currentRenderState.init(camera);
       renderStateStack.push(currentRenderState);
-      _projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-      _frustum.setFromProjectionMatrix(_projScreenMatrix);
+      _projScreenMatrix2.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      _frustum.setFromProjectionMatrix(_projScreenMatrix2);
       _localClippingEnabled = this.localClippingEnabled;
       _clippingEnabled = clipping.init(this.clippingPlanes, _localClippingEnabled);
       currentRenderList = renderLists.get(scene, renderListStack.length);
@@ -24302,7 +24385,7 @@ class WebGLRenderer {
         } else if (object.isSprite) {
           if (!object.frustumCulled || _frustum.intersectsSprite(object)) {
             if (sortObjects) {
-              _vector4.setFromMatrixPosition(object.matrixWorld).applyMatrix4(_projScreenMatrix);
+              _vector4.setFromMatrixPosition(object.matrixWorld).applyMatrix4(_projScreenMatrix2);
             }
             const geometry = objects.update(object);
             const material = object.material;
@@ -24324,7 +24407,7 @@ class WebGLRenderer {
                   geometry.computeBoundingSphere();
                 _vector4.copy(geometry.boundingSphere.center);
               }
-              _vector4.applyMatrix4(object.matrixWorld).applyMatrix4(_projScreenMatrix);
+              _vector4.applyMatrix4(object.matrixWorld).applyMatrix4(_projScreenMatrix2);
             }
             if (Array.isArray(material)) {
               const groups = geometry.groups;
@@ -25164,6 +25247,274 @@ class WebGLRenderer {
   }
 }
 
+// assets/ts/game/map.ts
+class MapGenerator {
+  scene;
+  trunkMaterial;
+  leafMaterial;
+  rockMaterial;
+  darkRockMaterial;
+  constructor(scene) {
+    this.scene = scene;
+    this.trunkMaterial = new MeshStandardMaterial({
+      color: 9127187,
+      roughness: 0.9,
+      metalness: 0
+    });
+    this.leafMaterial = new MeshStandardMaterial({
+      color: 3050327,
+      roughness: 0.8,
+      metalness: 0.1
+    });
+    this.rockMaterial = new MeshStandardMaterial({
+      color: 8421504,
+      roughness: 0.9,
+      metalness: 0.2
+    });
+    this.darkRockMaterial = new MeshStandardMaterial({
+      color: 5263440,
+      roughness: 0.9,
+      metalness: 0.3
+    });
+  }
+  createPineTree(scale, x, z) {
+    const tree = new Group;
+    const trunkGeometry = new CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 8);
+    const trunk = new Mesh(trunkGeometry, this.trunkMaterial);
+    trunk.position.y = 0.75 * scale;
+    trunk.castShadow = true;
+    trunk.receiveShadow = true;
+    tree.add(trunk);
+    const foliageGeometry1 = new ConeGeometry(1 * scale, 2 * scale, 8);
+    const foliage1 = new Mesh(foliageGeometry1, this.leafMaterial);
+    foliage1.position.y = 2 * scale;
+    foliage1.castShadow = true;
+    tree.add(foliage1);
+    const foliageGeometry2 = new ConeGeometry(0.8 * scale, 1.8 * scale, 8);
+    const foliage2 = new Mesh(foliageGeometry2, this.leafMaterial);
+    foliage2.position.y = 3 * scale;
+    foliage2.castShadow = true;
+    tree.add(foliage2);
+    const foliageGeometry3 = new ConeGeometry(0.6 * scale, 1.6 * scale, 8);
+    const foliage3 = new Mesh(foliageGeometry3, this.leafMaterial);
+    foliage3.position.y = 4 * scale;
+    foliage3.castShadow = true;
+    tree.add(foliage3);
+    tree.position.set(x, 0, z);
+    this.scene.add(tree);
+  }
+  createRoundTree(scale, x, z) {
+    const tree = new Group;
+    const trunkGeometry = new CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 8);
+    const trunk = new Mesh(trunkGeometry, this.trunkMaterial);
+    trunk.position.y = 0.75 * scale;
+    trunk.castShadow = true;
+    trunk.receiveShadow = true;
+    tree.add(trunk);
+    const foliageGeometry = new SphereGeometry(1.2 * scale, 8, 8);
+    const foliage = new Mesh(foliageGeometry, this.leafMaterial);
+    foliage.position.y = 2.5 * scale;
+    foliage.castShadow = true;
+    tree.add(foliage);
+    tree.position.set(x, 0, z);
+    this.scene.add(tree);
+  }
+  createCircleOfTrees(radius, count, treeType) {
+    for (let i = 0;i < count; i++) {
+      const angle = i / count * Math.PI * 2;
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      const scale = 1 + (Math.sin(angle * 3) + 1) * 0.3;
+      if (treeType === "pine") {
+        this.createPineTree(scale, x, z);
+      } else {
+        this.createRoundTree(scale, x, z);
+      }
+    }
+  }
+  createSacredGrove(centerX, centerZ, radius, count) {
+    for (let i = 0;i < count; i++) {
+      const angle = i / count * Math.PI * 2;
+      const x = centerX + Math.cos(angle) * radius;
+      const z = centerZ + Math.sin(angle) * radius;
+      const scale = 1.5;
+      if (i % 2 === 0) {
+        this.createPineTree(scale, x, z);
+      } else {
+        this.createRoundTree(scale, x, z);
+      }
+    }
+  }
+  createTrees() {
+    this.createCircleOfTrees(30, 12, "pine");
+    this.createCircleOfTrees(45, 16, "round");
+    this.createCircleOfTrees(60, 20, "pine");
+    this.createSacredGrove(200, 200, 40, 16);
+    this.createSacredGrove(-200, -200, 40, 16);
+    this.createSacredGrove(200, -200, 40, 16);
+    this.createSacredGrove(-200, 200, 40, 16);
+    for (let x = -400;x <= 400; x += 25) {
+      for (let z = 400;z <= 800; z += 25) {
+        if ((x + z) % 75 === 0)
+          continue;
+        const scale = 1.2 + Math.sin(x * 0.01) * Math.cos(z * 0.01) * 0.5;
+        this.createPineTree(scale, x, z);
+      }
+    }
+    for (let x = -400;x <= 400; x += 25) {
+      for (let z = -800;z <= -400; z += 25) {
+        if ((x - z) % 75 === 0)
+          continue;
+        const scale = 1 + Math.cos(x * 0.01) * Math.sin(z * 0.01) * 0.4;
+        this.createRoundTree(scale, x, z);
+      }
+    }
+    for (let x = 400;x <= 800; x += 25) {
+      for (let z = -400;z <= 400; z += 25) {
+        if (x * z % 1200 === 0)
+          continue;
+        const scale = 1.1 + Math.sin(x * 0.02) * Math.cos(z * 0.02) * 0.3;
+        if ((Math.floor(x / 25) + Math.floor(z / 25)) % 2 === 0) {
+          this.createPineTree(scale, x, z);
+        } else {
+          this.createRoundTree(scale, x, z);
+        }
+      }
+    }
+    for (let x = -800;x <= -400; x += 25) {
+      for (let z = -400;z <= 400; z += 25) {
+        if (x * z % 1000 === 0)
+          continue;
+        const scale = 1.1 + Math.cos(x * 0.015) * Math.sin(z * 0.015) * 0.3;
+        if (Math.floor(z / 25) % 2 === 0) {
+          this.createPineTree(scale, x, z);
+        } else {
+          this.createRoundTree(scale, x, z);
+        }
+      }
+    }
+    for (let z = -1000;z <= 1000; z += 30) {
+      this.createPineTree(1.5, -15, z);
+      this.createPineTree(1.5, 15, z);
+    }
+    for (let x = -1000;x <= 1000; x += 30) {
+      this.createRoundTree(1.3, x, -15);
+      this.createRoundTree(1.3, x, 15);
+    }
+    this.createPineTree(4, 0, 100);
+    for (let i = 0;i < 8; i++) {
+      const angle = i / 8 * Math.PI * 2;
+      this.createRoundTree(2.5, Math.cos(angle) * 120, Math.sin(angle) * 120);
+    }
+    for (let i = 0;i < 40; i++) {
+      const angle = i * 0.5;
+      const radius = 100 + i * 5;
+      this.createPineTree(1 + i * 0.05, Math.cos(angle) * radius, Math.sin(angle) * radius);
+    }
+  }
+  createRock(size, deformSeed, x, y, z, rotation, scale, material) {
+    const rockGeometry = new DodecahedronGeometry(size, 0);
+    const positions = rockGeometry.attributes.position;
+    for (let j = 0;j < positions.count; j++) {
+      const vx = positions.getX(j);
+      const vy = positions.getY(j);
+      const vz = positions.getZ(j);
+      const xFactor = 0.8 + Math.sin(vx * deformSeed) * 0.2;
+      const yFactor = 0.8 + Math.cos(vy * deformSeed) * 0.2;
+      const zFactor = 0.8 + Math.sin(vz * deformSeed) * 0.2;
+      positions.setX(j, vx * xFactor);
+      positions.setY(j, vy * yFactor);
+      positions.setZ(j, vz * zFactor);
+    }
+    const rock = new Mesh(rockGeometry, material);
+    rock.position.set(x, y, z);
+    rock.rotation.set(rotation.x, rotation.y, rotation.z);
+    rock.scale.set(scale.x, scale.y, scale.z);
+    rock.castShadow = true;
+    rock.receiveShadow = true;
+    return rock;
+  }
+  createRockCluster(centerX, centerZ, seed) {
+    const cluster = new Group;
+    const rockCount = 5;
+    for (let i = 0;i < rockCount; i++) {
+      const angle = i / rockCount * Math.PI * 2;
+      const distance = 1 + Math.sin(seed + i) * 0.5;
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      const y = 0.2 + Math.sin(seed * (i + 1)) * 0.3;
+      const rotX = Math.sin(seed + i) * Math.PI;
+      const rotY = Math.cos(seed + i * 2) * Math.PI;
+      const rotZ = Math.sin(seed + i * 3) * Math.PI;
+      const baseScale = 0.8 + Math.sin(seed * i) * 0.7;
+      const scaleX = baseScale;
+      const scaleY = baseScale * 0.8;
+      const scaleZ = baseScale * 1.2;
+      const material = i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial;
+      const rock = this.createRock(0.5 + Math.sin(seed + i * 7) * 0.3, seed + i, x, y, z, new Vector3(rotX, rotY, rotZ), new Vector3(scaleX, scaleY, scaleZ), material);
+      cluster.add(rock);
+    }
+    cluster.position.set(centerX, 0, centerZ);
+    this.scene.add(cluster);
+  }
+  createStoneCircle(centerX, centerZ, radius, count, seed) {
+    for (let i = 0;i < count; i++) {
+      const angle = i / count * Math.PI * 2;
+      const x = centerX + Math.cos(angle) * radius;
+      const z = centerZ + Math.sin(angle) * radius;
+      this.createRockCluster(x, z, seed + i);
+    }
+  }
+  createRocks() {
+    for (let i = 0;i < 8; i++) {
+      const angle = i / 8 * Math.PI * 2;
+      const x = Math.cos(angle) * 20;
+      const z = Math.sin(angle) * 20;
+      this.createRockCluster(x, z, i);
+    }
+    for (let i = 0;i < 4; i++) {
+      const x = i < 2 ? -100 : 100;
+      const z = i % 2 === 0 ? -100 : 100;
+      this.createRockCluster(x, z, i + 10);
+    }
+    for (let x = -150;x <= 150; x += 30) {
+      this.createRockCluster(x, 150, x * 0.1);
+    }
+    for (let z = -150;z <= 150; z += 30) {
+      this.createRockCluster(150, z, z * 0.1 + 100);
+    }
+    for (let x = -300;x <= 300; x += 30) {
+      const zVariation = 30 * Math.sin(x * 0.02);
+      this.createRockCluster(x, 300 + zVariation, x * 0.3);
+      this.createRockCluster(x + 10, 330 + zVariation, x * 0.3 + 10);
+      this.createRockCluster(x - 5, 360 + zVariation, x * 0.3 + 20);
+    }
+    for (let z = -300;z <= 300; z += 30) {
+      const xVariation = 30 * Math.sin(z * 0.02);
+      this.createRockCluster(300 + xVariation, z, z * 0.3 + 200);
+      this.createRockCluster(330 + xVariation, z + 10, z * 0.3 + 210);
+      this.createRockCluster(360 + xVariation, z - 5, z * 0.3 + 220);
+    }
+    this.createStoneCircle(500, 500, 50, 12, 400);
+    this.createStoneCircle(-500, 500, 50, 12, 500);
+    this.createStoneCircle(500, -500, 50, 12, 600);
+    this.createStoneCircle(-500, -500, 50, 12, 700);
+    for (let i = 1;i < 12; i++) {
+      const angle = i * 0.5;
+      const radius = i * 5;
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      this.createRockCluster(x, z, i * 50);
+    }
+    for (let i = -10;i <= 10; i++) {
+      this.createRockCluster(-500 + i * 50, -500 + i * 50, i * 5);
+    }
+    for (let i = -10;i <= 10; i++) {
+      this.createRockCluster(500 - i * 50, -500 + i * 50, i * 5 + 1000);
+    }
+  }
+}
+
 // assets/ts/game/index.ts
 class GameComponent extends LitElement {
   scene;
@@ -25184,6 +25535,11 @@ class GameComponent extends LitElement {
   maxBarrelElevation = 0;
   minBarrelElevation = -Math.PI / 4;
   skyTexture;
+  shells = [];
+  shellSpeed = 1.5;
+  gravity = 0.002;
+  lastShotTime = 0;
+  shotCooldown = 500;
   static styles = css`
     :host {
       display: block;
@@ -25217,6 +25573,7 @@ class GameComponent extends LitElement {
         <div>A: Rotate tank left, D: Rotate tank right</div>
         <div>←/→: Rotate turret left/right</div>
         <div>↑/↓: Raise/lower barrel</div>
+        <div>Space: Fire shell</div>
       </div>
     `;
   }
@@ -25261,7 +25618,7 @@ class GameComponent extends LitElement {
   initThree() {
     this.scene = new Scene;
     this.createSkybox();
-    this.camera = new PerspectiveCamera(60, this.canvas.clientWidth / this.canvas.clientHeight, 0.1, 1000);
+    this.camera = new PerspectiveCamera(60, this.canvas.clientWidth / this.canvas.clientHeight, 0.1, 1e5);
     this.renderer = new WebGLRenderer({
       canvas: this.canvas,
       antialias: true
@@ -25283,7 +25640,7 @@ class GameComponent extends LitElement {
     directionalLight.shadow.mapSize.width = 1024;
     directionalLight.shadow.mapSize.height = 1024;
     this.scene.add(directionalLight);
-    const groundGeometry = new PlaneGeometry(100, 100);
+    const groundGeometry = new PlaneGeometry(1e4, 1e4);
     const groundMaterial = new MeshStandardMaterial({
       color: 5088859,
       roughness: 0.8,
@@ -25302,122 +25659,19 @@ class GameComponent extends LitElement {
   createTrees() {
     if (!this.scene)
       return;
-    const trunkMaterial = new MeshStandardMaterial({
-      color: 9127187,
-      roughness: 0.9,
-      metalness: 0
-    });
-    const leafMaterial = new MeshStandardMaterial({
-      color: 3050327,
-      roughness: 0.8,
-      metalness: 0.1
-    });
-    const createPineTree = (scale, x, z) => {
-      const tree = new Group;
-      const trunkGeometry = new CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 8);
-      const trunk = new Mesh(trunkGeometry, trunkMaterial);
-      trunk.position.y = 0.75 * scale;
-      trunk.castShadow = true;
-      trunk.receiveShadow = true;
-      tree.add(trunk);
-      const foliageGeometry1 = new ConeGeometry(1 * scale, 2 * scale, 8);
-      const foliage1 = new Mesh(foliageGeometry1, leafMaterial);
-      foliage1.position.y = 2 * scale;
-      foliage1.castShadow = true;
-      tree.add(foliage1);
-      const foliageGeometry2 = new ConeGeometry(0.8 * scale, 1.8 * scale, 8);
-      const foliage2 = new Mesh(foliageGeometry2, leafMaterial);
-      foliage2.position.y = 3 * scale;
-      foliage2.castShadow = true;
-      tree.add(foliage2);
-      const foliageGeometry3 = new ConeGeometry(0.6 * scale, 1.6 * scale, 8);
-      const foliage3 = new Mesh(foliageGeometry3, leafMaterial);
-      foliage3.position.y = 4 * scale;
-      foliage3.castShadow = true;
-      tree.add(foliage3);
-      tree.position.set(x, 0, z);
-      this.scene.add(tree);
-    };
-    const createRoundTree = (scale, x, z) => {
-      const tree = new Group;
-      const trunkGeometry = new CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 8);
-      const trunk = new Mesh(trunkGeometry, trunkMaterial);
-      trunk.position.y = 0.75 * scale;
-      trunk.castShadow = true;
-      trunk.receiveShadow = true;
-      tree.add(trunk);
-      const foliageGeometry = new SphereGeometry(1.2 * scale, 8, 8);
-      const foliage = new Mesh(foliageGeometry, leafMaterial);
-      foliage.position.y = 2.5 * scale;
-      foliage.castShadow = true;
-      tree.add(foliage);
-      tree.position.set(x, 0, z);
-      this.scene.add(tree);
-    };
-    createPineTree(1.5, -15, -15);
-    createPineTree(1.2, -18, -10);
-    createPineTree(1.7, -14, -8);
-    createPineTree(1.6, 16, 14);
-    createPineTree(1.3, 18, 10);
-    createPineTree(1.8, 20, 12);
-    createPineTree(1.4, -10, 25);
-    createPineTree(1.6, -8, 22);
-    createRoundTree(1, 12, -18);
-    createRoundTree(1.2, 15, -15);
-    createRoundTree(1.1, 10, -20);
-    createRoundTree(1.3, -20, 10);
-    createRoundTree(1.1, -18, 8);
-    createRoundTree(1, -15, 12);
-    createRoundTree(1.2, 25, -5);
-    createRoundTree(1, 22, -7);
+    const mapGenerator = new MapGenerator(this.scene);
+    mapGenerator.createTrees();
   }
   createRocks() {
     if (!this.scene)
       return;
-    const rockMaterial = new MeshStandardMaterial({
-      color: 8421504,
-      roughness: 0.9,
-      metalness: 0.2
-    });
-    const createRockCluster = (x, z) => {
-      const cluster = new Group;
-      const rockCount = 3 + Math.floor(Math.random() * 3);
-      for (let i = 0;i < rockCount; i++) {
-        const rockGeometry = new DodecahedronGeometry(0.5 + Math.random() * 0.5, 0);
-        const positions = rockGeometry.attributes.position;
-        for (let j = 0;j < positions.count; j++) {
-          const x2 = positions.getX(j);
-          const y = positions.getY(j);
-          const z2 = positions.getZ(j);
-          positions.setX(j, x2 * (0.8 + Math.random() * 0.4));
-          positions.setY(j, y * (0.8 + Math.random() * 0.4));
-          positions.setZ(j, z2 * (0.8 + Math.random() * 0.4));
-        }
-        const rock = new Mesh(rockGeometry, rockMaterial);
-        rock.position.set((Math.random() - 0.5) * 2, Math.random() * 0.5, (Math.random() - 0.5) * 2);
-        rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-        const scale = 0.5 + Math.random() * 1.5;
-        rock.scale.set(scale, scale * 0.8, scale);
-        rock.castShadow = true;
-        rock.receiveShadow = true;
-        cluster.add(rock);
-      }
-      cluster.position.set(x, 0, z);
-      this.scene.add(cluster);
-    };
-    createRockCluster(-8, -8);
-    createRockCluster(10, 12);
-    createRockCluster(-12, 6);
-    createRockCluster(15, -5);
-    createRockCluster(0, 20);
-    createRockCluster(-20, -2);
-    createRockCluster(8, -15);
-    createRockCluster(-15, 15);
+    const mapGenerator = new MapGenerator(this.scene);
+    mapGenerator.createRocks();
   }
   createSkybox() {
     if (!this.scene)
       return;
-    const skyGeometry = new SphereGeometry(500, 32, 32);
+    const skyGeometry = new SphereGeometry(50000, 32, 32);
     skyGeometry.scale(-1, 1, 1);
     let skyMaterial;
     if (this.skyTexture) {
@@ -25546,12 +25800,99 @@ class GameComponent extends LitElement {
     this.keys[key] = false;
     console.log("Key up:", key);
   }
+  fireShell() {
+    if (!this.scene || !this.tank || !this.turretPivot || !this.barrel || !this.barrelPivot)
+      return;
+    const now = Date.now();
+    if (now - this.lastShotTime < this.shotCooldown)
+      return;
+    this.lastShotTime = now;
+    const shellGeometry = new SphereGeometry(0.1, 8, 8);
+    const shellMaterial = new MeshStandardMaterial({
+      color: 14540253,
+      emissive: 5592405,
+      roughness: 0.5,
+      metalness: 0.7
+    });
+    const shell = new Mesh(shellGeometry, shellMaterial);
+    const barrelEndPosition = new Vector3(0, 0, 2);
+    this.barrel.localToWorld(barrelEndPosition);
+    shell.position.copy(barrelEndPosition);
+    const barrelDirection = new Vector3;
+    const turretWorldQuaternion = new Quaternion;
+    this.turretPivot.getWorldQuaternion(turretWorldQuaternion);
+    const barrelLocalQuaternion = new Quaternion;
+    barrelLocalQuaternion.setFromEuler(new Euler(this.barrelPivot.rotation.x, 0, 0));
+    const combinedQuaternion = turretWorldQuaternion.multiply(barrelLocalQuaternion);
+    barrelDirection.set(0, 0, 1).applyQuaternion(combinedQuaternion);
+    const velocity = barrelDirection.multiplyScalar(this.shellSpeed);
+    this.scene.add(shell);
+    this.shells.push({
+      mesh: shell,
+      velocity,
+      age: 0,
+      exploded: false
+    });
+  }
+  updateShells() {
+    if (!this.scene)
+      return;
+    for (let i = this.shells.length - 1;i >= 0; i--) {
+      const shell = this.shells[i];
+      if (shell.exploded) {
+        shell.age++;
+        if (shell.age > 30) {
+          this.scene.remove(shell.mesh);
+          this.shells.splice(i, 1);
+        }
+        continue;
+      }
+      shell.mesh.position.add(shell.velocity);
+      shell.velocity.y -= this.gravity;
+      shell.age++;
+      if (shell.mesh.position.y <= 0.1) {
+        this.explodeShell(i);
+      }
+      if (shell.age > 1200 || shell.mesh.position.distanceTo(this.tank.position) > 1e4) {
+        this.scene.remove(shell.mesh);
+        this.shells.splice(i, 1);
+      }
+    }
+  }
+  explodeShell(index) {
+    if (!this.scene)
+      return;
+    const shell = this.shells[index];
+    if (shell.exploded)
+      return;
+    shell.exploded = true;
+    shell.age = 0;
+    const oldPosition = shell.mesh.position.clone();
+    shell.mesh.geometry.dispose();
+    shell.mesh.material.dispose();
+    const explosionGeometry = new SphereGeometry(5, 16, 16);
+    const explosionMaterial = new MeshBasicMaterial({
+      color: 16746496,
+      transparent: true,
+      opacity: 0.8
+    });
+    shell.mesh = new Mesh(explosionGeometry, explosionMaterial);
+    shell.mesh.position.copy(oldPosition);
+    shell.mesh.position.y = 0.1;
+    this.scene.add(shell.mesh);
+    const explosionLight = new PointLight(16733440, 10, 50);
+    explosionLight.position.copy(oldPosition);
+    explosionLight.position.y = 2;
+    this.scene.add(explosionLight);
+    setTimeout(() => {
+      if (this.scene) {
+        this.scene.remove(explosionLight);
+      }
+    }, 200);
+  }
   updateTank() {
     if (!this.tank || !this.turretPivot || !this.barrel || !this.camera)
       return;
-    if (Object.keys(this.keys).filter((k) => this.keys[k]).length > 0) {
-      console.log("Active keys:", Object.keys(this.keys).filter((k) => this.keys[k]));
-    }
     if (this.keys["w"] || this.keys["W"]) {
       this.tank.position.x += Math.sin(this.tank.rotation.y) * this.tankSpeed;
       this.tank.position.z += Math.cos(this.tank.rotation.y) * this.tankSpeed;
@@ -25574,11 +25915,12 @@ class GameComponent extends LitElement {
     }
     if (this.keys["arrowup"] || this.keys["ArrowUp"]) {
       this.barrelPivot.rotation.x = Math.max(this.minBarrelElevation, this.barrelPivot.rotation.x - this.barrelElevationSpeed);
-      console.log("Barrel elevation angle:", this.barrelPivot.rotation.x);
     }
     if (this.keys["arrowdown"] || this.keys["ArrowDown"]) {
       this.barrelPivot.rotation.x = Math.min(this.maxBarrelElevation, this.barrelPivot.rotation.x + this.barrelElevationSpeed);
-      console.log("Barrel elevation angle:", this.barrelPivot.rotation.x);
+    }
+    if (this.keys[" "] || this.keys["Space"]) {
+      this.fireShell();
     }
     const cameraOffset = new Vector3(0, 6, -8);
     const rotatedOffset = cameraOffset.clone();
@@ -25596,6 +25938,7 @@ class GameComponent extends LitElement {
   animate() {
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
     this.updateTank();
+    this.updateShells();
     if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);
     }
