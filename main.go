@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 
 	"github.com/mark3labs/pro-saaskit/middleware"
 	"github.com/mark3labs/pro-saaskit/routes"
 	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -21,6 +23,9 @@ func main() {
 		if err != nil {
 			return err
 		}
+
+		// Serve static files
+		se.Router.GET("/static/{path...}", apis.Static(os.DirFS("./static"), false))
 
 		return se.Next()
 	})

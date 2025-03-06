@@ -44,9 +44,20 @@ tasks:
         --build.include_dir "$STATIC_DIR" \
         --build.include_ext "js,css"
 
+  build:ts:
+    cmds:
+      - mkdir -p static/js
+      - bun build assets/ts/index.ts --outfile static/js/app.js
+
+  live:ts:
+    cmds:
+      - |
+        bun build assets/ts/index.ts --outfile static/js/app.js --watch
+
   live:
     deps:
       - live:templ
       - live:reload
       - live:server
+      - live:ts
 

@@ -19,7 +19,7 @@ templ Layout(loggedIn bool) {
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width"/>
-			<title>Franken UI</title>
+			<title>Tank Game</title>
 			<link rel="preconnect" href="https://rsms.me/"/>
 			<link rel="stylesheet" href="https://rsms.me/inter/inter.css"/>
 			<style>
@@ -31,6 +31,12 @@ templ Layout(loggedIn bool) {
         :root {
           font-family: InterVariable, sans-serif;
         }
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
       }
     </style>
 			<link rel="stylesheet" href="https://unpkg.com/franken-ui@internal/dist/css/core.min.css"/>
@@ -62,11 +68,10 @@ templ Layout(loggedIn bool) {
 				<div class="uk-container uk-container-xl">
 					<nav class="flex items-center justify-between h-16">
 						<div class="flex items-center gap-x-6">
-							<a href="/" class="font-bold text-lg">Franken UI</a>
+							<a href="/" class="font-bold text-lg">Shell Shock Showdown</a>
 							<div class="flex gap-x-4">
-								<a href="/docs" class="text-muted-foreground hover:text-foreground">Docs</a>
-								<a href="/components" class="text-muted-foreground hover:text-foreground">Components</a>
-								<a href="/blog" class="text-muted-foreground hover:text-foreground">Blog</a>
+								<a href="/docs" class="text-muted-foreground hover:text-foreground">Instructions</a>
+								<a href="/components" class="text-muted-foreground hover:text-foreground">Settings</a>
 							</div>
 						</div>
 						<div class="flex items-center gap-x-2">
@@ -104,25 +109,11 @@ templ Layout(loggedIn bool) {
 				</div>
 			</header>
 			<!-- Main Content -->
-			<main class="flex-1 overflow-auto">
-				<div class="uk-container uk-container-xl py-12">
-					{ children... }
-				</div>
+			<main class="flex-1 overflow-hidden">
+				{ children... }
 			</main>
-			<!-- Footer -->
-			<footer class="border-t border-border mt-20">
-				<div class="uk-container uk-container-xl py-8">
-					<div class="flex flex-col md:flex-row justify-between items-center gap-4">
-						<div class="text-sm text-muted-foreground">
-							© Franken UI. All rights reserved.
-						</div>
-						<div class="flex gap-x-6">
-							<a href="/privacy" class="text-sm text-muted-foreground hover:text-foreground">Privacy Policy</a>
-							<a href="/terms" class="text-sm text-muted-foreground hover:text-foreground">Terms of Service</a>
-						</div>
-					</div>
-				</div>
-			</footer>
+			<!-- Application JS -->
+			<script src="/static/js/app.js"></script>
 		</body>
 	</html>
 }
