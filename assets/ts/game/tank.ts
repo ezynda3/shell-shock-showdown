@@ -671,7 +671,7 @@ export class Tank {
 
   updateCamera(camera: THREE.PerspectiveCamera) {
     // Camera follows tank
-    const cameraOffset = new THREE.Vector3(0, 6, -8);
+    const cameraOffset = new THREE.Vector3(0, 4, -8); // Decreased height to show more sky
     
     // Rotate the offset based on tank's rotation
     const rotatedOffset = cameraOffset.clone();
@@ -682,7 +682,7 @@ export class Tank {
     camera.lookAt(
       new THREE.Vector3(
         this.tank.position.x,
-        this.tank.position.y + 2,
+        this.tank.position.y + 4, // Raised look target to aim camera higher
         this.tank.position.z
       )
     );

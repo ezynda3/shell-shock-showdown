@@ -26052,11 +26052,11 @@ class Tank {
     this.updateShells();
   }
   updateCamera(camera) {
-    const cameraOffset = new Vector3(0, 6, -8);
+    const cameraOffset = new Vector3(0, 4, -8);
     const rotatedOffset = cameraOffset.clone();
     rotatedOffset.applyAxisAngle(new Vector3(0, 1, 0), this.tank.rotation.y);
     camera.position.copy(this.tank.position).add(rotatedOffset);
-    camera.lookAt(new Vector3(this.tank.position.x, this.tank.position.y + 2, this.tank.position.z));
+    camera.lookAt(new Vector3(this.tank.position.x, this.tank.position.y + 4, this.tank.position.z));
   }
   dispose() {
     this.scene.remove(this.tank);
