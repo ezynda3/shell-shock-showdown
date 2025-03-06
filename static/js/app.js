@@ -25175,13 +25175,14 @@ class GameComponent extends LitElement {
   turret;
   turretPivot;
   barrel;
+  barrelPivot;
   keys = {};
   tankSpeed = 0.05;
   tankRotationSpeed = 0.03;
   turretRotationSpeed = 0.03;
   barrelElevationSpeed = 0.02;
-  maxBarrelElevation = Math.PI / 4;
-  minBarrelElevation = -Math.PI / 8;
+  maxBarrelElevation = Math.PI / 3;
+  minBarrelElevation = -Math.PI / 4;
   skyTexture;
   static styles = css`
     :host {
@@ -25502,9 +25503,9 @@ class GameComponent extends LitElement {
     this.turret.castShadow = true;
     this.turret.receiveShadow = true;
     this.turretPivot.add(this.turret);
-    const barrelPivot = new Group;
-    barrelPivot.position.set(0, 0, 0);
-    this.turretPivot.add(barrelPivot);
+    const barrelGroup = new Group;
+    barrelGroup.position.set(0, 0, 0.8);
+    this.turretPivot.add(barrelGroup);
     const barrelGeometry = new CylinderGeometry(0.2, 0.2, 2, 16);
     const barrelMaterial = new MeshStandardMaterial({
       color: 3355443,
@@ -25513,9 +25514,10 @@ class GameComponent extends LitElement {
     });
     this.barrel = new Mesh(barrelGeometry, barrelMaterial);
     this.barrel.rotation.x = Math.PI / 2;
-    this.barrel.position.set(0, 0, 1.5);
+    this.barrel.position.set(0, 0, 1);
     this.barrel.castShadow = true;
-    barrelPivot.add(this.barrel);
+    barrelGroup.add(this.barrel);
+    this.barrelPivot = barrelGroup;
     this.scene.add(this.tank);
   }
   positionCamera() {
@@ -25570,14 +25572,12 @@ class GameComponent extends LitElement {
       this.turretPivot.rotation.y -= this.turretRotationSpeed;
     }
     if (this.keys["arrowup"] || this.keys["ArrowUp"]) {
-      if (this.barrel.rotation.x > this.minBarrelElevation) {
-        this.barrel.rotation.x -= this.barrelElevationSpeed;
-      }
+      this.barrelPivot.rotation.x = Math.max(this.minBarrelElevation, this.barrelPivot.rotation.x - this.barrelElevationSpeed);
+      console.log("Barrel elevation angle:", this.barrelPivot.rotation.x);
     }
     if (this.keys["arrowdown"] || this.keys["ArrowDown"]) {
-      if (this.barrel.rotation.x < this.maxBarrelElevation) {
-        this.barrel.rotation.x += this.barrelElevationSpeed;
-      }
+      this.barrelPivot.rotation.x = Math.min(this.maxBarrelElevation, this.barrelPivot.rotation.x + this.barrelElevationSpeed);
+      console.log("Barrel elevation angle:", this.barrelPivot.rotation.x);
     }
     const cameraOffset = new Vector3(0, 6, -8);
     const rotatedOffset = cameraOffset.clone();

@@ -18,6 +18,7 @@ export class GameComponent extends LitElement {
   private turret?: THREE.Mesh;
   private turretPivot?: THREE.Group;
   private barrel?: THREE.Mesh;
+  private barrelPivot?: THREE.Group;
   
   // Control state
   private keys: { [key: string]: boolean } = {};
@@ -27,8 +28,9 @@ export class GameComponent extends LitElement {
   private tankRotationSpeed = 0.03;
   private turretRotationSpeed = 0.03;
   private barrelElevationSpeed = 0.02;
-  private maxBarrelElevation = Math.PI / 4;
-  private minBarrelElevation = -Math.PI / 8;
+  // For barrel elevation, we'll be rotating the barrel group around the X axis
+  private maxBarrelElevation = Math.PI / 3;  // Barrel pointing down limit
+  private minBarrelElevation = -Math.PI / 4; // Barrel pointing up limit
   
   // Assets
   private skyTexture?: THREE.Texture;
@@ -475,12 +477,12 @@ export class GameComponent extends LitElement {
     rightTrack.receiveShadow = true;
     this.tank.add(rightTrack);
     
-    // Turret pivot (for rotation)
+    // Create turret group for Y-axis rotation
     this.turretPivot = new THREE.Group();
-    this.turretPivot.position.set(0, 0.75, 0);
+    this.turretPivot.position.set(0, 0.75, 0); // Position at top of tank body
     this.tank.add(this.turretPivot);
     
-    // Turret base
+    // Turret base (dome)
     const turretGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.5, 16);
     const turretMaterial = new THREE.MeshStandardMaterial({ 
       color: 0x3f5e49,  // Slightly different green
@@ -492,23 +494,34 @@ export class GameComponent extends LitElement {
     this.turret.receiveShadow = true;
     this.turretPivot.add(this.turret);
     
-    // Barrel pivot (for elevation)
-    const barrelPivot = new THREE.Group();
-    barrelPivot.position.set(0, 0, 0);
-    this.turretPivot.add(barrelPivot);
+    // Create a group for the barrel - this will handle the elevation
+    const barrelGroup = new THREE.Group();
     
-    // Barrel
+    // Position the pivot point at the front edge of the turret (not the center)
+    barrelGroup.position.set(0, 0, 0.8); // 0.8 is the radius of the turret
+    this.turretPivot.add(barrelGroup);
+    
+    // Create the barrel using a rotated cylinder
     const barrelGeometry = new THREE.CylinderGeometry(0.2, 0.2, 2, 16);
     const barrelMaterial = new THREE.MeshStandardMaterial({ 
       color: 0x333333, 
       roughness: 0.7,
       metalness: 0.5
     });
+    
     this.barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
+    
+    // Rotate the cylinder to point forward (perpendicular to tank)
     this.barrel.rotation.x = Math.PI / 2;
-    this.barrel.position.set(0, 0, 1.5);
+    
+    // Position the barrel so one end is at the pivot point
+    this.barrel.position.set(0, 0, 1); // Half the length of the barrel
+    
     this.barrel.castShadow = true;
-    barrelPivot.add(this.barrel);
+    barrelGroup.add(this.barrel);
+    
+    // Store reference to the barrelGroup for elevation control
+    this.barrelPivot = barrelGroup;
     
     // Add to scene
     this.scene!.add(this.tank);
@@ -588,19 +601,23 @@ export class GameComponent extends LitElement {
       this.turretPivot.rotation.y -= this.turretRotationSpeed;
     }
     
-    // Barrel elevation
+    // Barrel elevation (using the barrel pivot group instead of the barrel itself)
     if (this.keys['arrowup'] || this.keys['ArrowUp']) {
-      // Limit the upward elevation
-      if (this.barrel.rotation.x > this.minBarrelElevation) {
-        this.barrel.rotation.x -= this.barrelElevationSpeed;
-      }
+      // Move barrel up (decreasing rotation.x value)
+      this.barrelPivot!.rotation.x = Math.max(
+        this.minBarrelElevation,
+        this.barrelPivot!.rotation.x - this.barrelElevationSpeed
+      );
+      console.log('Barrel elevation angle:', this.barrelPivot!.rotation.x);
     }
     
     if (this.keys['arrowdown'] || this.keys['ArrowDown']) {
-      // Limit the downward elevation
-      if (this.barrel.rotation.x < this.maxBarrelElevation) {
-        this.barrel.rotation.x += this.barrelElevationSpeed;
-      }
+      // Move barrel down (increasing rotation.x value)
+      this.barrelPivot!.rotation.x = Math.min(
+        this.maxBarrelElevation,
+        this.barrelPivot!.rotation.x + this.barrelElevationSpeed
+      );
+      console.log('Barrel elevation angle:', this.barrelPivot!.rotation.x);
     }
     
     // Camera follows tank
