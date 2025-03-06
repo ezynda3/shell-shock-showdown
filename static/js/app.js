@@ -9382,6 +9382,127 @@ class Frustum {
     return new this.constructor().copy(this);
   }
 }
+class PointsMaterial extends Material {
+  constructor(parameters) {
+    super();
+    this.isPointsMaterial = true;
+    this.type = "PointsMaterial";
+    this.color = new Color(16777215);
+    this.map = null;
+    this.alphaMap = null;
+    this.size = 1;
+    this.sizeAttenuation = true;
+    this.fog = true;
+    this.setValues(parameters);
+  }
+  copy(source) {
+    super.copy(source);
+    this.color.copy(source.color);
+    this.map = source.map;
+    this.alphaMap = source.alphaMap;
+    this.size = source.size;
+    this.sizeAttenuation = source.sizeAttenuation;
+    this.fog = source.fog;
+    return this;
+  }
+}
+var _inverseMatrix = /* @__PURE__ */ new Matrix4;
+var _ray = /* @__PURE__ */ new Ray;
+var _sphere = /* @__PURE__ */ new Sphere;
+var _position$2 = /* @__PURE__ */ new Vector3;
+
+class Points extends Object3D {
+  constructor(geometry = new BufferGeometry, material = new PointsMaterial) {
+    super();
+    this.isPoints = true;
+    this.type = "Points";
+    this.geometry = geometry;
+    this.material = material;
+    this.morphTargetDictionary = undefined;
+    this.morphTargetInfluences = undefined;
+    this.updateMorphTargets();
+  }
+  copy(source, recursive) {
+    super.copy(source, recursive);
+    this.material = Array.isArray(source.material) ? source.material.slice() : source.material;
+    this.geometry = source.geometry;
+    return this;
+  }
+  raycast(raycaster, intersects) {
+    const geometry = this.geometry;
+    const matrixWorld = this.matrixWorld;
+    const threshold = raycaster.params.Points.threshold;
+    const drawRange = geometry.drawRange;
+    if (geometry.boundingSphere === null)
+      geometry.computeBoundingSphere();
+    _sphere.copy(geometry.boundingSphere);
+    _sphere.applyMatrix4(matrixWorld);
+    _sphere.radius += threshold;
+    if (raycaster.ray.intersectsSphere(_sphere) === false)
+      return;
+    _inverseMatrix.copy(matrixWorld).invert();
+    _ray.copy(raycaster.ray).applyMatrix4(_inverseMatrix);
+    const localThreshold = threshold / ((this.scale.x + this.scale.y + this.scale.z) / 3);
+    const localThresholdSq = localThreshold * localThreshold;
+    const index = geometry.index;
+    const attributes = geometry.attributes;
+    const positionAttribute = attributes.position;
+    if (index !== null) {
+      const start = Math.max(0, drawRange.start);
+      const end = Math.min(index.count, drawRange.start + drawRange.count);
+      for (let i = start, il = end;i < il; i++) {
+        const a = index.getX(i);
+        _position$2.fromBufferAttribute(positionAttribute, a);
+        testPoint(_position$2, a, localThresholdSq, matrixWorld, raycaster, intersects, this);
+      }
+    } else {
+      const start = Math.max(0, drawRange.start);
+      const end = Math.min(positionAttribute.count, drawRange.start + drawRange.count);
+      for (let i = start, l = end;i < l; i++) {
+        _position$2.fromBufferAttribute(positionAttribute, i);
+        testPoint(_position$2, i, localThresholdSq, matrixWorld, raycaster, intersects, this);
+      }
+    }
+  }
+  updateMorphTargets() {
+    const geometry = this.geometry;
+    const morphAttributes = geometry.morphAttributes;
+    const keys = Object.keys(morphAttributes);
+    if (keys.length > 0) {
+      const morphAttribute = morphAttributes[keys[0]];
+      if (morphAttribute !== undefined) {
+        this.morphTargetInfluences = [];
+        this.morphTargetDictionary = {};
+        for (let m = 0, ml = morphAttribute.length;m < ml; m++) {
+          const name = morphAttribute[m].name || String(m);
+          this.morphTargetInfluences.push(0);
+          this.morphTargetDictionary[name] = m;
+        }
+      }
+    }
+  }
+}
+function testPoint(point, index, localThresholdSq, matrixWorld, raycaster, intersects, object) {
+  const rayPointDistanceSq = _ray.distanceSqToPoint(point);
+  if (rayPointDistanceSq < localThresholdSq) {
+    const intersectPoint = new Vector3;
+    _ray.closestPointToPoint(point, intersectPoint);
+    intersectPoint.applyMatrix4(matrixWorld);
+    const distance = raycaster.ray.origin.distanceTo(intersectPoint);
+    if (distance < raycaster.near || distance > raycaster.far)
+      return;
+    intersects.push({
+      distance,
+      distanceToRay: Math.sqrt(rayPointDistanceSq),
+      point: intersectPoint,
+      index,
+      face: null,
+      faceIndex: null,
+      barycoord: null,
+      object
+    });
+  }
+}
 class DepthTexture extends Texture {
   constructor(width, height, type, mapping, wrapS, wrapT, magFilter, minFilter, anisotropy, format = DepthFormat) {
     if (format !== DepthFormat && format !== DepthStencilFormat) {
@@ -9413,6 +9534,54 @@ class DepthTexture extends Texture {
     return data;
   }
 }
+class CircleGeometry extends BufferGeometry {
+  constructor(radius = 1, segments = 32, thetaStart = 0, thetaLength = Math.PI * 2) {
+    super();
+    this.type = "CircleGeometry";
+    this.parameters = {
+      radius,
+      segments,
+      thetaStart,
+      thetaLength
+    };
+    segments = Math.max(3, segments);
+    const indices = [];
+    const vertices = [];
+    const normals = [];
+    const uvs = [];
+    const vertex = new Vector3;
+    const uv = new Vector2;
+    vertices.push(0, 0, 0);
+    normals.push(0, 0, 1);
+    uvs.push(0.5, 0.5);
+    for (let s = 0, i = 3;s <= segments; s++, i += 3) {
+      const segment = thetaStart + s / segments * thetaLength;
+      vertex.x = radius * Math.cos(segment);
+      vertex.y = radius * Math.sin(segment);
+      vertices.push(vertex.x, vertex.y, vertex.z);
+      normals.push(0, 0, 1);
+      uv.x = (vertices[i] / radius + 1) / 2;
+      uv.y = (vertices[i + 1] / radius + 1) / 2;
+      uvs.push(uv.x, uv.y);
+    }
+    for (let i = 1;i <= segments; i++) {
+      indices.push(i, i + 1, 0);
+    }
+    this.setIndex(indices);
+    this.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+    this.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+    this.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+  }
+  copy(source) {
+    super.copy(source);
+    this.parameters = Object.assign({}, source.parameters);
+    return this;
+  }
+  static fromJSON(data) {
+    return new CircleGeometry(data.radius, data.segments, data.thetaStart, data.thetaLength);
+  }
+}
+
 class CylinderGeometry extends BufferGeometry {
   constructor(radiusTop = 1, radiusBottom = 1, height = 1, radialSegments = 32, heightSegments = 1, openEnded = false, thetaStart = 0, thetaLength = Math.PI * 2) {
     super();
@@ -25515,31 +25684,474 @@ class MapGenerator {
   }
 }
 
-// assets/ts/game/index.ts
-class GameComponent extends LitElement {
-  scene;
-  camera;
-  renderer;
-  animationFrameId;
+// assets/ts/game/tank.ts
+class Tank {
   tank;
   tankBody;
   turret;
   turretPivot;
   barrel;
   barrelPivot;
-  keys = {};
   tankSpeed = 0.05;
   tankRotationSpeed = 0.03;
   turretRotationSpeed = 0.03;
   barrelElevationSpeed = 0.02;
   maxBarrelElevation = 0;
   minBarrelElevation = -Math.PI / 4;
-  skyTexture;
+  initialY = 0.1;
   shells = [];
   shellSpeed = 1.5;
   gravity = 0.002;
   lastShotTime = 0;
   shotCooldown = 500;
+  maxActiveShells = 10;
+  shellMaterial;
+  shellGeometry;
+  explosionMaterial;
+  explosionGeometry;
+  scorchMaterial;
+  scorchGeometry;
+  particlesMaterial;
+  smokeGeometry;
+  dustGeometry;
+  scene;
+  camera;
+  constructor(scene, camera) {
+    this.scene = scene;
+    this.camera = camera;
+    this.tank = new Group;
+    this.turretPivot = new Group;
+    this.barrelPivot = new Group;
+    this.initShellMaterials();
+    this.createTank();
+    scene.add(this.tank);
+  }
+  initShellMaterials() {
+    this.shellGeometry = new SphereGeometry(0.2, 8, 8);
+    this.shellMaterial = new MeshStandardMaterial({
+      color: 14540253,
+      emissive: 8947848,
+      roughness: 0.4,
+      metalness: 0.8
+    });
+    this.explosionGeometry = new SphereGeometry(5, 16, 16);
+    this.explosionMaterial = new MeshBasicMaterial({
+      color: 16746496,
+      transparent: true,
+      opacity: 0.8
+    });
+    this.scorchGeometry = new CircleGeometry(4, 16);
+    this.scorchMaterial = new MeshBasicMaterial({
+      color: 2236962,
+      transparent: true,
+      opacity: 0.7,
+      depthWrite: false
+    });
+    this.particlesMaterial = new PointsMaterial({
+      color: 11184810,
+      size: 0.5,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+      blending: AdditiveBlending
+    });
+    const smokeParticleCount = 50;
+    const smokeParticlePositions = new Float32Array(smokeParticleCount * 3);
+    for (let i = 0;i < smokeParticleCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = Math.random() * 3;
+      smokeParticlePositions[i * 3] = Math.cos(angle) * radius;
+      smokeParticlePositions[i * 3 + 1] = Math.random() * 4;
+      smokeParticlePositions[i * 3 + 2] = Math.sin(angle) * radius;
+    }
+    this.smokeGeometry = new BufferGeometry;
+    this.smokeGeometry.setAttribute("position", new BufferAttribute(smokeParticlePositions, 3));
+    const dustParticleCount = 30;
+    const dustParticlePositions = new Float32Array(dustParticleCount * 3);
+    for (let i = 0;i < dustParticleCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = Math.random() * 4;
+      dustParticlePositions[i * 3] = Math.cos(angle) * radius;
+      dustParticlePositions[i * 3 + 1] = Math.random() * 0.5;
+      dustParticlePositions[i * 3 + 2] = Math.sin(angle) * radius;
+    }
+    this.dustGeometry = new BufferGeometry;
+    this.dustGeometry.setAttribute("position", new BufferAttribute(dustParticlePositions, 3));
+  }
+  createTank() {
+    const bodyGeometry = new BoxGeometry(2, 0.75, 3);
+    const bodyMaterial = new MeshStandardMaterial({
+      color: 4881497,
+      roughness: 0.7,
+      metalness: 0.3
+    });
+    this.tankBody = new Mesh(bodyGeometry, bodyMaterial);
+    this.tankBody.position.y = 0.75 / 2;
+    this.tankBody.castShadow = true;
+    this.tankBody.receiveShadow = true;
+    this.tank.add(this.tankBody);
+    const trackGeometry = new BoxGeometry(0.4, 0.5, 3.2);
+    const trackMaterial = new MeshStandardMaterial({
+      color: 3355443,
+      roughness: 0.9,
+      metalness: 0.2
+    });
+    const leftTrack = new Mesh(trackGeometry, trackMaterial);
+    leftTrack.position.set(-1, 0.25, 0);
+    leftTrack.castShadow = true;
+    leftTrack.receiveShadow = true;
+    this.tank.add(leftTrack);
+    const rightTrack = new Mesh(trackGeometry, trackMaterial);
+    rightTrack.position.set(1, 0.25, 0);
+    rightTrack.castShadow = true;
+    rightTrack.receiveShadow = true;
+    this.tank.add(rightTrack);
+    this.turretPivot = new Group;
+    this.turretPivot.position.set(0, 1, 0);
+    this.tank.add(this.turretPivot);
+    const turretGeometry = new CylinderGeometry(0.8, 0.8, 0.5, 16);
+    const turretMaterial = new MeshStandardMaterial({
+      color: 4152905,
+      roughness: 0.7,
+      metalness: 0.3
+    });
+    this.turret = new Mesh(turretGeometry, turretMaterial);
+    this.turret.castShadow = true;
+    this.turret.receiveShadow = true;
+    this.turretPivot.add(this.turret);
+    const barrelGroup = new Group;
+    barrelGroup.position.set(0, 0, 0.8);
+    this.turretPivot.add(barrelGroup);
+    const barrelGeometry = new CylinderGeometry(0.2, 0.2, 2, 16);
+    const barrelMaterial = new MeshStandardMaterial({
+      color: 3355443,
+      roughness: 0.7,
+      metalness: 0.5
+    });
+    this.barrel = new Mesh(barrelGeometry, barrelMaterial);
+    this.barrel.rotation.x = Math.PI / 2;
+    this.barrel.position.set(0, 0, 1);
+    this.barrel.castShadow = true;
+    barrelGroup.add(this.barrel);
+    this.barrelPivot = barrelGroup;
+    this.barrelPivot.rotation.x = 0;
+    this.barrel.rotation.x = Math.PI / 2;
+  }
+  fireShell() {
+    if (!this.barrel || !this.barrelPivot)
+      return;
+    const now = Date.now();
+    if (now - this.lastShotTime < this.shotCooldown)
+      return;
+    this.lastShotTime = now;
+    if (this.shells.filter((s) => !s.exploded).length >= this.maxActiveShells) {
+      const oldestIndex = this.shells.findIndex((s) => !s.exploded);
+      if (oldestIndex >= 0) {
+        this.explodeShell(oldestIndex);
+      }
+    }
+    const shell = new Mesh(this.shellGeometry, this.shellMaterial);
+    const barrelTip = new Vector3(0, 0, 2);
+    this.barrel.localToWorld(barrelTip);
+    if (barrelTip.y < 0.3) {
+      barrelTip.y = 0.3;
+    }
+    shell.position.copy(barrelTip);
+    console.log("Shell starting position:", shell.position.x, shell.position.y, shell.position.z);
+    const barrelForward = new Vector3(0, 0, 1);
+    const barrelWorldMatrix = new Matrix4;
+    this.barrel.updateMatrixWorld();
+    barrelWorldMatrix.extractRotation(this.barrel.matrixWorld);
+    const barrelDirection = barrelForward.clone().applyMatrix4(barrelWorldMatrix).normalize();
+    const velocity = barrelDirection.multiplyScalar(this.shellSpeed);
+    if (Math.abs(this.barrelPivot.rotation.x) < 0.01) {
+      velocity.y += this.initialY;
+    }
+    const muzzleLight = new PointLight(16750899, 5, 3);
+    muzzleLight.position.copy(barrelTip);
+    this.scene.add(muzzleLight);
+    const smokeParticles = new Points(this.smokeGeometry.clone(), this.particlesMaterial.clone());
+    smokeParticles.position.copy(barrelTip);
+    this.scene.add(smokeParticles);
+    this.scene.add(shell);
+    this.shells.push({
+      mesh: shell,
+      velocity,
+      age: 0,
+      exploded: false,
+      light: muzzleLight,
+      smokeParticles
+    });
+    const recoilAnimation = {
+      step: 0,
+      maxSteps: 10,
+      originalPosition: this.barrel.position.z,
+      animate: () => {
+        if (recoilAnimation.step < recoilAnimation.maxSteps) {
+          if (recoilAnimation.step < recoilAnimation.maxSteps / 2) {
+            this.barrel.position.z -= 0.02;
+          } else {
+            this.barrel.position.z += 0.02;
+          }
+          recoilAnimation.step++;
+          requestAnimationFrame(recoilAnimation.animate);
+        } else {
+          this.barrel.position.z = recoilAnimation.originalPosition;
+        }
+      }
+    };
+    recoilAnimation.animate();
+    setTimeout(() => {
+      if (this.scene) {
+        this.scene.remove(muzzleLight);
+      }
+    }, 100);
+    const tracerGeometry = new CylinderGeometry(0.05, 0.05, 0.8, 8);
+    tracerGeometry.rotateX(Math.PI / 2);
+    const tracerMaterial = new MeshBasicMaterial({
+      color: 16755200,
+      transparent: true,
+      opacity: 0.6
+    });
+    const tracer = new Mesh(tracerGeometry, tracerMaterial);
+    tracer.position.copy(barrelTip);
+    const tracerDirection = barrelDirection.clone();
+    tracer.lookAt(barrelTip.clone().add(tracerDirection));
+    this.scene.add(tracer);
+    const tracerFade = {
+      step: 0,
+      maxSteps: 20,
+      animate: () => {
+        if (tracerFade.step < tracerFade.maxSteps) {
+          tracerMaterial.opacity -= 0.03;
+          tracerFade.step++;
+          requestAnimationFrame(tracerFade.animate);
+        } else {
+          this.scene.remove(tracer);
+          tracerMaterial.dispose();
+          tracerGeometry.dispose();
+        }
+      }
+    };
+    tracerFade.animate();
+  }
+  updateShells() {
+    for (let i = this.shells.length - 1;i >= 0; i--) {
+      const shell = this.shells[i];
+      shell.age++;
+      if (shell.exploded) {
+        if (shell.age > 5 && shell.mesh.material instanceof Material) {
+          if (shell.mesh.material.opacity > 0.05) {
+            shell.mesh.material.opacity -= 0.05;
+          }
+          shell.mesh.scale.multiplyScalar(1.02);
+        }
+        if (shell.smokeParticles) {
+          shell.smokeParticles.position.y += 0.05;
+          if (shell.smokeParticles.material instanceof Material) {
+            if (shell.smokeParticles.material.opacity > 0.01) {
+              shell.smokeParticles.material.opacity -= 0.01;
+            }
+          }
+        }
+        if (shell.dustParticles) {
+          shell.dustParticles.scale.x += 0.02;
+          shell.dustParticles.scale.z += 0.02;
+          if (shell.dustParticles.material instanceof Material) {
+            if (shell.dustParticles.material.opacity > 0.02) {
+              shell.dustParticles.material.opacity -= 0.02;
+            }
+          }
+        }
+        if (shell.scorch && shell.scorch.material instanceof Material) {
+          if (shell.age > 20 && shell.scorch.material.opacity > 0.01) {
+            shell.scorch.material.opacity -= 0.01;
+          }
+        }
+        if (shell.age > 60) {
+          this.scene.remove(shell.mesh);
+          if (shell.smokeParticles) {
+            this.scene.remove(shell.smokeParticles);
+          }
+          if (shell.dustParticles) {
+            this.scene.remove(shell.dustParticles);
+          }
+          if (shell.scorch) {
+            this.scene.remove(shell.scorch);
+          }
+          if (shell.light) {
+            this.scene.remove(shell.light);
+          }
+          this.shells.splice(i, 1);
+        }
+        continue;
+      }
+      shell.mesh.position.add(shell.velocity);
+      shell.velocity.y -= this.gravity;
+      shell.mesh.rotation.x += 0.05;
+      shell.mesh.rotation.z += 0.05;
+      if (shell.age < 10 && shell.smokeParticles) {
+        shell.smokeParticles.position.y += 0.05;
+        if (shell.smokeParticles.material instanceof Material) {
+          shell.smokeParticles.material.opacity -= 0.03;
+          if (shell.smokeParticles.material.opacity <= 0) {
+            this.scene.remove(shell.smokeParticles);
+            shell.smokeParticles = undefined;
+          }
+        }
+      }
+      if (shell.mesh.position.y <= 0.2) {
+        console.log("Shell hit ground at position:", shell.mesh.position.x.toFixed(2), shell.mesh.position.y.toFixed(2), shell.mesh.position.z.toFixed(2), "with velocity:", shell.velocity.x.toFixed(2), shell.velocity.y.toFixed(2), shell.velocity.z.toFixed(2));
+        this.explodeShell(i);
+      }
+      if (shell.age > 600 || shell.mesh.position.distanceTo(this.tank.position) > 1e4) {
+        this.scene.remove(shell.mesh);
+        if (shell.smokeParticles)
+          this.scene.remove(shell.smokeParticles);
+        if (shell.light)
+          this.scene.remove(shell.light);
+      }
+    }
+  }
+  explodeShell(index) {
+    const shell = this.shells[index];
+    if (shell.exploded)
+      return;
+    shell.exploded = true;
+    shell.age = 0;
+    const impactPosition = shell.mesh.position.clone();
+    impactPosition.y = 0.1;
+    shell.impactPosition = impactPosition;
+    shell.mesh.geometry.dispose();
+    shell.mesh.material.dispose();
+    const explosionMaterial = this.explosionMaterial.clone();
+    shell.mesh = new Mesh(this.explosionGeometry, explosionMaterial);
+    shell.mesh.position.copy(impactPosition);
+    shell.mesh.position.y = 2.5;
+    this.scene.add(shell.mesh);
+    const explosionLight = new PointLight(16733440, 8, 20);
+    explosionLight.position.copy(impactPosition);
+    explosionLight.position.y = 3;
+    this.scene.add(explosionLight);
+    shell.light = explosionLight;
+    const smokeParticles = new Points(this.smokeGeometry.clone(), this.particlesMaterial.clone());
+    smokeParticles.position.copy(impactPosition);
+    smokeParticles.position.y = 1;
+    this.scene.add(smokeParticles);
+    shell.smokeParticles = smokeParticles;
+    const dustParticles = new Points(this.dustGeometry.clone(), this.particlesMaterial.clone());
+    dustParticles.position.copy(impactPosition);
+    dustParticles.position.y = 0.1;
+    this.scene.add(dustParticles);
+    shell.dustParticles = dustParticles;
+    const scorchMaterial = this.scorchMaterial.clone();
+    const scorch = new Mesh(this.scorchGeometry, scorchMaterial);
+    scorch.position.copy(impactPosition);
+    scorch.position.y = 0.02;
+    scorch.rotation.x = -Math.PI / 2;
+    this.scene.add(scorch);
+    shell.scorch = scorch;
+    if (this.camera) {
+      const distanceToTank = impactPosition.distanceTo(this.tank.position);
+      if (distanceToTank < 50) {
+        const shakeIntensity = Math.max(0, 0.5 - distanceToTank / 100);
+        const originalCameraPosition = this.camera.position.clone();
+        let shakeStep = 0;
+        const cameraShake = () => {
+          if (shakeStep < 5) {
+            this.camera.position.x += (Math.random() - 0.5) * shakeIntensity;
+            this.camera.position.y += (Math.random() - 0.5) * shakeIntensity;
+            this.camera.position.z += (Math.random() - 0.5) * shakeIntensity;
+            shakeStep++;
+            requestAnimationFrame(cameraShake);
+          } else {
+            this.camera.position.copy(originalCameraPosition);
+          }
+        };
+        cameraShake();
+      }
+    }
+    setTimeout(() => {
+      if (shell.light) {
+        this.scene.remove(shell.light);
+        shell.light = undefined;
+      }
+    }, 200);
+  }
+  update(keys) {
+    if (keys["w"] || keys["W"]) {
+      this.tank.position.x += Math.sin(this.tank.rotation.y) * this.tankSpeed;
+      this.tank.position.z += Math.cos(this.tank.rotation.y) * this.tankSpeed;
+    }
+    if (keys["s"] || keys["S"]) {
+      this.tank.position.x -= Math.sin(this.tank.rotation.y) * this.tankSpeed;
+      this.tank.position.z -= Math.cos(this.tank.rotation.y) * this.tankSpeed;
+    }
+    if (keys["a"] || keys["A"]) {
+      this.tank.rotation.y += this.tankRotationSpeed;
+    }
+    if (keys["d"] || keys["D"]) {
+      this.tank.rotation.y -= this.tankRotationSpeed;
+    }
+    if (keys["arrowleft"] || keys["ArrowLeft"]) {
+      this.turretPivot.rotation.y += this.turretRotationSpeed;
+    }
+    if (keys["arrowright"] || keys["ArrowRight"]) {
+      this.turretPivot.rotation.y -= this.turretRotationSpeed;
+    }
+    if (keys["arrowup"] || keys["ArrowUp"]) {
+      this.barrelPivot.rotation.x = Math.max(this.minBarrelElevation, this.barrelPivot.rotation.x - this.barrelElevationSpeed);
+    }
+    if (keys["arrowdown"] || keys["ArrowDown"]) {
+      this.barrelPivot.rotation.x = Math.min(this.maxBarrelElevation, this.barrelPivot.rotation.x + this.barrelElevationSpeed);
+    }
+    if (keys[" "] || keys["space"] || keys["Space"]) {
+      console.log("Space key detected - firing shell!");
+      this.fireShell();
+    }
+    this.updateShells();
+  }
+  updateCamera(camera) {
+    const cameraOffset = new Vector3(0, 6, -8);
+    const rotatedOffset = cameraOffset.clone();
+    rotatedOffset.applyAxisAngle(new Vector3(0, 1, 0), this.tank.rotation.y);
+    camera.position.copy(this.tank.position).add(rotatedOffset);
+    camera.lookAt(new Vector3(this.tank.position.x, this.tank.position.y + 2, this.tank.position.z));
+  }
+  dispose() {
+    this.scene.remove(this.tank);
+    for (const shell of this.shells) {
+      this.scene.remove(shell.mesh);
+      if (shell.smokeParticles)
+        this.scene.remove(shell.smokeParticles);
+      if (shell.dustParticles)
+        this.scene.remove(shell.dustParticles);
+      if (shell.scorch)
+        this.scene.remove(shell.scorch);
+      if (shell.light)
+        this.scene.remove(shell.light);
+    }
+    this.shellGeometry.dispose();
+    this.shellMaterial.dispose();
+    this.explosionGeometry.dispose();
+    this.explosionMaterial.dispose();
+    this.scorchGeometry.dispose();
+    this.scorchMaterial.dispose();
+    this.smokeGeometry.dispose();
+    this.dustGeometry.dispose();
+    this.particlesMaterial.dispose();
+  }
+}
+
+// assets/ts/game/index.ts
+class GameComponent extends LitElement {
+  scene;
+  camera;
+  renderer;
+  animationFrameId;
+  tankInstance;
+  keys = {};
+  skyTexture;
   static styles = css`
     :host {
       display: block;
@@ -25612,6 +26224,7 @@ class GameComponent extends LitElement {
     window.removeEventListener("keydown", this.handleKeyDown);
     window.removeEventListener("keyup", this.handleKeyUp);
     window.removeEventListener("resize", this.handleResize);
+    this.tankInstance?.dispose();
     this.renderer?.dispose();
     this.skyTexture?.dispose();
   }
@@ -25652,7 +26265,7 @@ class GameComponent extends LitElement {
     this.scene.add(ground);
     this.createTrees();
     this.createRocks();
-    this.createTank();
+    this.tankInstance = new Tank(this.scene, this.camera);
     this.positionCamera();
     window.addEventListener("resize", this.handleResize.bind(this));
   }
@@ -25715,71 +26328,11 @@ class GameComponent extends LitElement {
     const sky = new Mesh(skyGeometry, skyMaterial);
     this.scene.add(sky);
   }
-  createTank() {
-    this.tank = new Group;
-    const bodyGeometry = new BoxGeometry(2, 0.75, 3);
-    const bodyMaterial = new MeshStandardMaterial({
-      color: 4881497,
-      roughness: 0.7,
-      metalness: 0.3
-    });
-    this.tankBody = new Mesh(bodyGeometry, bodyMaterial);
-    this.tankBody.position.y = 0.75 / 2;
-    this.tankBody.castShadow = true;
-    this.tankBody.receiveShadow = true;
-    this.tank.add(this.tankBody);
-    const trackGeometry = new BoxGeometry(0.4, 0.5, 3.2);
-    const trackMaterial = new MeshStandardMaterial({
-      color: 3355443,
-      roughness: 0.9,
-      metalness: 0.2
-    });
-    const leftTrack = new Mesh(trackGeometry, trackMaterial);
-    leftTrack.position.set(-1, 0.25, 0);
-    leftTrack.castShadow = true;
-    leftTrack.receiveShadow = true;
-    this.tank.add(leftTrack);
-    const rightTrack = new Mesh(trackGeometry, trackMaterial);
-    rightTrack.position.set(1, 0.25, 0);
-    rightTrack.castShadow = true;
-    rightTrack.receiveShadow = true;
-    this.tank.add(rightTrack);
-    this.turretPivot = new Group;
-    this.turretPivot.position.set(0, 0.75, 0);
-    this.tank.add(this.turretPivot);
-    const turretGeometry = new CylinderGeometry(0.8, 0.8, 0.5, 16);
-    const turretMaterial = new MeshStandardMaterial({
-      color: 4152905,
-      roughness: 0.7,
-      metalness: 0.3
-    });
-    this.turret = new Mesh(turretGeometry, turretMaterial);
-    this.turret.castShadow = true;
-    this.turret.receiveShadow = true;
-    this.turretPivot.add(this.turret);
-    const barrelGroup = new Group;
-    barrelGroup.position.set(0, 0, 0.8);
-    this.turretPivot.add(barrelGroup);
-    const barrelGeometry = new CylinderGeometry(0.2, 0.2, 2, 16);
-    const barrelMaterial = new MeshStandardMaterial({
-      color: 3355443,
-      roughness: 0.7,
-      metalness: 0.5
-    });
-    this.barrel = new Mesh(barrelGeometry, barrelMaterial);
-    this.barrel.rotation.x = Math.PI / 2;
-    this.barrel.position.set(0, 0, 1);
-    this.barrel.castShadow = true;
-    barrelGroup.add(this.barrel);
-    this.barrelPivot = barrelGroup;
-    this.barrelPivot.rotation.x = 0;
-    this.scene.add(this.tank);
-  }
   positionCamera() {
-    if (!this.camera || !this.tank)
+    if (!this.camera || !this.tankInstance)
       return;
     this.camera.position.set(0, 6, -8);
-    this.camera.lookAt(this.tank.position);
+    this.camera.lookAt(this.tankInstance.tank.position);
   }
   initKeyboardControls() {
     this.handleKeyDown = this.handleKeyDown.bind(this);
@@ -25790,143 +26343,22 @@ class GameComponent extends LitElement {
   handleKeyDown(event) {
     const key = event.key.toLowerCase();
     this.keys[key] = true;
-    console.log("Key down:", key);
-    if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d"].includes(key)) {
+    if (key === " " || key === "space") {
+      this.keys["space"] = true;
+    }
+    console.log("Key down:", key, "KeyCode:", event.keyCode);
+    console.log("Current active keys:", this.keys);
+    if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "space"].includes(key)) {
       event.preventDefault();
     }
   }
   handleKeyUp(event) {
     const key = event.key.toLowerCase();
     this.keys[key] = false;
+    if (key === " " || key === "space") {
+      this.keys["space"] = false;
+    }
     console.log("Key up:", key);
-  }
-  fireShell() {
-    if (!this.scene || !this.tank || !this.turretPivot || !this.barrel || !this.barrelPivot)
-      return;
-    const now = Date.now();
-    if (now - this.lastShotTime < this.shotCooldown)
-      return;
-    this.lastShotTime = now;
-    const shellGeometry = new SphereGeometry(0.1, 8, 8);
-    const shellMaterial = new MeshStandardMaterial({
-      color: 14540253,
-      emissive: 5592405,
-      roughness: 0.5,
-      metalness: 0.7
-    });
-    const shell = new Mesh(shellGeometry, shellMaterial);
-    const barrelEndPosition = new Vector3(0, 0, 2);
-    this.barrel.localToWorld(barrelEndPosition);
-    shell.position.copy(barrelEndPosition);
-    const barrelDirection = new Vector3;
-    const turretWorldQuaternion = new Quaternion;
-    this.turretPivot.getWorldQuaternion(turretWorldQuaternion);
-    const barrelLocalQuaternion = new Quaternion;
-    barrelLocalQuaternion.setFromEuler(new Euler(this.barrelPivot.rotation.x, 0, 0));
-    const combinedQuaternion = turretWorldQuaternion.multiply(barrelLocalQuaternion);
-    barrelDirection.set(0, 0, 1).applyQuaternion(combinedQuaternion);
-    const velocity = barrelDirection.multiplyScalar(this.shellSpeed);
-    this.scene.add(shell);
-    this.shells.push({
-      mesh: shell,
-      velocity,
-      age: 0,
-      exploded: false
-    });
-  }
-  updateShells() {
-    if (!this.scene)
-      return;
-    for (let i = this.shells.length - 1;i >= 0; i--) {
-      const shell = this.shells[i];
-      if (shell.exploded) {
-        shell.age++;
-        if (shell.age > 30) {
-          this.scene.remove(shell.mesh);
-          this.shells.splice(i, 1);
-        }
-        continue;
-      }
-      shell.mesh.position.add(shell.velocity);
-      shell.velocity.y -= this.gravity;
-      shell.age++;
-      if (shell.mesh.position.y <= 0.1) {
-        this.explodeShell(i);
-      }
-      if (shell.age > 1200 || shell.mesh.position.distanceTo(this.tank.position) > 1e4) {
-        this.scene.remove(shell.mesh);
-        this.shells.splice(i, 1);
-      }
-    }
-  }
-  explodeShell(index) {
-    if (!this.scene)
-      return;
-    const shell = this.shells[index];
-    if (shell.exploded)
-      return;
-    shell.exploded = true;
-    shell.age = 0;
-    const oldPosition = shell.mesh.position.clone();
-    shell.mesh.geometry.dispose();
-    shell.mesh.material.dispose();
-    const explosionGeometry = new SphereGeometry(5, 16, 16);
-    const explosionMaterial = new MeshBasicMaterial({
-      color: 16746496,
-      transparent: true,
-      opacity: 0.8
-    });
-    shell.mesh = new Mesh(explosionGeometry, explosionMaterial);
-    shell.mesh.position.copy(oldPosition);
-    shell.mesh.position.y = 0.1;
-    this.scene.add(shell.mesh);
-    const explosionLight = new PointLight(16733440, 10, 50);
-    explosionLight.position.copy(oldPosition);
-    explosionLight.position.y = 2;
-    this.scene.add(explosionLight);
-    setTimeout(() => {
-      if (this.scene) {
-        this.scene.remove(explosionLight);
-      }
-    }, 200);
-  }
-  updateTank() {
-    if (!this.tank || !this.turretPivot || !this.barrel || !this.camera)
-      return;
-    if (this.keys["w"] || this.keys["W"]) {
-      this.tank.position.x += Math.sin(this.tank.rotation.y) * this.tankSpeed;
-      this.tank.position.z += Math.cos(this.tank.rotation.y) * this.tankSpeed;
-    }
-    if (this.keys["s"] || this.keys["S"]) {
-      this.tank.position.x -= Math.sin(this.tank.rotation.y) * this.tankSpeed;
-      this.tank.position.z -= Math.cos(this.tank.rotation.y) * this.tankSpeed;
-    }
-    if (this.keys["a"] || this.keys["A"]) {
-      this.tank.rotation.y += this.tankRotationSpeed;
-    }
-    if (this.keys["d"] || this.keys["D"]) {
-      this.tank.rotation.y -= this.tankRotationSpeed;
-    }
-    if (this.keys["arrowleft"] || this.keys["ArrowLeft"]) {
-      this.turretPivot.rotation.y += this.turretRotationSpeed;
-    }
-    if (this.keys["arrowright"] || this.keys["ArrowRight"]) {
-      this.turretPivot.rotation.y -= this.turretRotationSpeed;
-    }
-    if (this.keys["arrowup"] || this.keys["ArrowUp"]) {
-      this.barrelPivot.rotation.x = Math.max(this.minBarrelElevation, this.barrelPivot.rotation.x - this.barrelElevationSpeed);
-    }
-    if (this.keys["arrowdown"] || this.keys["ArrowDown"]) {
-      this.barrelPivot.rotation.x = Math.min(this.maxBarrelElevation, this.barrelPivot.rotation.x + this.barrelElevationSpeed);
-    }
-    if (this.keys[" "] || this.keys["Space"]) {
-      this.fireShell();
-    }
-    const cameraOffset = new Vector3(0, 6, -8);
-    const rotatedOffset = cameraOffset.clone();
-    rotatedOffset.applyAxisAngle(new Vector3(0, 1, 0), this.tank.rotation.y);
-    this.camera.position.copy(this.tank.position).add(rotatedOffset);
-    this.camera.lookAt(new Vector3(this.tank.position.x, this.tank.position.y + 2, this.tank.position.z));
   }
   handleResize() {
     if (!this.camera || !this.renderer)
@@ -25937,8 +26369,12 @@ class GameComponent extends LitElement {
   }
   animate() {
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
-    this.updateTank();
-    this.updateShells();
+    if (this.tankInstance) {
+      this.tankInstance.update(this.keys);
+      if (this.camera) {
+        this.tankInstance.updateCamera(this.camera);
+      }
+    }
     if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);
     }
