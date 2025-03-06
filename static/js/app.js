@@ -25632,10 +25632,10 @@ class Tank {
   turretPivot;
   barrel;
   barrelPivot;
-  tankSpeed = 0.05;
-  tankRotationSpeed = 0.03;
-  turretRotationSpeed = 0.03;
-  barrelElevationSpeed = 0.02;
+  tankSpeed = 0.15;
+  tankRotationSpeed = 0.05;
+  turretRotationSpeed = 0.04;
+  barrelElevationSpeed = 0.03;
   maxBarrelElevation = 0;
   minBarrelElevation = -Math.PI / 4;
   initialY = 0.1;

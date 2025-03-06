@@ -10,10 +10,10 @@ export class Tank {
   barrelPivot: THREE.Group;
   
   // Tank properties
-  private tankSpeed = 0.05;
-  private tankRotationSpeed = 0.03;
-  private turretRotationSpeed = 0.03;
-  private barrelElevationSpeed = 0.02;
+  private tankSpeed = 0.15;
+  private tankRotationSpeed = 0.05;
+  private turretRotationSpeed = 0.04;
+  private barrelElevationSpeed = 0.03;
   private maxBarrelElevation = 0;           // Barrel can't go lower than starting position
   private minBarrelElevation = -Math.PI / 4; // Barrel pointing up limit
   private initialY = 0.1;                  // Initial Y-velocity to ensure shells don't immediately fall
