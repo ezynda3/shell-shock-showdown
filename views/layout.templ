@@ -1,0 +1,128 @@
+package views
+
+import (
+	"github.com/pocketbase/pocketbase/core"
+	"time"
+)
+
+func GetTimeComponents() (string, string, string) {
+	now := time.Now()
+	hours := now.Format("15")   // 24-hour format
+	minutes := now.Format("04") // zero-padded minutes
+	seconds := now.Format("05") // zero-padded seconds
+	return hours, minutes, seconds
+}
+
+templ Layout(loggedIn bool) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width"/>
+			<title>Franken UI</title>
+			<link rel="preconnect" href="https://rsms.me/"/>
+			<link rel="stylesheet" href="https://rsms.me/inter/inter.css"/>
+			<style>
+      :root {
+        font-family: Inter, sans-serif;
+        font-feature-settings: "liga" 1, "calt" 1; /* fix for Chrome */
+      }
+      @supports (font-variation-settings: normal) {
+        :root {
+          font-family: InterVariable, sans-serif;
+        }
+      }
+    </style>
+			<link rel="stylesheet" href="https://unpkg.com/franken-ui@internal/dist/css/core.min.css"/>
+			<link rel="stylesheet" href="https://unpkg.com/franken-ui@internal/dist/css/utilities.min.css"/>
+			<script>
+    const htmlElement = document.documentElement;
+    
+    // Set violet theme by default
+    htmlElement.classList.add("dark", "uk-theme-violet");
+    
+    // Initialize theme based on system preference
+    if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+        htmlElement.classList.remove("dark");
+        document.getElementById("themeIcon").setAttribute("icon", "sun");
+    }
+    
+    function toggleTheme() {
+        const isDark = htmlElement.classList.toggle("dark");
+        document.getElementById("themeIcon").setAttribute("icon", isDark ? "moon" : "sun");
+    }
+    </script>
+			<script type="module" src="https://unpkg.com/franken-ui@internal/dist/js/core.iife.js"></script>
+			<script type="module" src="https://unpkg.com/franken-ui@internal/dist/js/icon.iife.js"></script>
+			<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.0-beta.2/bundles/datastar.js"></script>
+		</head>
+		<body class="bg-background text-foreground min-h-screen flex flex-col">
+			<!-- Header Navigation -->
+			<header class="border-b border-border">
+				<div class="uk-container uk-container-xl">
+					<nav class="flex items-center justify-between h-16">
+						<div class="flex items-center gap-x-6">
+							<a href="/" class="font-bold text-lg">Franken UI</a>
+							<div class="flex gap-x-4">
+								<a href="/docs" class="text-muted-foreground hover:text-foreground">Docs</a>
+								<a href="/components" class="text-muted-foreground hover:text-foreground">Components</a>
+								<a href="/blog" class="text-muted-foreground hover:text-foreground">Blog</a>
+							</div>
+						</div>
+						<div class="flex items-center gap-x-2">
+							if loggedIn {
+								<a href="/logout" class="uk-btn uk-btn-default">
+									Sign out
+								</a>
+								if user := ctx.Value("user"); user != nil {
+									if auth, ok := user.(*core.Record); ok {
+										<button class="uk-btn uk-btn-default uk-btn-icon">
+											<img
+												src={ "http://localhost:7331/api/files/" + auth.BaseFilesPath() + "/" + auth.GetString("avatar") }
+												alt="User avatar"
+												class="h-5 w-5 rounded-full"
+											/>
+										</button>
+									}
+								}
+							} else {
+								<a href="/login" class="uk-btn uk-btn-default">
+									Sign in
+								</a>
+							}
+							<div class="uk-inline">
+								<button 
+									class="uk-btn uk-btn-default uk-btn-icon" 
+									aria-label="Toggle theme"
+									onclick="toggleTheme()"
+								>
+									<uk-icon id="themeIcon" icon="moon"></uk-icon>
+								</button>
+							</div>
+						</div>
+					</nav>
+				</div>
+			</header>
+			<!-- Main Content -->
+			<main class="flex-1 overflow-auto">
+				<div class="uk-container uk-container-xl py-12">
+					{ children... }
+				</div>
+			</main>
+			<!-- Footer -->
+			<footer class="border-t border-border mt-20">
+				<div class="uk-container uk-container-xl py-8">
+					<div class="flex flex-col md:flex-row justify-between items-center gap-4">
+						<div class="text-sm text-muted-foreground">
+							© Franken UI. All rights reserved.
+						</div>
+						<div class="flex gap-x-6">
+							<a href="/privacy" class="text-sm text-muted-foreground hover:text-foreground">Privacy Policy</a>
+							<a href="/terms" class="text-sm text-muted-foreground hover:text-foreground">Terms of Service</a>
+						</div>
+					</div>
+				</div>
+			</footer>
+		</body>
+	</html>
+}

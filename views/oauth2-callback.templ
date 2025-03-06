@@ -1,0 +1,110 @@
+package views
+
+import "github.com/pocketbase/pocketbase/core"
+
+templ OAuth2Callback(app core.App) {
+	<!DOCTYPE html>
+	<html class="dark uk-theme-violet">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>OAuth2 Authentication</title>
+			<link rel="stylesheet" href="https://unpkg.com/franken-ui@internal/dist/css/core.min.css"/>
+			<link rel="stylesheet" href="https://unpkg.com/franken-ui@internal/dist/css/utilities.min.css"/>
+			<script type="module" src="https://unpkg.com/franken-ui@internal/dist/js/core.iife.js"></script>
+		</head>
+		<body class="bg-background text-foreground min-h-screen">
+			<div class="uk-container uk-container-xs py-32">
+				<div class="uk-card">
+					<div class="uk-card-header">
+						<h3 class="uk-card-title">Authentication in Progress</h3>
+					</div>
+					<div class="uk-card-body">
+						<div class="uk-placeholder">
+							<div class="uk-text-center">
+								<div class="uk-spinner" role="status">
+									<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+										<circle fill="none" stroke="currentColor" cx="12" cy="12" r="10"></circle>
+									</svg>
+								</div>
+								<pre id="content" class="uk-margin-small-top uk-text-small">Authenticating...</pre>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+			@templ.JSONScript("appUrl", app.Settings().Meta.AppURL)
+			<script type="module">
+        import PocketBase from "https://cdn.jsdelivr.net/gh/pocketbase/js-sdk@master/dist/pocketbase.es.mjs"
+        const appUrl = document.getElementById('appUrl').textContent.trim().replace(/['"]/g, '')
+        
+        // Create custom auth store that doesn't use localStorage
+        class CustomAuthStore {
+            constructor() {
+                this.token = '';
+                this.model = null;
+            }
+            get isValid() {
+                return !!this.token;
+            }
+            save(token, model) {
+                this.token = token;
+                this.model = model;
+            }
+            clear() {
+                this.token = '';
+                this.model = null;
+            }
+        }
+
+        const pb = new PocketBase(appUrl);
+        // Override the default auth store
+        pb.authStore = new CustomAuthStore();
+        
+        const redirectURL = `${appUrl}/oauth2-callback`;
+        const contentEl   = document.getElementById("content");
+
+        // parse the query parameters from the redirected url
+        const params = (new URL(window.location)).searchParams;
+
+        // get provider info from cookie
+        const providerCookie = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('provider='))
+        if (!providerCookie) {
+            contentEl.innerText = "Provider cookie not found.";
+            window.location.href = "/login";
+        }
+
+        // decode the cookie value and parse the provider info
+        const provider = JSON.parse(decodeURIComponent(providerCookie.split('=')[1]));
+
+        // compare the redirect's state param and the stored provider's one
+        if (provider.state !== params.get("state")) {
+            contentEl.innerText = "State parameters don't match.";
+        } else {
+            // authenticate
+            pb.collection("users").authWithOAuth2Code(
+                provider.name,
+                params.get("code"),
+                provider.codeVerifier,
+                redirectURL,
+                // pass any optional user create data
+                {
+                    emailVisibility: false,
+                }
+            ).then((authData) => {
+                if (authData?.token) {
+                    // Authentication successful, redirect to home page
+                    window.location.href = "/";
+                } else {
+                    contentEl.innerText = "Authentication failed - no token received";
+                }
+            }).catch((err) => {
+                contentEl.innerText = "Failed to exchange code.\n" + err;
+            });
+        }
+    </script>
+		</body>
+	</html>
+}

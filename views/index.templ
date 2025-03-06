@@ -1,0 +1,10 @@
+package views
+
+templ Index() {
+	@Layout(true) {
+		<div data-on-load="@get('/sse')">
+			{{ hours, minutes, seconds := GetTimeComponents() }}
+			@Clock(hours, minutes, seconds)
+		</div>
+	}
+}
