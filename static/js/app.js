@@ -9127,6 +9127,28 @@ class WebXRController {
     return hand.joints[inputjoint.jointName];
   }
 }
+class Fog {
+  constructor(color, near = 1, far = 1000) {
+    this.isFog = true;
+    this.name = "";
+    this.color = new Color(color);
+    this.near = near;
+    this.far = far;
+  }
+  clone() {
+    return new Fog(this.color, this.near, this.far);
+  }
+  toJSON() {
+    return {
+      type: "Fog",
+      name: this.name,
+      color: this.color.getHex(),
+      near: this.near,
+      far: this.far
+    };
+  }
+}
+
 class Scene extends Object3D {
   constructor() {
     super();
@@ -10817,27 +10839,6 @@ StringKeyframeTrack.prototype.InterpolantFactoryMethodSmooth = undefined;
 class VectorKeyframeTrack extends KeyframeTrack {
 }
 VectorKeyframeTrack.prototype.ValueTypeName = "vector";
-var Cache = {
-  enabled: false,
-  files: {},
-  add: function(key, file) {
-    if (this.enabled === false)
-      return;
-    this.files[key] = file;
-  },
-  get: function(key) {
-    if (this.enabled === false)
-      return;
-    return this.files[key];
-  },
-  remove: function(key) {
-    delete this.files[key];
-  },
-  clear: function() {
-    this.files = {};
-  }
-};
-
 class LoadingManager {
   constructor(onLoad, onProgress, onError) {
     const scope = this;
@@ -10954,75 +10955,6 @@ class Loader {
   }
 }
 Loader.DEFAULT_MATERIAL_NAME = "__DEFAULT";
-class ImageLoader extends Loader {
-  constructor(manager) {
-    super(manager);
-  }
-  load(url, onLoad, onProgress, onError) {
-    if (this.path !== undefined)
-      url = this.path + url;
-    url = this.manager.resolveURL(url);
-    const scope = this;
-    const cached = Cache.get(url);
-    if (cached !== undefined) {
-      scope.manager.itemStart(url);
-      setTimeout(function() {
-        if (onLoad)
-          onLoad(cached);
-        scope.manager.itemEnd(url);
-      }, 0);
-      return cached;
-    }
-    const image = createElementNS("img");
-    function onImageLoad() {
-      removeEventListeners();
-      Cache.add(url, this);
-      if (onLoad)
-        onLoad(this);
-      scope.manager.itemEnd(url);
-    }
-    function onImageError(event) {
-      removeEventListeners();
-      if (onError)
-        onError(event);
-      scope.manager.itemError(url);
-      scope.manager.itemEnd(url);
-    }
-    function removeEventListeners() {
-      image.removeEventListener("load", onImageLoad, false);
-      image.removeEventListener("error", onImageError, false);
-    }
-    image.addEventListener("load", onImageLoad, false);
-    image.addEventListener("error", onImageError, false);
-    if (url.slice(0, 5) !== "data:") {
-      if (this.crossOrigin !== undefined)
-        image.crossOrigin = this.crossOrigin;
-    }
-    scope.manager.itemStart(url);
-    image.src = url;
-    return image;
-  }
-}
-class TextureLoader extends Loader {
-  constructor(manager) {
-    super(manager);
-  }
-  load(url, onLoad, onProgress, onError) {
-    const texture = new Texture;
-    const loader = new ImageLoader(this.manager);
-    loader.setCrossOrigin(this.crossOrigin);
-    loader.setPath(this.path);
-    loader.load(url, function(image) {
-      texture.image = image;
-      texture.needsUpdate = true;
-      if (onLoad !== undefined) {
-        onLoad(texture);
-      }
-    }, onProgress, onError);
-    return texture;
-  }
-}
-
 class Light extends Object3D {
   constructor(color, intensity = 1) {
     super();
@@ -11058,6 +10990,22 @@ class Light extends Object3D {
     if (this.target !== undefined)
       data.object.target = this.target.uuid;
     return data;
+  }
+}
+
+class HemisphereLight extends Light {
+  constructor(skyColor, groundColor, intensity) {
+    super(skyColor, intensity);
+    this.isHemisphereLight = true;
+    this.type = "HemisphereLight";
+    this.position.copy(Object3D.DEFAULT_UP);
+    this.updateMatrix();
+    this.groundColor = new Color(groundColor);
+  }
+  copy(source, recursive) {
+    super.copy(source, recursive);
+    this.groundColor.copy(source.groundColor);
+    return this;
   }
 }
 var _projScreenMatrix$1 = /* @__PURE__ */ new Matrix4;
@@ -11343,14 +11291,6 @@ class DirectionalLight extends Light {
     this.target = source.target.clone();
     this.shadow = source.shadow.clone();
     return this;
-  }
-}
-
-class AmbientLight extends Light {
-  constructor(color, intensity) {
-    super(color, intensity);
-    this.isAmbientLight = true;
-    this.type = "AmbientLight";
   }
 }
 class ArrayCamera extends PerspectiveCamera {
@@ -26151,7 +26091,7 @@ class GameComponent extends LitElement {
   animationFrameId;
   tankInstance;
   keys = {};
-  skyTexture;
+  skyColor = new Color(8900331);
   static styles = css`
     :host {
       display: block;
@@ -26190,31 +26130,9 @@ class GameComponent extends LitElement {
     `;
   }
   firstUpdated() {
-    this.loadTextures().then(() => {
-      this.initThree();
-      this.initKeyboardControls();
-      this.animate();
-    });
-  }
-  async loadTextures() {
-    const skyImg = document.getElementById("skyImage");
-    if (skyImg && skyImg.complete) {
-      const textureLoader = new TextureLoader;
-      this.skyTexture = textureLoader.load(skyImg.src);
-      return Promise.resolve();
-    } else {
-      const textureLoader = new TextureLoader;
-      return new Promise((resolve) => {
-        textureLoader.load("https://assetstorev1-prd-cdn.unity3d.com/package-screenshot/2fe480c2-6fb9-43da-86cf-bc843b7d7761_scaled.jpg", (texture) => {
-          this.skyTexture = texture;
-          resolve();
-        }, undefined, () => {
-          console.error("Failed to load sky texture, using fallback");
-          this.skyTexture = undefined;
-          resolve();
-        });
-      });
-    }
+    this.initThree();
+    this.initKeyboardControls();
+    this.animate();
   }
   disconnectedCallback() {
     super.disconnectedCallback();
@@ -26226,10 +26144,11 @@ class GameComponent extends LitElement {
     window.removeEventListener("resize", this.handleResize);
     this.tankInstance?.dispose();
     this.renderer?.dispose();
-    this.skyTexture?.dispose();
   }
   initThree() {
     this.scene = new Scene;
+    this.scene.background = this.skyColor;
+    this.scene.fog = new Fog(this.skyColor.clone().multiplyScalar(1.2), 1000, 50000);
     this.createSkybox();
     this.camera = new PerspectiveCamera(60, this.canvas.clientWidth / this.canvas.clientHeight, 0.1, 1e5);
     this.renderer = new WebGLRenderer({
@@ -26239,19 +26158,17 @@ class GameComponent extends LitElement {
     this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.shadowMap.enabled = true;
-    const ambientLight = new AmbientLight(6710886);
-    this.scene.add(ambientLight);
-    const directionalLight = new DirectionalLight(16777215, 1);
-    directionalLight.position.set(5, 10, 7.5);
+    const directionalLight = new DirectionalLight(16777164, 1.2);
+    directionalLight.position.set(100, 200, 50);
     directionalLight.castShadow = true;
     directionalLight.shadow.camera.near = 0.5;
-    directionalLight.shadow.camera.far = 30;
-    directionalLight.shadow.camera.left = -10;
-    directionalLight.shadow.camera.right = 10;
-    directionalLight.shadow.camera.top = 10;
-    directionalLight.shadow.camera.bottom = -10;
-    directionalLight.shadow.mapSize.width = 1024;
-    directionalLight.shadow.mapSize.height = 1024;
+    directionalLight.shadow.camera.far = 50;
+    directionalLight.shadow.camera.left = -30;
+    directionalLight.shadow.camera.right = 30;
+    directionalLight.shadow.camera.top = 30;
+    directionalLight.shadow.camera.bottom = -30;
+    directionalLight.shadow.mapSize.width = 2048;
+    directionalLight.shadow.mapSize.height = 2048;
     this.scene.add(directionalLight);
     const groundGeometry = new PlaneGeometry(1e4, 1e4);
     const groundMaterial = new MeshStandardMaterial({
@@ -26284,49 +26201,8 @@ class GameComponent extends LitElement {
   createSkybox() {
     if (!this.scene)
       return;
-    const skyGeometry = new SphereGeometry(50000, 32, 32);
-    skyGeometry.scale(-1, 1, 1);
-    let skyMaterial;
-    if (this.skyTexture) {
-      skyMaterial = new MeshBasicMaterial({
-        map: this.skyTexture,
-        side: BackSide
-      });
-    } else {
-      const vertexShader = `
-        varying vec3 vWorldPosition;
-        void main() {
-          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-          vWorldPosition = worldPosition.xyz;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `;
-      const fragmentShader = `
-        uniform vec3 topColor;
-        uniform vec3 bottomColor;
-        uniform float offset;
-        uniform float exponent;
-        varying vec3 vWorldPosition;
-        void main() {
-          float h = normalize(vWorldPosition + offset).y;
-          gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
-        }
-      `;
-      const uniforms = {
-        topColor: { value: new Color(30719) },
-        bottomColor: { value: new Color(16777215) },
-        offset: { value: 33 },
-        exponent: { value: 0.6 }
-      };
-      skyMaterial = new ShaderMaterial({
-        uniforms,
-        vertexShader,
-        fragmentShader,
-        side: BackSide
-      });
-    }
-    const sky = new Mesh(skyGeometry, skyMaterial);
-    this.scene.add(sky);
+    const skyLight = new HemisphereLight(8900331, 9560416, 1);
+    this.scene.add(skyLight);
   }
   positionCamera() {
     if (!this.camera || !this.tankInstance)

@@ -21,7 +21,8 @@ export class GameComponent extends LitElement {
   private keys: { [key: string]: boolean } = {};
   
   // Assets
-  private skyTexture?: THREE.Texture;
+  // Sky gradient colors
+  private skyColor: THREE.Color = new THREE.Color(0x87ceeb); // Sky blue
 
   static styles = css`
     :host {
@@ -63,43 +64,9 @@ export class GameComponent extends LitElement {
   }
 
   firstUpdated() {
-    this.loadTextures().then(() => {
-      this.initThree();
-      this.initKeyboardControls();
-      this.animate();
-    });
-  }
-  
-  private async loadTextures() {
-    // Try to load sky texture from the hidden img element first
-    const skyImg = document.getElementById('skyImage') as HTMLImageElement;
-    
-    if (skyImg && skyImg.complete) {
-      // Image is already loaded
-      const textureLoader = new THREE.TextureLoader();
-      this.skyTexture = textureLoader.load(skyImg.src);
-      return Promise.resolve();
-    } else {
-      // Fallback to loading directly
-      const textureLoader = new THREE.TextureLoader();
-      
-      return new Promise<void>((resolve) => {
-        textureLoader.load(
-          'https://assetstorev1-prd-cdn.unity3d.com/package-screenshot/2fe480c2-6fb9-43da-86cf-bc843b7d7761_scaled.jpg', 
-          (texture) => {
-            this.skyTexture = texture;
-            resolve();
-          },
-          undefined, // onProgress
-          () => {
-            // On error, create a blue sky
-            console.error('Failed to load sky texture, using fallback');
-            this.skyTexture = undefined;
-            resolve();
-          }
-        );
-      });
-    }
+    this.initThree();
+    this.initKeyboardControls();
+    this.animate();
   }
 
   disconnectedCallback() {
@@ -118,12 +85,13 @@ export class GameComponent extends LitElement {
     
     // Clean up Three.js resources
     this.renderer?.dispose();
-    this.skyTexture?.dispose();
   }
 
   private initThree() {
-    // Create scene
+    // Create scene with a blue sky background
     this.scene = new THREE.Scene();
+    this.scene.background = this.skyColor;
+    this.scene.fog = new THREE.Fog(this.skyColor.clone().multiplyScalar(1.2), 1000, 50000);
     
     // Create skybox
     this.createSkybox();
@@ -145,21 +113,18 @@ export class GameComponent extends LitElement {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.shadowMap.enabled = true;
     
-    // Add lights
-    const ambientLight = new THREE.AmbientLight(0x666666);
-    this.scene.add(ambientLight);
-    
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-    directionalLight.position.set(5, 10, 7.5);
+    // Add directional sunlight
+    const directionalLight = new THREE.DirectionalLight(0xffffcc, 1.2);
+    directionalLight.position.set(100, 200, 50);
     directionalLight.castShadow = true;
     directionalLight.shadow.camera.near = 0.5;
-    directionalLight.shadow.camera.far = 30;
-    directionalLight.shadow.camera.left = -10;
-    directionalLight.shadow.camera.right = 10;
-    directionalLight.shadow.camera.top = 10;
-    directionalLight.shadow.camera.bottom = -10;
-    directionalLight.shadow.mapSize.width = 1024;
-    directionalLight.shadow.mapSize.height = 1024;
+    directionalLight.shadow.camera.far = 50;
+    directionalLight.shadow.camera.left = -30;
+    directionalLight.shadow.camera.right = 30;
+    directionalLight.shadow.camera.top = 30;
+    directionalLight.shadow.camera.bottom = -30;
+    directionalLight.shadow.mapSize.width = 2048;
+    directionalLight.shadow.mapSize.height = 2048;
     this.scene.add(directionalLight);
     
     // Create ground (100x larger)
@@ -207,59 +172,13 @@ export class GameComponent extends LitElement {
   private createSkybox() {
     if (!this.scene) return;
     
-    // Create a much larger sphere to serve as our sky
-    const skyGeometry = new THREE.SphereGeometry(50000, 32, 32);
-    // Invert the geometry so that the faces point inward
-    skyGeometry.scale(-1, 1, 1);
-    
-    let skyMaterial: THREE.Material;
-    
-    if (this.skyTexture) {
-      // Use the loaded texture for the sky
-      skyMaterial = new THREE.MeshBasicMaterial({
-        map: this.skyTexture,
-        side: THREE.BackSide,
-      });
-    } else {
-      // Fallback to a gradient sky if texture loading failed
-      const vertexShader = `
-        varying vec3 vWorldPosition;
-        void main() {
-          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-          vWorldPosition = worldPosition.xyz;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `;
-      
-      const fragmentShader = `
-        uniform vec3 topColor;
-        uniform vec3 bottomColor;
-        uniform float offset;
-        uniform float exponent;
-        varying vec3 vWorldPosition;
-        void main() {
-          float h = normalize(vWorldPosition + offset).y;
-          gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
-        }
-      `;
-      
-      const uniforms = {
-        topColor: { value: new THREE.Color(0x0077ff) },  // Blue sky
-        bottomColor: { value: new THREE.Color(0xffffff) },  // Horizon white
-        offset: { value: 33 },
-        exponent: { value: 0.6 }
-      };
-      
-      skyMaterial = new THREE.ShaderMaterial({
-        uniforms: uniforms,
-        vertexShader: vertexShader,
-        fragmentShader: fragmentShader,
-        side: THREE.BackSide
-      });
-    }
-    
-    const sky = new THREE.Mesh(skyGeometry, skyMaterial);
-    this.scene.add(sky);
+    // Add hemisphere light for ambient sky lighting
+    const skyLight = new THREE.HemisphereLight(
+      0x87ceeb, // Sky color
+      0x91e160, // Ground color (green tint)
+      1.0       // Intensity
+    );
+    this.scene.add(skyLight);
   }
   
   
