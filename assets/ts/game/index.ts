@@ -29,7 +29,7 @@ export class GameComponent extends LitElement {
   private turretRotationSpeed = 0.03;
   private barrelElevationSpeed = 0.02;
   // For barrel elevation, we'll be rotating the barrel group around the X axis
-  private maxBarrelElevation = Math.PI / 3;  // Barrel pointing down limit
+  private maxBarrelElevation = 0;           // Barrel can't go lower than starting position
   private minBarrelElevation = -Math.PI / 4; // Barrel pointing up limit
   
   // Assets
@@ -522,6 +522,9 @@ export class GameComponent extends LitElement {
     
     // Store reference to the barrelGroup for elevation control
     this.barrelPivot = barrelGroup;
+    
+    // Set initial barrel elevation to horizontal (0 degrees)
+    this.barrelPivot.rotation.x = 0;
     
     // Add to scene
     this.scene!.add(this.tank);

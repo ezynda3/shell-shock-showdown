@@ -25181,7 +25181,7 @@ class GameComponent extends LitElement {
   tankRotationSpeed = 0.03;
   turretRotationSpeed = 0.03;
   barrelElevationSpeed = 0.02;
-  maxBarrelElevation = Math.PI / 3;
+  maxBarrelElevation = 0;
   minBarrelElevation = -Math.PI / 4;
   skyTexture;
   static styles = css`
@@ -25518,6 +25518,7 @@ class GameComponent extends LitElement {
     this.barrel.castShadow = true;
     barrelGroup.add(this.barrel);
     this.barrelPivot = barrelGroup;
+    this.barrelPivot.rotation.x = 0;
     this.scene.add(this.tank);
   }
   positionCamera() {
