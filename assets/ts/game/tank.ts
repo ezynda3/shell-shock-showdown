@@ -21,6 +21,8 @@ export interface ITank extends ICollidable {
   respawn(position?: THREE.Vector3): void; // Respawn the tank
   getMinBarrelElevation(): number; // Get minimum barrel elevation angle
   getMaxBarrelElevation(): number; // Get maximum barrel elevation angle
+  isMoving(): boolean; // Returns whether the tank is currently moving
+  getVelocity?(): number; // Returns the current velocity of the tank
 }
 
 export class Tank implements ITank {
@@ -68,6 +70,10 @@ export class Tank implements ITank {
   private readonly MAX_HEALTH: number = 100;
   private isDestroyed: boolean = false;
   private destroyedEffects: THREE.Object3D[] = [];
+  
+  // Movement tracking
+  private isCurrentlyMoving: boolean = false;
+  private velocity: number = 0;
   
   // Health bar display
   private healthBarSprite: THREE.Sprite;
@@ -209,26 +215,36 @@ export class Tank implements ITank {
       }
     }
     
+    // Reset movement flag - will be set to true if any movement occurs
+    this.isCurrentlyMoving = false;
+    this.velocity = 0;
+    
     // Tank movement
     if (keys['w'] || keys['W']) {
       // Move forward in the direction the tank is facing
       this.tank.position.x += Math.sin(this.tank.rotation.y) * this.tankSpeed;
       this.tank.position.z += Math.cos(this.tank.rotation.y) * this.tankSpeed;
+      this.isCurrentlyMoving = true;
+      this.velocity = this.tankSpeed;
     }
     
     if (keys['s'] || keys['S']) {
       // Move backward in the direction the tank is facing
       this.tank.position.x -= Math.sin(this.tank.rotation.y) * this.tankSpeed;
       this.tank.position.z -= Math.cos(this.tank.rotation.y) * this.tankSpeed;
+      this.isCurrentlyMoving = true;
+      this.velocity = -this.tankSpeed;
     }
     
     // Tank rotation
     if (keys['a'] || keys['A']) {
       this.tank.rotation.y += this.tankRotationSpeed;
+      this.isCurrentlyMoving = true;
     }
     
     if (keys['d'] || keys['D']) {
       this.tank.rotation.y -= this.tankRotationSpeed;
+      this.isCurrentlyMoving = true;
     }
     
     // Turret rotation (independent of tank rotation)
@@ -1125,6 +1141,16 @@ export class Tank implements ITank {
     this.scene.add(mesh);
     return mesh;
   }
+  
+  // Implement movement status method
+  isMoving(): boolean {
+    return this.isCurrentlyMoving;
+  }
+  
+  // Implement velocity getter method
+  getVelocity(): number {
+    return this.velocity;
+  }
 }
 
 // Helper function to generate random tank names
@@ -1165,6 +1191,16 @@ export class NPCTank implements ITank {
     return this.maxBarrelElevation;
   }
   
+  isMoving(): boolean {
+    // Returns whether the tank is currently moving
+    return this.isCurrentlyMoving;
+  }
+  
+  getVelocity(): number {
+    // Returns the current velocity of the tank
+    return this.velocity;
+  }
+  
   // Tank properties
   private tankSpeed = 0.1;
   private tankRotationSpeed = 0.03;
@@ -1172,6 +1208,8 @@ export class NPCTank implements ITank {
   private barrelElevationSpeed = 0.01;
   private maxBarrelElevation = 0;
   private minBarrelElevation = -Math.PI / 4;
+  private velocity: number = 0;
+  private isCurrentlyMoving: boolean = false;
   
   // NPC behavior properties
   private movementPattern: 'circle' | 'zigzag' | 'random' | 'patrol';
@@ -1467,6 +1505,10 @@ export class NPCTank implements ITank {
     // Store the current position before movement
     this.lastPosition.copy(this.tank.position);
     
+    // Reset movement state
+    this.isCurrentlyMoving = false;
+    this.velocity = 0;
+    
     // Handle reloading
     if (!this.canFire) {
       this.reloadCounter++;
@@ -1734,6 +1776,10 @@ export class NPCTank implements ITank {
     
     // Rotate tank to face movement direction
     this.tank.rotation.y = this.currentDirection + Math.PI / 2;
+    
+    // Update movement status
+    this.isCurrentlyMoving = true;
+    this.velocity = this.tankSpeed;
   }
 
   private moveInZigzag() {
@@ -1758,6 +1804,10 @@ export class NPCTank implements ITank {
     // Rotate tank to face movement direction
     const targetRotation = Math.atan2(forwardZ + sideZ * zigzagFactor, forwardX + sideX * zigzagFactor) + Math.PI / 2;
     this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+    
+    // Update movement status
+    this.isCurrentlyMoving = true;
+    this.velocity = this.tankSpeed;
   }
 
   private moveRandomly() {
@@ -1773,6 +1823,10 @@ export class NPCTank implements ITank {
     // Rotate tank to face movement direction
     const targetRotation = this.currentDirection + Math.PI / 2;
     this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+    
+    // Update movement status
+    this.isCurrentlyMoving = true;
+    this.velocity = this.tankSpeed;
   }
 
   private moveInPatrol() {
@@ -1802,6 +1856,10 @@ export class NPCTank implements ITank {
     // Rotate tank to face movement direction
     const targetRotation = Math.atan2(direction.y, direction.x) + Math.PI / 2;
     this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+    
+    // Update movement status
+    this.isCurrentlyMoving = true;
+    this.velocity = this.tankSpeed;
   }
 
   dispose() {

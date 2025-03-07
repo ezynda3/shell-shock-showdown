@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/mark3labs/pro-saaskit/middleware"
@@ -17,6 +18,12 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 	// Create a group for protected routes
 	protected := router.Group("")
 	protected.BindFunc(middleware.AuthGuard)
+
+	// POST route for update endpoint
+	router.POST("/update", func(e *core.RequestEvent) error {
+		log.Println("posted")
+		return e.JSON(http.StatusOK, map[string]bool{"success": true})
+	})
 
 	// Add routes to protected group
 	protected.GET("/", func(e *core.RequestEvent) error {

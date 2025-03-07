@@ -941,6 +941,9 @@ export class GameComponent extends LitElement {
         this.playerTank.updateCamera(this.camera);
       }
       
+      // Emit player position and orientation event
+      this.emitPlayerPositionEvent();
+      
       // Update stats for health changes
       this.updateStats();
     }
@@ -1295,10 +1298,69 @@ export class GameComponent extends LitElement {
       (statsComponent as any).updateGameStats(health, this.playerKills, this.playerDeaths);
     }
   }
+  
+  /**
+   * Emits a custom event with player position and orientation data
+   * Event includes position coordinates, tank rotation, turret rotation, and barrel elevation
+   */
+  private emitPlayerPositionEvent(): void {
+    if (!this.playerTank) return;
+    
+    // Create event detail with all relevant position and orientation data
+    // Ensuring all data is clean serializable JSON
+    const detail = {
+      // Position data (convert THREE.Vector3 to simple object)
+      position: {
+        x: this.playerTank.tank.position.x,
+        y: this.playerTank.tank.position.y,
+        z: this.playerTank.tank.position.z
+      },
+      
+      // Rotation data (simple numeric values)
+      tankRotation: this.playerTank.tank.rotation.y,
+      turretRotation: this.playerTank.turretPivot.rotation.y,
+      barrelElevation: this.playerTank.barrelPivot.rotation.x,
+      
+      // Additional data
+      health: this.playerTank.getHealth(),
+      isMoving: this.playerTank.isMoving(),
+      velocity: this.playerTank.getVelocity ? this.playerTank.getVelocity() : 0,
+      
+      // Timestamp for tracking
+      timestamp: Date.now()
+    };
+    
+    // Create and dispatch custom event
+    const event = new CustomEvent('player-movement', { 
+      detail,
+      bubbles: true,
+      composed: true // Allows the event to cross shadow DOM boundaries
+    });
+    
+    this.dispatchEvent(event);
+  }
 }
 
+// Define the player movement event type for TypeScript
 declare global {
   interface HTMLElementTagNameMap {
     'game-component': GameComponent;
+  }
+  
+  interface HTMLElementEventMap {
+    'player-movement': CustomEvent<{
+      position: {
+        x: number;
+        y: number;
+        z: number;
+      };
+      tankRotation: number;
+      turretRotation: number;
+      barrelElevation: number;
+      health: number;
+      isMoving: boolean;
+      velocity: number;
+      timestamp: number;
+    }>;
   }
 }

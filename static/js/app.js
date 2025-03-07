@@ -26724,6 +26724,8 @@ class Tank {
   MAX_HEALTH = 100;
   isDestroyed = false;
   destroyedEffects = [];
+  isCurrentlyMoving = false;
+  velocity = 0;
   healthBarSprite;
   healthBarContext = null;
   healthBarTexture = null;
@@ -26812,19 +26814,27 @@ class Tank {
         this.reloadCounter = 0;
       }
     }
+    this.isCurrentlyMoving = false;
+    this.velocity = 0;
     if (keys["w"] || keys["W"]) {
       this.tank.position.x += Math.sin(this.tank.rotation.y) * this.tankSpeed;
       this.tank.position.z += Math.cos(this.tank.rotation.y) * this.tankSpeed;
+      this.isCurrentlyMoving = true;
+      this.velocity = this.tankSpeed;
     }
     if (keys["s"] || keys["S"]) {
       this.tank.position.x -= Math.sin(this.tank.rotation.y) * this.tankSpeed;
       this.tank.position.z -= Math.cos(this.tank.rotation.y) * this.tankSpeed;
+      this.isCurrentlyMoving = true;
+      this.velocity = -this.tankSpeed;
     }
     if (keys["a"] || keys["A"]) {
       this.tank.rotation.y += this.tankRotationSpeed;
+      this.isCurrentlyMoving = true;
     }
     if (keys["d"] || keys["D"]) {
       this.tank.rotation.y -= this.tankRotationSpeed;
+      this.isCurrentlyMoving = true;
     }
     if (keys["arrowleft"] || keys["ArrowLeft"]) {
       this.turretPivot.rotation.y += this.turretRotationSpeed;
@@ -27366,6 +27376,12 @@ class Tank {
     this.scene.add(mesh);
     return mesh;
   }
+  isMoving() {
+    return this.isCurrentlyMoving;
+  }
+  getVelocity() {
+    return this.velocity;
+  }
 }
 function generateRandomTankName() {
   const adjectives = [
@@ -27450,12 +27466,20 @@ class NPCTank {
   getMaxBarrelElevation() {
     return this.maxBarrelElevation;
   }
+  isMoving() {
+    return this.isCurrentlyMoving;
+  }
+  getVelocity() {
+    return this.velocity;
+  }
   tankSpeed = 0.1;
   tankRotationSpeed = 0.03;
   turretRotationSpeed = 0.02;
   barrelElevationSpeed = 0.01;
   maxBarrelElevation = 0;
   minBarrelElevation = -Math.PI / 4;
+  velocity = 0;
+  isCurrentlyMoving = false;
   movementPattern;
   movementTimer = 0;
   changeDirectionInterval;
@@ -27637,6 +27661,8 @@ class NPCTank {
       return null;
     }
     this.lastPosition.copy(this.tank.position);
+    this.isCurrentlyMoving = false;
+    this.velocity = 0;
     if (!this.canFire) {
       this.reloadCounter++;
       if (this.reloadCounter >= this.RELOAD_TIME) {
@@ -27777,6 +27803,8 @@ class NPCTank {
     this.tank.position.x += Math.cos(this.currentDirection) * this.tankSpeed;
     this.tank.position.z += Math.sin(this.currentDirection) * this.tankSpeed;
     this.tank.rotation.y = this.currentDirection + Math.PI / 2;
+    this.isCurrentlyMoving = true;
+    this.velocity = this.tankSpeed;
   }
   moveInZigzag() {
     if (this.movementTimer % this.changeDirectionInterval === 0) {
@@ -27791,6 +27819,8 @@ class NPCTank {
     this.tank.position.z += (forwardZ + sideZ * zigzagFactor) * this.tankSpeed;
     const targetRotation = Math.atan2(forwardZ + sideZ * zigzagFactor, forwardX + sideX * zigzagFactor) + Math.PI / 2;
     this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+    this.isCurrentlyMoving = true;
+    this.velocity = this.tankSpeed;
   }
   moveRandomly() {
     if (this.movementTimer % this.changeDirectionInterval === 0) {
@@ -27800,6 +27830,8 @@ class NPCTank {
     this.tank.position.z += Math.sin(this.currentDirection) * this.tankSpeed;
     const targetRotation = this.currentDirection + Math.PI / 2;
     this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+    this.isCurrentlyMoving = true;
+    this.velocity = this.tankSpeed;
   }
   moveInPatrol() {
     if (this.patrolPoints.length === 0)
@@ -27815,6 +27847,8 @@ class NPCTank {
     this.tank.position.z += direction.y * this.tankSpeed;
     const targetRotation = Math.atan2(direction.y, direction.x) + Math.PI / 2;
     this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+    this.isCurrentlyMoving = true;
+    this.velocity = this.tankSpeed;
   }
   dispose() {
     this.scene.remove(this.tank);
@@ -29065,6 +29099,7 @@ class GameComponent extends LitElement {
       if (this.camera) {
         this.playerTank.updateCamera(this.camera);
       }
+      this.emitPlayerPositionEvent();
       this.updateStats();
     }
     if (this.playerTank) {
@@ -29275,6 +29310,30 @@ class GameComponent extends LitElement {
       const health = this.playerTank ? this.playerTank.getHealth() : 0;
       statsComponent.updateGameStats(health, this.playerKills, this.playerDeaths);
     }
+  }
+  emitPlayerPositionEvent() {
+    if (!this.playerTank)
+      return;
+    const detail = {
+      position: {
+        x: this.playerTank.tank.position.x,
+        y: this.playerTank.tank.position.y,
+        z: this.playerTank.tank.position.z
+      },
+      tankRotation: this.playerTank.tank.rotation.y,
+      turretRotation: this.playerTank.turretPivot.rotation.y,
+      barrelElevation: this.playerTank.barrelPivot.rotation.x,
+      health: this.playerTank.getHealth(),
+      isMoving: this.playerTank.isMoving(),
+      velocity: this.playerTank.getVelocity ? this.playerTank.getVelocity() : 0,
+      timestamp: Date.now()
+    };
+    const event = new CustomEvent("player-movement", {
+      detail,
+      bubbles: true,
+      composed: true
+    });
+    this.dispatchEvent(event);
   }
 }
 __legacyDecorateClassTS([
