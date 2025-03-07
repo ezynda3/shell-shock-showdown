@@ -501,11 +501,14 @@ export class GameComponent extends LitElement {
     if (!this.scene || !this.camera) return;
     
     // Create a simple plus-shaped crosshair using lines
-    const crosshairSize = 0.1; // Larger size so it's visible at a distance
+    const crosshairSize = 0.5; // 50% smaller than the previous size
     const crosshairMaterial = new THREE.LineBasicMaterial({ 
-      color: 0xffffff,  // White
-      linewidth: 2,     // Line width (note: not supported in WebGL)
-      depthTest: true   // We want depth testing for this crosshair
+      color: 0xffffff,   // White
+      linewidth: 3,      // Thicker lines (note: may not work in WebGL)
+      depthTest: false,  // Ensures it's always drawn on top of other objects
+      depthWrite: false, // Doesn't write to depth buffer
+      transparent: true,
+      opacity: 0.9
     });
     
     // Create the crosshair geometry
@@ -527,11 +530,14 @@ export class GameComponent extends LitElement {
     // Create the crosshair line segments
     const crosshair = new THREE.LineSegments(crosshairGeometry, crosshairMaterial);
     
+    // Set extremely high render order to ensure it renders on top of everything
+    crosshair.renderOrder = 9999;
+    
     // Create a container for the crosshair
     this.crosshairObject = new THREE.Object3D();
     this.crosshairObject.add(crosshair);
     
-    // We'll add it to the scene, not the camera
+    // Add to scene with special layer if needed
     this.scene.add(this.crosshairObject);
     
     // Initial position update

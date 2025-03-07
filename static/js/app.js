@@ -28001,11 +28001,14 @@ class GameComponent extends LitElement {
   createCrosshair() {
     if (!this.scene || !this.camera)
       return;
-    const crosshairSize = 0.1;
+    const crosshairSize = 0.5;
     const crosshairMaterial = new LineBasicMaterial({
       color: 16777215,
-      linewidth: 2,
-      depthTest: true
+      linewidth: 3,
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.9
     });
     const crosshairGeometry = new BufferGeometry;
     const vertices = new Float32Array([
@@ -28024,6 +28027,7 @@ class GameComponent extends LitElement {
     ]);
     crosshairGeometry.setAttribute("position", new BufferAttribute(vertices, 3));
     const crosshair = new LineSegments(crosshairGeometry, crosshairMaterial);
+    crosshair.renderOrder = 9999;
     this.crosshairObject = new Object3D;
     this.crosshairObject.add(crosshair);
     this.scene.add(this.crosshairObject);
