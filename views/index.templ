@@ -7,7 +7,7 @@ templ Index() {
 		<div
 			style="width: 100%; height: calc(100vh - 64px);"
 			data-signals="{update: '', shellFired: '', gameState: '' }"
-			data-on-load="@get('/gamestate')"
+			data-on-load="@get('/gamestate', { openWhenHidden: true })"
 		>
 			<game-component
 				data-on-player-movement__case.kebab="$update = JSON.stringify(evt.detail); @post('/update')"
@@ -19,10 +19,6 @@ templ Index() {
 					}
 				}
 			></game-component>
-		</div>
-		<div style="display: none;">
-			<!-- Hidden img to preload the sky image -->
-			<img id="skyImage" src="https://assetstorev1-prd-cdn.unity3d.com/package-screenshot/2fe480c2-6fb9-43da-86cf-bc843b7d7761_scaled.jpg" crossorigin="anonymous"/>
 		</div>
 	}
 }

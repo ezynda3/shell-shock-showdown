@@ -57,9 +57,9 @@ type GameState struct {
 
 // Signals struct for handling DataStar signals
 type Signals struct {
-	Update       string `json:"update"`
-	ShellFired   string `json:"shellFired"`
-	GameState    string `json:"gameState"`
+	Update     string `json:"update"`
+	ShellFired string `json:"shellFired"`
+	GameState  string `json:"gameState"`
 }
 
 var (
@@ -69,7 +69,7 @@ var (
 		Shells:  []ShellState{},
 	}
 	gameStateMutex sync.RWMutex
-	
+
 	// Shell ID counter
 	shellIDCounter = 0
 
@@ -113,7 +113,7 @@ func cleanupInactivePlayers() {
 func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 	// Initialize random seed for spawn positions
 	rand.Seed(time.Now().UnixNano())
-	
+
 	// Create a group for protected routes
 	protected := router.Group("")
 	protected.BindFunc(middleware.AuthGuard)
@@ -133,7 +133,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 			log.Println("Error reading signals:", err)
 			return e.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
-		
+
 		// Handle shell firing events
 		if signals.ShellFired != "" {
 			var shellData struct {
@@ -141,19 +141,19 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 				Direction Position `json:"direction"`
 				Speed     float64  `json:"speed"`
 			}
-			
+
 			if err := json.Unmarshal([]byte(signals.ShellFired), &shellData); err != nil {
 				log.Println("Error unmarshaling shell data:", err)
 				return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid shell data"})
 			}
-			
+
 			// Get player ID
 			playerID := "guest"
 			authRecord := e.Auth
 			if authRecord != nil {
 				playerID = authRecord.Id
 			}
-			
+
 			// Generate shell ID
 			gameStateMutex.Lock()
 			shellIDCounter++
@@ -165,16 +165,16 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 				Speed:     shellData.Speed,
 				Timestamp: time.Now().UnixMilli(),
 			}
-			
+
 			// Add shell to game state
 			gameState.Shells = append(gameState.Shells, newShell)
-			
+
 			// Cap the number of shells to avoid memory issues
 			if len(gameState.Shells) > 100 {
 				gameState.Shells = gameState.Shells[len(gameState.Shells)-100:]
 			}
 			gameStateMutex.Unlock()
-			
+
 			log.Printf("Added new shell %s from player %s", newShell.ID, playerID)
 		}
 
@@ -192,7 +192,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 			if authRecord != nil {
 				playerID = authRecord.Id
 			}
-			
+
 			// Get username from auth
 			playerName := "Guest"
 			if authRecord != nil {
@@ -212,16 +212,16 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 			gameStateMutex.RLock()
 			_, playerExists := gameState.Players[playerID]
 			gameStateMutex.RUnlock()
-			
+
 			// If new player, set spawn position at center with random offset
 			if !playerExists {
 				// Random offset for spawn position (-20 to 20 range)
 				offsetX := -20.0 + rand.Float64()*40.0
 				offsetZ := -20.0 + rand.Float64()*40.0
-				
+
 				log.Printf("New player %s joined. Setting spawn position at center with offset (%f, %f)",
 					playerID, offsetX, offsetZ)
-				
+
 				// Override position to spawn near center
 				playerUpdate.Position = Position{
 					X: offsetX,
@@ -229,16 +229,16 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 					Z: offsetZ,
 				}
 			}
-			
+
 			// Update player state in game state
 			gameStateMutex.Lock()
 			gameState.Players[playerID] = playerUpdate
 			gameStateMutex.Unlock()
 
-			log.Printf("Updated player %s at position (%f, %f, %f)", 
-				playerID, 
-				playerUpdate.Position.X, 
-				playerUpdate.Position.Y, 
+			log.Printf("Updated player %s at position (%f, %f, %f)",
+				playerID,
+				playerUpdate.Position.X,
+				playerUpdate.Position.Y,
 				playerUpdate.Position.Z)
 		}
 
@@ -267,25 +267,18 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 				// Log game state for debugging
 				log.Printf("Broadcasting game state with %d players", len(gameState.Players))
 				for id, player := range gameState.Players {
-					log.Printf("Player %s at position (%f, %f, %f)", 
-						id, 
-						player.Position.X, 
-						player.Position.Y, 
+					log.Printf("Player %s at position (%f, %f, %f)",
+						id,
+						player.Position.X,
+						player.Position.Y,
 						player.Position.Z)
 				}
-				
+
 				// Debug game state before sending
 				log.Printf("About to send game state JSON: %s", string(stateJSON))
 				
-				// Format the game state as a JSON string within gameState property
-				// Being extra careful with proper JSON escaping
-				stateJSONString := string(stateJSON)
-				formattedJSON := fmt.Sprintf(`{"gameState": %s}`, stateJSONString)
-				
-				log.Printf("Formatted JSON for client: %s", formattedJSON)
-				
-				// Send the formatted state
-				err = sse.MergeSignals([]byte(formattedJSON))
+				// Send the game state directly as a string with proper escaping
+				err = sse.MergeSignals([]byte(fmt.Sprintf(`{"gameState": %q}`, string(stateJSON))))
 				if err != nil {
 					log.Printf("Error sending game state: %v", err)
 				}

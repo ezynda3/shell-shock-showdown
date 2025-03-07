@@ -29,6 +29,25 @@ interface PlayerState {
 // Interface for game state
 interface MultiplayerGameState {
   players: { [playerId: string]: PlayerState };
+  shells: ShellState[];
+}
+
+// Interface for shell state
+interface ShellState {
+  id: string;
+  playerId: string; 
+  position: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  direction: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  speed: number;
+  timestamp: number;
 }
 
 @customElement('game-component')
@@ -36,17 +55,111 @@ export class GameComponent extends LitElement {
   @query('#canvas')
   private canvas!: HTMLCanvasElement;
   
-  // Game state property that can be set from outside with reactive processing
-  @property({ type: String, attribute: 'game-state', hasChanged(newVal: string, oldVal: string) {
-    // Always process game state updates - important for multiplayer
-    console.log('gameState property change detected');
-    return true;
-  }})
-  public gameState: string = '';
+  // Private variable to store game state
+  private _gameState: string = '';
+  
+  // Getter for gameState that can be accessed from HTML template
+  get gameState(): string {
+    return this._gameState;
+  }
+  
+  // Setter that processes game state updates on every change
+  set gameState(value: string) {
+    const oldValue = this._gameState;
+    this._gameState = value;
+    
+    try {
+      if (value && typeof value === 'string') {
+        // Try to parse the game state as JSON
+        let parsed;
+        try {
+          parsed = JSON.parse(value);
+        } catch (parseError) {
+          console.error('Initial JSON parse failed:', parseError);
+          console.error('Game state is not valid JSON:', value);
+          return;
+        }
+        
+        // Handle the format from DataStar in views/index.templ
+        // The gameState property in our component gets ONLY the inner JSON
+        // directly from the server via: data-attr-game-state__case.kebab="$gameState"
+        
+        // CASE 1: Direct players object (most likely format)
+        if (parsed && parsed.players && typeof parsed.players === 'object') {
+          this.multiplayerState = parsed;
+        }
+        // CASE 2: Maybe we still have a gameState wrapper in some cases
+        else if (parsed && parsed.gameState) {
+          // If gameState is an object with players, use it directly
+          if (typeof parsed.gameState === 'object' && parsed.gameState.players) {
+            this.multiplayerState = parsed.gameState;
+          }
+          // If gameState is a string, try to parse it
+          else if (typeof parsed.gameState === 'string') {
+            try {
+              const nestedState = JSON.parse(parsed.gameState);
+              if (nestedState && nestedState.players) {
+                this.multiplayerState = nestedState;
+              }
+            } catch (err) {
+              console.error('Failed to parse nested gameState string:', err);
+              return;
+            }
+          }
+        } 
+        else {
+          console.error('Unrecognized game state format - missing players object:', parsed);
+          return;
+        }
+        
+        // Count the players in the state
+        const playerCount = this.multiplayerState && this.multiplayerState.players ? 
+          Object.keys(this.multiplayerState.players).length : 0;
+        
+        // Update remote players
+        this.updateRemotePlayers();
+        
+        // Use the player ID from the attribute, or generate one if not set
+        if (!this.gameStateInitialized && this.playerTank) {
+          if (!this.playerId) {
+            // Generate fallback ID only if attribute wasn't set
+            this.playerId = 'player_' + Math.random().toString(36).substring(2, 9);
+            console.log('No player-id attribute found, using random ID:', this.playerId);
+          } else {
+            console.log('Using player ID from attribute:', this.playerId);
+          }
+          
+          console.log('My position:', this.playerTank.tank.position);
+          this.gameStateInitialized = true;
+        }
+      }
+    } catch (error) {
+      console.error('Error parsing game state:', error);
+      console.error('Raw game state that caused error:', value);
+    }
+    
+    // Notify LitElement that a property changed
+    this.requestUpdate('gameState', oldValue);
+  }
   
   // Parsed multiplayer state
   @property({ attribute: false })
   private multiplayerState?: MultiplayerGameState;
+  
+  // Define properties to connect HTML attributes to properties
+  static get properties() {
+    return {
+      gameState: { 
+        type: String,
+        attribute: 'game-state', 
+        reflect: true 
+      },
+      playerId: { 
+        type: String, 
+        attribute: 'player-id' 
+      }
+    };
+  }
   
   // Player ID from server-side attribute
   @property({ type: String, attribute: 'player-id' })
@@ -345,13 +458,6 @@ export class GameComponent extends LitElement {
             <div class="wasted-text">Wasted</div>
           </div>
           
-          <!-- Game state display -->
-          ${this.gameState ? html`
-            <div class="game-state-display">
-              Game State: ${this.gameState}
-            </div>
-          ` : ''}
-          
           <!-- Kill notifications container -->
           <div class="kill-notifications">
             ${this.killNotifications.map(notification => html`
@@ -388,11 +494,13 @@ export class GameComponent extends LitElement {
   
   // Handle shell fired events from player tank
   private handleShellFired(event: CustomEvent) {
-    console.log('Shell fired event received:', event.detail);
-    
     // Create a custom event for DataStar to send to server
     const shellFiredEvent = new CustomEvent('shell-fired', { 
-      detail: event.detail,
+      detail: {
+        position: event.detail.position,
+        direction: event.detail.direction,
+        speed: event.detail.speed
+      },
       bubbles: true,
       composed: true // Allows the event to cross shadow DOM boundaries
     });
@@ -400,126 +508,14 @@ export class GameComponent extends LitElement {
     this.dispatchEvent(shellFiredEvent);
   }
   
-  // Called when gameState property changes
+  // Only handling other property changes
   updated(changedProperties: Map<string, any>) {
-    if (changedProperties.has('gameState') && this.gameState) {
-      console.log('Game state changed (raw):', this.gameState);
-      
-      // Force logging of player-id attribute
-      console.log('Current player-id attribute value:', this.playerId);
-      
-      try {
-        if (this.gameState && typeof this.gameState === 'string') {
-          // IMPORTANT: For debugging - log exactly what we're getting
-          console.log('Game state string length:', this.gameState.length);
-          console.log('First 200 chars of game state:', this.gameState.substring(0, 200));
-          
-          // Try to parse the game state as JSON
-          let parsed;
-          try {
-            parsed = JSON.parse(this.gameState);
-            console.log('Parsed game state (first level):', parsed);
-          } catch (parseError) {
-            console.error('Initial JSON parse failed:', parseError);
-            console.error('Game state is not valid JSON:', this.gameState);
-            return;
-          }
-          
-          // Handle the format from DataStar in views/index.templ
-          // The gameState property in our component gets ONLY the inner JSON
-          // directly from the server via: data-attr-game-state__case.kebab="$gameState"
-          
-          // CASE 1: Direct players object (most likely format)
-          if (parsed && parsed.players && typeof parsed.players === 'object') {
-            console.log('✅ Found direct players object - this is the correct format!');
-            this.multiplayerState = parsed;
-          }
-          // CASE 2: Maybe we still have a gameState wrapper in some cases
-          else if (parsed && parsed.gameState) {
-            console.log('Found gameState property - extracting inner content');
-            
-            // If gameState is an object with players, use it directly
-            if (typeof parsed.gameState === 'object' && parsed.gameState.players) {
-              console.log('✅ Extracted players from nested gameState object');
-              this.multiplayerState = parsed.gameState;
-            }
-            // If gameState is a string, try to parse it
-            else if (typeof parsed.gameState === 'string') {
-              try {
-                const nestedState = JSON.parse(parsed.gameState);
-                console.log('Parsed nested string gameState:', nestedState);
-                if (nestedState && nestedState.players) {
-                  this.multiplayerState = nestedState;
-                  console.log('✅ Successfully parsed nested gameState string');
-                }
-              } catch (err) {
-                console.error('Failed to parse nested gameState string:', err);
-                return;
-              }
-            }
-          } 
-          else {
-            console.error('❌ Unrecognized game state format - missing players object:', parsed);
-            return;
-          }
-          
-          // Log player keys and count
-          if (this.multiplayerState && this.multiplayerState.players) {
-            const playerKeys = Object.keys(this.multiplayerState.players);
-            console.log('Player keys found in parsed state:', playerKeys);
-            
-            // Ensure player ID is known before we start processing
-            if (!this.playerId && playerKeys.length > 0) {
-              console.log('No player ID set, but state contains players - might need to set player ID');
-            }
-          }
-          
-          // Count and log the players in the state
-          const playerCount = this.multiplayerState && this.multiplayerState.players ? 
-            Object.keys(this.multiplayerState.players).length : 0;
-          
-          console.log(`Found ${playerCount} players in game state`);
-          
-          if (playerCount > 0 && this.multiplayerState && this.multiplayerState.players) {
-            // Log detailed info about each player
-            Object.entries(this.multiplayerState.players).forEach(([id, playerData]) => {
-              console.log(`Player ${id}:`, {
-                name: (playerData as any).name,
-                position: (playerData as any).position,
-                color: (playerData as any).color
-              });
-            });
-          }
-          
-          // Update remote players
-          this.updateRemotePlayers();
-          
-          // Use the player ID from the attribute, or generate one if not set
-          if (!this.gameStateInitialized && this.playerTank) {
-            if (!this.playerId) {
-              // Generate fallback ID only if attribute wasn't set
-              this.playerId = 'player_' + Math.random().toString(36).substring(2, 9);
-              console.log('No player-id attribute found, using random ID:', this.playerId);
-            } else {
-              console.log('Using player ID from attribute:', this.playerId);
-            }
-            
-            console.log('My position:', this.playerTank.tank.position);
-            this.gameStateInitialized = true;
-          }
-        }
-      } catch (error) {
-        console.error('Error parsing game state:', error);
-        console.error('Raw game state that caused error:', this.gameState);
-      }
-    }
+    // Game state is now handled directly in the setter
   }
   
   // Update remote players from game state
   private updateRemotePlayers() {
-    console.log('🔄 updateRemotePlayers called - checking for remote players');
-    
-    // CRITICAL FIX: First, wait until we have a valid scene initialized
+    // First, wait until we have a valid scene initialized
     if (!this.scene) {
       console.error('Cannot update remote players: scene not initialized');
       return;
@@ -531,31 +527,17 @@ export class GameComponent extends LitElement {
       return;
     }
     
-    // IMPORTANT DEBUG: Show the complete multiplayer state structure
-    console.log('Complete multiplayerState:', JSON.stringify(this.multiplayerState));
-    
     // Check for valid players object
     if (!this.multiplayerState.players) {
       console.error('No players object in multiplayer state:', this.multiplayerState);
       return;
     }
     
-    // Log what's in the players object to see if it's what we expect
+    // Get player keys
     const playerKeys = Object.keys(this.multiplayerState.players);
     if (playerKeys.length === 0) {
       console.warn('Players object is empty - no players to update');
       return;
-    }
-    
-    // IMPORTANT: Don't force player ID - it should come from the HTML attribute
-    // If we don't have a player ID by now, something is wrong with the component setup
-    if (!this.playerId) {
-      console.error('NO PLAYER ID AVAILABLE - remote tanks will not be created correctly');
-      console.error('Available player IDs in state:', playerKeys);
-      
-      // For testing only - uncomment this to force a player ID
-      // this.playerId = playerKeys[0];
-      // console.warn('FORCED PLAYER ID FOR TESTING:', this.playerId);
     }
     
     // Wait until we have a player ID before processing (important for multiplayer)
@@ -564,37 +546,21 @@ export class GameComponent extends LitElement {
       return;
     }
     
-    console.log('========= PROCESSING REMOTE PLAYERS =========');
-    console.log(`Found ${playerKeys.length} players in state with my ID: ${this.playerId}`);
-    
-    // Log all players from state for debugging
-    Object.entries(this.multiplayerState.players).forEach(([id, data]) => {
-      console.log(`Player in state: ${id}, Name: ${(data as any).name}, Is me: ${id === this.playerId}`);
-    });
-    
     // Process each player in the game state
     for (const [playerId, playerData] of Object.entries(this.multiplayerState.players)) {
       // Skip our own player - this is crucial for multiplayer
       if (playerId === this.playerId) {
-        console.log('⛔ Skipping own player:', playerId);
         continue;
-      }
-      
-      // Reduce log noise - only log first time we see a player
-      if (!this.remoteTanks.has(playerId)) {
-        console.log('Processing new remote player:', playerId);
       }
       
       // If we already have this player, update their position
       if (this.remoteTanks.has(playerId)) {
-        // No need to log every position update
         const remoteTank = this.remoteTanks.get(playerId);
         if (remoteTank) {
           this.updateRemoteTankPosition(remoteTank, playerData);
         }
       } else {
         // Create a new remote tank for this player
-        console.log('Creating new remote tank for player:', playerId);
         this.createRemoteTank(playerId, playerData);
       }
     }
@@ -602,22 +568,17 @@ export class GameComponent extends LitElement {
     // Remove tanks for players that are no longer in the game state
     for (const [playerId, tank] of this.remoteTanks.entries()) {
       if (!this.multiplayerState.players[playerId]) {
-        console.log('Removing tank for disconnected player:', playerId);
         // Remove tank from scene and collision system
         this.collisionSystem.removeCollider(tank);
         tank.dispose();
         this.remoteTanks.delete(playerId);
       }
     }
-    
-    console.log('After update, remote tanks count:', this.remoteTanks.size);
   }
   
   // Create a new remote tank for another player
   private createRemoteTank(playerId: string, playerData: PlayerState) {
     if (!this.scene) return;
-    
-    console.log('Creating remote tank for player:', playerId, 'with data:', playerData);
     
     try {
       // Ensure we have position data
@@ -639,14 +600,10 @@ export class GameComponent extends LitElement {
       if (playerData.color) {
         if (typeof playerData.color === 'string' && playerData.color.startsWith('#')) {
           tankColor = parseInt(playerData.color.substring(1), 16);
-          console.log('Parsed color from hex string:', playerData.color, 'to', tankColor);
-        } else {
-          console.log('Using default color, received:', playerData.color);
         }
       }
       
       const tankName = playerData.name || `Player ${playerId.substring(0, 6)}`;
-      console.log('Remote tank name:', tankName);
       
       // Create the remote tank
       const remoteTank = new NPCTank(
@@ -677,10 +634,6 @@ export class GameComponent extends LitElement {
       
       // Store in remoteTanks map
       this.remoteTanks.set(playerId, remoteTank);
-      
-      // Log the creation success and current state
-      console.log('Remote tank created successfully at position:', remoteTank.tank.position);
-      console.log('Current remote tanks count:', this.remoteTanks.size);
     } catch (error) {
       console.error('Error creating remote tank:', error);
       console.error('Problem player data:', playerData);
@@ -772,7 +725,10 @@ export class GameComponent extends LitElement {
       
       // Update health if provided
       if (typeof playerData.health === 'number') {
-        tank.setHealth(playerData.health);
+        // Make sure the tank has a setHealth method
+        if (typeof tank.setHealth === 'function') {
+          tank.setHealth(playerData.health);
+        }
       }
       
       // Position updates happen frequently - don't log them
@@ -789,6 +745,64 @@ export class GameComponent extends LitElement {
     if (diff > Math.PI) diff -= Math.PI * 2;
     if (diff < -Math.PI) diff += Math.PI * 2;
     return start + diff * t;
+  }
+  
+  // Process shells from the game state
+  private processRemoteShells(): void {
+    if (!this.scene || !this.multiplayerState?.shells) return;
+    
+    // Keep track of shells we've already created
+    const processedShellIds = new Set<string>();
+    
+    // Process each shell in the game state
+    for (const shellState of this.multiplayerState.shells) {
+      // Skip shells we've already processed or our own shells
+      if (processedShellIds.has(shellState.id) || shellState.playerId === this.playerId) {
+        continue;
+      }
+      
+      // Find the source tank (the one that fired the shell)
+      let sourceTank: ITank | null = null;
+      
+      // Check if the shell is from a player we know about (remote player)
+      if (this.remoteTanks.has(shellState.playerId)) {
+        sourceTank = this.remoteTanks.get(shellState.playerId) || null;
+      }
+      
+      // If we couldn't find the source tank, skip it
+      if (!sourceTank) {
+        continue;
+      }
+      
+      // Create a position vector from the shell data
+      const position = new THREE.Vector3(
+        shellState.position.x,
+        shellState.position.y,
+        shellState.position.z
+      );
+      
+      // Create a direction vector from the shell data
+      const direction = new THREE.Vector3(
+        shellState.direction.x,
+        shellState.direction.y,
+        shellState.direction.z
+      ).normalize(); // Make sure it's normalized
+      
+      // Create a new shell with the source tank
+      const shell = new Shell(
+        this.scene,
+        position,
+        direction,
+        shellState.speed,
+        sourceTank
+      );
+      
+      // Add the shell to active shells
+      this.addShell(shell);
+      
+      // Mark this shell as processed
+      processedShellIds.add(shellState.id);
+    }
   }
 
   disconnectedCallback() {
@@ -1384,13 +1398,17 @@ export class GameComponent extends LitElement {
     
     // Process any pending game state updates in the animation loop
     // This ensures we constantly check for remote player updates
-    if (this.multiplayerState && this.multiplayerState.players && 
-        this.scene && this.gameStateInitialized) {
+    if (this.multiplayerState && this.scene && this.gameStateInitialized) {
       // Check for remote players periodically in the animation loop
       const frameCount = this.renderer?.info.render.frame || 0;
       if (frameCount % 60 === 0) { // Process once per second (at 60fps)
         // Periodic checks are helpful but don't need to log every time
         this.updateRemotePlayers();
+      }
+      
+      // Process remote shells
+      if (this.multiplayerState.shells && this.multiplayerState.shells.length > 0) {
+        this.processRemoteShells();
       }
     }
     

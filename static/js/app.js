@@ -27885,6 +27885,17 @@ class NPCTank {
   getHealth() {
     return this.health;
   }
+  setHealth(health) {
+    if (this.isDestroyed)
+      return;
+    this.health = Math.max(0, Math.min(this.MAX_HEALTH, health));
+    this.updateHealthBar();
+    if (this.health <= 0 && !this.isDestroyed) {
+      this.health = 0;
+      this.isDestroyed = true;
+      this.createDestroyedEffect();
+    }
+  }
   respawn(position) {
     this.health = this.MAX_HEALTH;
     this.isDestroyed = false;
@@ -28507,8 +28518,76 @@ GameStats = __legacyDecorateClassTS([
 class GameComponent extends LitElement {
   constructor() {
     super(...arguments);
-    this.gameState = "";
     this.playerId = "";
+  }
+  _gameState = "";
+  get gameState() {
+    return this._gameState;
+  }
+  set gameState(value) {
+    const oldValue = this._gameState;
+    this._gameState = value;
+    try {
+      if (value && typeof value === "string") {
+        let parsed;
+        try {
+          parsed = JSON.parse(value);
+        } catch (parseError) {
+          console.error("Initial JSON parse failed:", parseError);
+          console.error("Game state is not valid JSON:", value);
+          return;
+        }
+        if (parsed && parsed.players && typeof parsed.players === "object") {
+          this.multiplayerState = parsed;
+        } else if (parsed && parsed.gameState) {
+          if (typeof parsed.gameState === "object" && parsed.gameState.players) {
+            this.multiplayerState = parsed.gameState;
+          } else if (typeof parsed.gameState === "string") {
+            try {
+              const nestedState = JSON.parse(parsed.gameState);
+              if (nestedState && nestedState.players) {
+                this.multiplayerState = nestedState;
+              }
+            } catch (err) {
+              console.error("Failed to parse nested gameState string:", err);
+              return;
+            }
+          }
+        } else {
+          console.error("Unrecognized game state format - missing players object:", parsed);
+          return;
+        }
+        const playerCount = this.multiplayerState && this.multiplayerState.players ? Object.keys(this.multiplayerState.players).length : 0;
+        this.updateRemotePlayers();
+        if (!this.gameStateInitialized && this.playerTank) {
+          if (!this.playerId) {
+            this.playerId = "player_" + Math.random().toString(36).substring(2, 9);
+            console.log("No player-id attribute found, using random ID:", this.playerId);
+          } else {
+            console.log("Using player ID from attribute:", this.playerId);
+          }
+          console.log("My position:", this.playerTank.tank.position);
+          this.gameStateInitialized = true;
+        }
+      }
+    } catch (error) {
+      console.error("Error parsing game state:", error);
+      console.error("Raw game state that caused error:", value);
+    }
+    this.requestUpdate("gameState", oldValue);
+  }
+  static get properties() {
+    return {
+      gameState: {
+        type: String,
+        attribute: "game-state",
+        reflect: true
+      },
+      playerId: {
+        type: String,
+        attribute: "player-id"
+      }
+    };
   }
   gameStateInitialized = false;
   animationFrameId;
@@ -28767,13 +28846,6 @@ class GameComponent extends LitElement {
             <div class="wasted-text">Wasted</div>
           </div>
           
-          <!-- Game state display -->
-          ${this.gameState ? html`
-            <div class="game-state-display">
-              Game State: ${this.gameState}
-            </div>
-          ` : ""}
-          
           <!-- Kill notifications container -->
           <div class="kill-notifications">
             ${this.killNotifications.map((notification) => html`
@@ -28799,94 +28871,20 @@ class GameComponent extends LitElement {
     this.updateStats();
   }
   handleShellFired(event) {
-    console.log("Shell fired event received:", event.detail);
     const shellFiredEvent = new CustomEvent("shell-fired", {
-      detail: event.detail,
+      detail: {
+        position: event.detail.position,
+        direction: event.detail.direction,
+        speed: event.detail.speed
+      },
       bubbles: true,
       composed: true
     });
     this.dispatchEvent(shellFiredEvent);
   }
   updated(changedProperties) {
-    if (changedProperties.has("gameState") && this.gameState) {
-      console.log("Game state changed (raw):", this.gameState);
-      console.log("Current player-id attribute value:", this.playerId);
-      try {
-        if (this.gameState && typeof this.gameState === "string") {
-          console.log("Game state string length:", this.gameState.length);
-          console.log("First 200 chars of game state:", this.gameState.substring(0, 200));
-          let parsed;
-          try {
-            parsed = JSON.parse(this.gameState);
-            console.log("Parsed game state (first level):", parsed);
-          } catch (parseError) {
-            console.error("Initial JSON parse failed:", parseError);
-            console.error("Game state is not valid JSON:", this.gameState);
-            return;
-          }
-          if (parsed && parsed.players && typeof parsed.players === "object") {
-            console.log("✅ Found direct players object - this is the correct format!");
-            this.multiplayerState = parsed;
-          } else if (parsed && parsed.gameState) {
-            console.log("Found gameState property - extracting inner content");
-            if (typeof parsed.gameState === "object" && parsed.gameState.players) {
-              console.log("✅ Extracted players from nested gameState object");
-              this.multiplayerState = parsed.gameState;
-            } else if (typeof parsed.gameState === "string") {
-              try {
-                const nestedState = JSON.parse(parsed.gameState);
-                console.log("Parsed nested string gameState:", nestedState);
-                if (nestedState && nestedState.players) {
-                  this.multiplayerState = nestedState;
-                  console.log("✅ Successfully parsed nested gameState string");
-                }
-              } catch (err) {
-                console.error("Failed to parse nested gameState string:", err);
-                return;
-              }
-            }
-          } else {
-            console.error("❌ Unrecognized game state format - missing players object:", parsed);
-            return;
-          }
-          if (this.multiplayerState && this.multiplayerState.players) {
-            const playerKeys = Object.keys(this.multiplayerState.players);
-            console.log("Player keys found in parsed state:", playerKeys);
-            if (!this.playerId && playerKeys.length > 0) {
-              console.log("No player ID set, but state contains players - might need to set player ID");
-            }
-          }
-          const playerCount = this.multiplayerState && this.multiplayerState.players ? Object.keys(this.multiplayerState.players).length : 0;
-          console.log(`Found ${playerCount} players in game state`);
-          if (playerCount > 0 && this.multiplayerState && this.multiplayerState.players) {
-            Object.entries(this.multiplayerState.players).forEach(([id, playerData]) => {
-              console.log(`Player ${id}:`, {
-                name: playerData.name,
-                position: playerData.position,
-                color: playerData.color
-              });
-            });
-          }
-          this.updateRemotePlayers();
-          if (!this.gameStateInitialized && this.playerTank) {
-            if (!this.playerId) {
-              this.playerId = "player_" + Math.random().toString(36).substring(2, 9);
-              console.log("No player-id attribute found, using random ID:", this.playerId);
-            } else {
-              console.log("Using player ID from attribute:", this.playerId);
-            }
-            console.log("My position:", this.playerTank.tank.position);
-            this.gameStateInitialized = true;
-          }
-        }
-      } catch (error) {
-        console.error("Error parsing game state:", error);
-        console.error("Raw game state that caused error:", this.gameState);
-      }
-    }
   }
   updateRemotePlayers() {
-    console.log("\uD83D\uDD04 updateRemotePlayers called - checking for remote players");
     if (!this.scene) {
       console.error("Cannot update remote players: scene not initialized");
       return;
@@ -28895,7 +28893,6 @@ class GameComponent extends LitElement {
       console.error("Cannot update remote players: no multiplayer state available");
       return;
     }
-    console.log("Complete multiplayerState:", JSON.stringify(this.multiplayerState));
     if (!this.multiplayerState.players) {
       console.error("No players object in multiplayer state:", this.multiplayerState);
       return;
@@ -28906,25 +28903,12 @@ class GameComponent extends LitElement {
       return;
     }
     if (!this.playerId) {
-      console.error("NO PLAYER ID AVAILABLE - remote tanks will not be created correctly");
-      console.error("Available player IDs in state:", playerKeys);
-    }
-    if (!this.playerId) {
       console.error("Waiting for player ID before processing remote players");
       return;
     }
-    console.log("========= PROCESSING REMOTE PLAYERS =========");
-    console.log(`Found ${playerKeys.length} players in state with my ID: ${this.playerId}`);
-    Object.entries(this.multiplayerState.players).forEach(([id, data]) => {
-      console.log(`Player in state: ${id}, Name: ${data.name}, Is me: ${id === this.playerId}`);
-    });
     for (const [playerId, playerData] of Object.entries(this.multiplayerState.players)) {
       if (playerId === this.playerId) {
-        console.log("⛔ Skipping own player:", playerId);
         continue;
-      }
-      if (!this.remoteTanks.has(playerId)) {
-        console.log("Processing new remote player:", playerId);
       }
       if (this.remoteTanks.has(playerId)) {
         const remoteTank = this.remoteTanks.get(playerId);
@@ -28932,24 +28916,20 @@ class GameComponent extends LitElement {
           this.updateRemoteTankPosition(remoteTank, playerData);
         }
       } else {
-        console.log("Creating new remote tank for player:", playerId);
         this.createRemoteTank(playerId, playerData);
       }
     }
     for (const [playerId, tank] of this.remoteTanks.entries()) {
       if (!this.multiplayerState.players[playerId]) {
-        console.log("Removing tank for disconnected player:", playerId);
         this.collisionSystem.removeCollider(tank);
         tank.dispose();
         this.remoteTanks.delete(playerId);
       }
     }
-    console.log("After update, remote tanks count:", this.remoteTanks.size);
   }
   createRemoteTank(playerId, playerData) {
     if (!this.scene)
       return;
-    console.log("Creating remote tank for player:", playerId, "with data:", playerData);
     try {
       if (!playerData.position) {
         console.error("Remote player data missing position:", playerData);
@@ -28960,13 +28940,9 @@ class GameComponent extends LitElement {
       if (playerData.color) {
         if (typeof playerData.color === "string" && playerData.color.startsWith("#")) {
           tankColor = parseInt(playerData.color.substring(1), 16);
-          console.log("Parsed color from hex string:", playerData.color, "to", tankColor);
-        } else {
-          console.log("Using default color, received:", playerData.color);
         }
       }
       const tankName = playerData.name || `Player ${playerId.substring(0, 6)}`;
-      console.log("Remote tank name:", tankName);
       const remoteTank = new NPCTank(this.scene, position, tankColor, tankName);
       if (typeof playerData.tankRotation === "number") {
         remoteTank.tank.rotation.y = playerData.tankRotation;
@@ -28980,8 +28956,6 @@ class GameComponent extends LitElement {
       this.addDebugVisualToRemoteTank(remoteTank);
       this.collisionSystem.addCollider(remoteTank);
       this.remoteTanks.set(playerId, remoteTank);
-      console.log("Remote tank created successfully at position:", remoteTank.tank.position);
-      console.log("Current remote tanks count:", this.remoteTanks.size);
     } catch (error) {
       console.error("Error creating remote tank:", error);
       console.error("Problem player data:", playerData);
@@ -29041,7 +29015,9 @@ class GameComponent extends LitElement {
         tank.barrelPivot.rotation.x = this.lerpAngle(tank.barrelPivot.rotation.x, playerData.barrelElevation, 0.2);
       }
       if (typeof playerData.health === "number") {
-        tank.setHealth(playerData.health);
+        if (typeof tank.setHealth === "function") {
+          tank.setHealth(playerData.health);
+        }
       }
     } catch (error) {
       console.error("Error updating remote tank:", error);
@@ -29055,6 +29031,28 @@ class GameComponent extends LitElement {
     if (diff < -Math.PI)
       diff += Math.PI * 2;
     return start + diff * t;
+  }
+  processRemoteShells() {
+    if (!this.scene || !this.multiplayerState?.shells)
+      return;
+    const processedShellIds = new Set;
+    for (const shellState of this.multiplayerState.shells) {
+      if (processedShellIds.has(shellState.id) || shellState.playerId === this.playerId) {
+        continue;
+      }
+      let sourceTank = null;
+      if (this.remoteTanks.has(shellState.playerId)) {
+        sourceTank = this.remoteTanks.get(shellState.playerId) || null;
+      }
+      if (!sourceTank) {
+        continue;
+      }
+      const position = new Vector3(shellState.position.x, shellState.position.y, shellState.position.z);
+      const direction = new Vector3(shellState.direction.x, shellState.direction.y, shellState.direction.z).normalize();
+      const shell = new Shell(this.scene, position, direction, shellState.speed, sourceTank);
+      this.addShell(shell);
+      processedShellIds.add(shellState.id);
+    }
   }
   disconnectedCallback() {
     super.disconnectedCallback();
@@ -29378,10 +29376,13 @@ class GameComponent extends LitElement {
     if (this.camera) {
       window.cameraPosition = this.camera.position;
     }
-    if (this.multiplayerState && this.multiplayerState.players && this.scene && this.gameStateInitialized) {
+    if (this.multiplayerState && this.scene && this.gameStateInitialized) {
       const frameCount = this.renderer?.info.render.frame || 0;
       if (frameCount % 60 === 0) {
         this.updateRemotePlayers();
+      }
+      if (this.multiplayerState.shells && this.multiplayerState.shells.length > 0) {
+        this.processRemoteShells();
       }
     }
     this.updateCrosshairPosition();
@@ -29655,12 +29656,6 @@ class GameComponent extends LitElement {
 __legacyDecorateClassTS([
   query("#canvas")
 ], GameComponent.prototype, "canvas", undefined);
-__legacyDecorateClassTS([
-  property({ type: String, attribute: "game-state", hasChanged(newVal, oldVal) {
-    console.log("gameState property change detected");
-    return true;
-  } })
-], GameComponent.prototype, "gameState", undefined);
 __legacyDecorateClassTS([
   property({ attribute: false })
 ], GameComponent.prototype, "multiplayerState", undefined);

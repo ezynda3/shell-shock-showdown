@@ -43,7 +43,7 @@ func Index() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div style=\"width: 100%; height: calc(100vh - 64px);\" data-signals=\"{update: &#39;&#39;, shellFired: &#39;&#39;, gameState: &#39;&#39; }\" data-on-load=\"@get(&#39;/gamestate&#39;)\"><game-component data-on-player-movement__case.kebab=\"$update = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-shell-fired__case.kebab=\"$shellFired = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-attr-game-state__case.kebab=\"$gameState\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div style=\"width: 100%; height: calc(100vh - 64px);\" data-signals=\"{update: &#39;&#39;, shellFired: &#39;&#39;, gameState: &#39;&#39; }\" data-on-load=\"@get(&#39;/gamestate&#39;, { openWhenHidden: true })\"><game-component data-on-player-movement__case.kebab=\"$update = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-shell-fired__case.kebab=\"$shellFired = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-attr-game-state__case.kebab=\"$gameState\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -68,7 +68,7 @@ func Index() templ.Component {
 					}
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "></game-component></div><div style=\"display: none;\"><!-- Hidden img to preload the sky image --><img id=\"skyImage\" src=\"https://assetstorev1-prd-cdn.unity3d.com/package-screenshot/2fe480c2-6fb9-43da-86cf-bc843b7d7761_scaled.jpg\" crossorigin=\"anonymous\"></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "></game-component></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
