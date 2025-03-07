@@ -25859,6 +25859,19 @@ class Shell {
     if (other === this.owner)
       return;
     this.createExplosion(this.mesh.position.clone());
+    if (other.getType() === "tank") {
+      const tank = other;
+      const tankDestroyed = tank.takeDamage(25);
+      console.log(`Hit tank, damaged to ${tank.getHealth()}%, destroyed: ${tankDestroyed}`);
+      if (tankDestroyed) {
+        const event = new CustomEvent("tank-destroyed", {
+          bubbles: true,
+          composed: true,
+          detail: { tank }
+        });
+        document.dispatchEvent(event);
+      }
+    }
     this.destroy();
   }
   isAlive() {
@@ -25968,6 +25981,10 @@ class Tank {
   reloadCounter = 0;
   SHELL_SPEED = 6;
   BARREL_END_OFFSET = 1.5;
+  health = 100;
+  MAX_HEALTH = 100;
+  isDestroyed = false;
+  destroyedEffects = [];
   scene;
   camera;
   constructor(scene, camera) {
@@ -26041,6 +26058,9 @@ class Tank {
     this.barrel.rotation.x = Math.PI / 2;
   }
   update(keys, colliders) {
+    if (this.isDestroyed) {
+      return null;
+    }
     this.lastPosition.copy(this.tank.position);
     if (!this.canFire) {
       this.reloadCounter++;
@@ -26140,6 +26160,99 @@ class Tank {
   }
   dispose() {
     this.scene.remove(this.tank);
+    for (const effect of this.destroyedEffects) {
+      this.scene.remove(effect);
+    }
+    this.destroyedEffects = [];
+  }
+  takeDamage(amount) {
+    if (this.isDestroyed)
+      return true;
+    this.health -= amount;
+    if (this.health <= 0) {
+      this.health = 0;
+      this.isDestroyed = true;
+      this.createDestroyedEffect();
+      return true;
+    }
+    return false;
+  }
+  getHealth() {
+    return this.health;
+  }
+  respawn(position) {
+    this.health = this.MAX_HEALTH;
+    this.isDestroyed = false;
+    if (position) {
+      this.tank.position.copy(position);
+    } else {
+      this.tank.position.set(0, 0, 0);
+    }
+    this.tank.visible = true;
+    this.collider.center.copy(this.tank.position);
+    for (const effect of this.destroyedEffects) {
+      this.scene.remove(effect);
+    }
+    this.destroyedEffects = [];
+  }
+  createDestroyedEffect() {
+    this.tank.visible = false;
+    const particleCount = 50;
+    const smokeGeometry = new BufferGeometry;
+    const smokePositions = new Float32Array(particleCount * 3);
+    const smokeColors = new Float32Array(particleCount * 3);
+    for (let i = 0;i < particleCount; i++) {
+      const i3 = i * 3;
+      const radius = 1.5;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      smokePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
+      smokePositions[i3 + 1] = this.tank.position.y + radius * Math.cos(phi) + 1;
+      smokePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
+      const darkness = 0.1 + Math.random() * 0.2;
+      smokeColors[i3] = darkness;
+      smokeColors[i3 + 1] = darkness;
+      smokeColors[i3 + 2] = darkness;
+    }
+    smokeGeometry.setAttribute("position", new BufferAttribute(smokePositions, 3));
+    smokeGeometry.setAttribute("color", new BufferAttribute(smokeColors, 3));
+    const smokeMaterial = new PointsMaterial({
+      size: 0.7,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.8
+    });
+    const smokeParticles = new Points(smokeGeometry, smokeMaterial);
+    this.scene.add(smokeParticles);
+    this.destroyedEffects.push(smokeParticles);
+    const fireCount = 30;
+    const fireGeometry = new BufferGeometry;
+    const firePositions = new Float32Array(fireCount * 3);
+    const fireColors = new Float32Array(fireCount * 3);
+    for (let i = 0;i < fireCount; i++) {
+      const i3 = i * 3;
+      const radius = 1;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI / 2;
+      firePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
+      firePositions[i3 + 1] = this.tank.position.y + 0.5;
+      firePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
+      fireColors[i3] = 0.9 + Math.random() * 0.1;
+      fireColors[i3 + 1] = 0.3 + Math.random() * 0.3;
+      fireColors[i3 + 2] = 0;
+    }
+    fireGeometry.setAttribute("position", new BufferAttribute(firePositions, 3));
+    fireGeometry.setAttribute("color", new BufferAttribute(fireColors, 3));
+    const fireMaterial = new PointsMaterial({
+      size: 0.5,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.9,
+      blending: AdditiveBlending
+    });
+    const fireParticles = new Points(fireGeometry, fireMaterial);
+    this.scene.add(fireParticles);
+    this.destroyedEffects.push(fireParticles);
   }
   visualizeCollider() {
     const geometry = new SphereGeometry(this.collisionRadius, 16, 16);
@@ -26189,6 +26302,12 @@ class NPCTank {
   BARREL_END_OFFSET = 1.5;
   FIRE_PROBABILITY = 0.01;
   TARGETING_DISTANCE = 300;
+  health = 100;
+  MAX_HEALTH = 100;
+  isDestroyed = false;
+  destroyedEffects = [];
+  healthBar;
+  healthBarBackground;
   scene;
   constructor(scene, position, color = 16711680) {
     this.scene = scene;
@@ -26206,7 +26325,46 @@ class NPCTank {
     if (this.movementPattern === "patrol") {
       this.setupPatrolPoints();
     }
+    this.createHealthBar();
     scene.add(this.tank);
+  }
+  createHealthBar() {
+    const healthBarGroup = new Group;
+    const bgGeometry = new PlaneGeometry(2, 0.2);
+    const bgMaterial = new MeshBasicMaterial({
+      color: 0,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false
+    });
+    this.healthBarBackground = new Mesh(bgGeometry, bgMaterial);
+    const barGeometry = new PlaneGeometry(2, 0.2);
+    const barMaterial = new MeshBasicMaterial({
+      color: 65280,
+      transparent: true,
+      opacity: 0.8,
+      depthWrite: false
+    });
+    this.healthBar = new Mesh(barGeometry, barMaterial);
+    this.healthBar.position.z = 0.01;
+    healthBarGroup.add(this.healthBarBackground);
+    healthBarGroup.add(this.healthBar);
+    healthBarGroup.position.y = 3;
+    healthBarGroup.rotation.x = -Math.PI / 2;
+    this.tank.add(healthBarGroup);
+    this.updateHealthBar();
+  }
+  updateHealthBar() {
+    const healthPercent = this.health / this.MAX_HEALTH;
+    this.healthBar.scale.x = healthPercent;
+    const material = this.healthBar.material;
+    if (healthPercent > 0.6) {
+      material.color.setHex(65280);
+    } else if (healthPercent > 0.3) {
+      material.color.setHex(16776960);
+    } else {
+      material.color.setHex(16711680);
+    }
   }
   createTank() {
     const bodyGeometry = new BoxGeometry(2, 0.75, 3);
@@ -26285,6 +26443,9 @@ class NPCTank {
   }
   update(keys, colliders) {
     this.movementTimer++;
+    if (this.isDestroyed) {
+      return null;
+    }
     this.lastPosition.copy(this.tank.position);
     if (!this.canFire) {
       this.reloadCounter++;
@@ -26467,6 +26628,105 @@ class NPCTank {
   }
   dispose() {
     this.scene.remove(this.tank);
+    for (const effect of this.destroyedEffects) {
+      this.scene.remove(effect);
+    }
+    this.destroyedEffects = [];
+  }
+  takeDamage(amount) {
+    if (this.isDestroyed)
+      return true;
+    this.health -= amount;
+    if (this.health <= 0) {
+      this.health = 0;
+      this.isDestroyed = true;
+      this.createDestroyedEffect();
+      return true;
+    }
+    this.updateHealthBar();
+    return false;
+  }
+  getHealth() {
+    return this.health;
+  }
+  respawn(position) {
+    this.health = this.MAX_HEALTH;
+    this.isDestroyed = false;
+    if (position) {
+      this.tank.position.copy(position);
+    } else {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 200 + Math.random() * 300;
+      this.tank.position.set(Math.cos(angle) * distance, 0, Math.sin(angle) * distance);
+    }
+    this.tank.visible = true;
+    this.collider.center.copy(this.tank.position);
+    this.lastPosition.copy(this.tank.position);
+    this.updateHealthBar();
+    for (const effect of this.destroyedEffects) {
+      this.scene.remove(effect);
+    }
+    this.destroyedEffects = [];
+  }
+  createDestroyedEffect() {
+    this.tank.visible = false;
+    this.healthBar.scale.x = 0;
+    const particleCount = 40;
+    const smokeGeometry = new BufferGeometry;
+    const smokePositions = new Float32Array(particleCount * 3);
+    const smokeColors = new Float32Array(particleCount * 3);
+    for (let i = 0;i < particleCount; i++) {
+      const i3 = i * 3;
+      const radius = 1.5;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      smokePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
+      smokePositions[i3 + 1] = this.tank.position.y + radius * Math.cos(phi) + 1;
+      smokePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
+      const darkness = 0.1 + Math.random() * 0.2;
+      smokeColors[i3] = darkness;
+      smokeColors[i3 + 1] = darkness;
+      smokeColors[i3 + 2] = darkness;
+    }
+    smokeGeometry.setAttribute("position", new BufferAttribute(smokePositions, 3));
+    smokeGeometry.setAttribute("color", new BufferAttribute(smokeColors, 3));
+    const smokeMaterial = new PointsMaterial({
+      size: 0.7,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.8
+    });
+    const smokeParticles = new Points(smokeGeometry, smokeMaterial);
+    this.scene.add(smokeParticles);
+    this.destroyedEffects.push(smokeParticles);
+    const fireCount = 25;
+    const fireGeometry = new BufferGeometry;
+    const firePositions = new Float32Array(fireCount * 3);
+    const fireColors = new Float32Array(fireCount * 3);
+    for (let i = 0;i < fireCount; i++) {
+      const i3 = i * 3;
+      const radius = 1;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI / 2;
+      firePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
+      firePositions[i3 + 1] = this.tank.position.y + 0.5;
+      firePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
+      fireColors[i3] = 0.9 + Math.random() * 0.1;
+      fireColors[i3 + 1] = 0.3 + Math.random() * 0.3;
+      fireColors[i3 + 2] = 0;
+    }
+    fireGeometry.setAttribute("position", new BufferAttribute(firePositions, 3));
+    fireGeometry.setAttribute("color", new BufferAttribute(fireColors, 3));
+    const fireMaterial = new PointsMaterial({
+      size: 0.5,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.9,
+      blending: AdditiveBlending
+    });
+    const fireParticles = new Points(fireGeometry, fireMaterial);
+    this.scene.add(fireParticles);
+    this.destroyedEffects.push(fireParticles);
   }
 }
 
@@ -26659,6 +26919,9 @@ class GameComponent extends LitElement {
   collisionSystem = new CollisionSystem;
   mapGenerator;
   activeShells = [];
+  playerDestroyed = false;
+  respawnTimer = 0;
+  RESPAWN_TIME = 300;
   keys = {};
   skyColor = new Color(8900331);
   static styles = css`
@@ -26685,6 +26948,42 @@ class GameComponent extends LitElement {
       font-family: monospace;
       pointer-events: none;
     }
+    
+    .game-over {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      pointer-events: none;
+      transition: opacity 0.5s ease-in-out;
+      opacity: 0;
+      background-color: rgba(0, 0, 0, 0.3);
+    }
+    
+    .game-over.visible {
+      opacity: 1;
+    }
+    
+    .wasted-text {
+      font-family: "Pricedown", Impact, sans-serif;
+      font-size: 8rem;
+      color: #FF0000;
+      text-transform: uppercase;
+      text-shadow: 3px 3px 5px rgba(0, 0, 0, 0.8);
+      transform: skewY(-5deg);
+      letter-spacing: 5px;
+      animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 0.8; transform: scale(1) skewY(-5deg); }
+      50% { opacity: 1; transform: scale(1.05) skewY(-5deg); }
+      100% { opacity: 0.8; transform: scale(1) skewY(-5deg); }
+    }
   `;
   render() {
     return html`
@@ -26697,12 +26996,17 @@ class GameComponent extends LitElement {
         <div>↑/↓: Raise/lower barrel</div>
         <div>Space or F: Fire shell</div>
       </div>
+      <div class="game-over ${this.playerDestroyed ? "visible" : ""}">
+        <div class="wasted-text">Wasted</div>
+      </div>
     `;
   }
   firstUpdated() {
     this.initThree();
     this.initKeyboardControls();
     this.animate();
+    this.handleTankDestroyed = this.handleTankDestroyed.bind(this);
+    document.addEventListener("tank-destroyed", this.handleTankDestroyed);
   }
   disconnectedCallback() {
     super.disconnectedCallback();
@@ -26712,6 +27016,7 @@ class GameComponent extends LitElement {
     window.removeEventListener("keydown", this.handleKeyDown);
     window.removeEventListener("keyup", this.handleKeyUp);
     window.removeEventListener("resize", this.handleResize);
+    document.removeEventListener("tank-destroyed", this.handleTankDestroyed);
     if (this.playerTank) {
       this.collisionSystem.removeCollider(this.playerTank);
       this.playerTank.dispose();
@@ -26874,10 +27179,20 @@ class GameComponent extends LitElement {
     this.collisionSystem.checkCollisions();
     const allColliders = this.collisionSystem.getColliders();
     if (this.playerTank) {
-      const newShell = this.playerTank.update(this.keys, allColliders);
-      if (newShell) {
-        console.log("New shell created, adding to game");
-        this.addShell(newShell);
+      if (this.playerDestroyed) {
+        this.respawnTimer++;
+        if (this.respawnTimer >= this.RESPAWN_TIME) {
+          this.playerTank.respawn();
+          this.playerDestroyed = false;
+          this.respawnTimer = 0;
+          this.requestUpdate();
+        }
+      } else {
+        const newShell = this.playerTank.update(this.keys, allColliders);
+        if (newShell) {
+          console.log("New shell created, adding to game");
+          this.addShell(newShell);
+        }
       }
       if (this.camera) {
         this.playerTank.updateCamera(this.camera);
@@ -26918,6 +27233,23 @@ class GameComponent extends LitElement {
       if (!isActive) {
         this.collisionSystem.removeCollider(shell);
         this.activeShells.splice(i, 1);
+      }
+    }
+  }
+  handleTankDestroyed(event) {
+    const { tank } = event.detail;
+    if (tank === this.playerTank) {
+      console.log("Player tank destroyed!");
+      this.playerDestroyed = true;
+      this.respawnTimer = 0;
+      this.requestUpdate();
+    } else {
+      console.log("NPC tank destroyed!");
+      const npcIndex = this.npcTanks.findIndex((npc) => npc === tank);
+      if (npcIndex !== -1) {
+        setTimeout(() => {
+          this.npcTanks[npcIndex].respawn();
+        }, 2000);
       }
     }
   }

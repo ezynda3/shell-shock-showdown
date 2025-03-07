@@ -14,6 +14,9 @@ export interface ITank extends ICollidable {
   tank: THREE.Group;
   update(keys?: { [key: string]: boolean }, colliders?: ICollidable[]): Shell | null;
   dispose(): void;
+  takeDamage(amount: number): boolean; // Returns true if tank is destroyed
+  getHealth(): number; // Returns current health percentage (0-100)
+  respawn(position?: THREE.Vector3): void; // Respawn the tank
 }
 
 export class Tank implements ITank {
@@ -44,6 +47,12 @@ export class Tank implements ITank {
   private reloadCounter = 0;
   private readonly SHELL_SPEED = 6.0; // 4x from 1.5 for much longer range
   private readonly BARREL_END_OFFSET = 1.5; // Distance from turret pivot to end of barrel
+  
+  // Health properties
+  private health: number = 100; // Full health
+  private readonly MAX_HEALTH: number = 100;
+  private isDestroyed: boolean = false;
+  private destroyedEffects: THREE.Object3D[] = [];
   
   private scene: THREE.Scene;
   private camera?: THREE.PerspectiveCamera;
@@ -158,6 +167,11 @@ export class Tank implements ITank {
 
 
   update(keys: { [key: string]: boolean }, colliders?: ICollidable[]): Shell | null {
+    // If tank is destroyed, don't process movement or firing
+    if (this.isDestroyed) {
+      return null;
+    }
+    
     // Store the current position before movement
     this.lastPosition.copy(this.tank.position);
     
@@ -369,6 +383,137 @@ export class Tank implements ITank {
   dispose() {
     // Clean up resources
     this.scene.remove(this.tank);
+    
+    // Clean up any destroyed effects
+    for (const effect of this.destroyedEffects) {
+      this.scene.remove(effect);
+    }
+    this.destroyedEffects = [];
+  }
+  
+  // Health methods
+  takeDamage(amount: number): boolean {
+    if (this.isDestroyed) return true;
+    
+    this.health -= amount;
+    if (this.health <= 0) {
+      this.health = 0;
+      this.isDestroyed = true;
+      this.createDestroyedEffect();
+      return true;
+    }
+    return false;
+  }
+  
+  getHealth(): number {
+    return this.health;
+  }
+  
+  respawn(position?: THREE.Vector3): void {
+    // Reset health
+    this.health = this.MAX_HEALTH;
+    this.isDestroyed = false;
+    
+    // Reset position if provided
+    if (position) {
+      this.tank.position.copy(position);
+    } else {
+      // Default respawn at origin
+      this.tank.position.set(0, 0, 0);
+    }
+    
+    // Make tank visible again
+    this.tank.visible = true;
+    
+    // Reset collider
+    this.collider.center.copy(this.tank.position);
+    
+    // Remove destroyed effects
+    for (const effect of this.destroyedEffects) {
+      this.scene.remove(effect);
+    }
+    this.destroyedEffects = [];
+  }
+  
+  private createDestroyedEffect(): void {
+    // Hide the tank
+    this.tank.visible = false;
+    
+    // Create black smoke particle system
+    const particleCount = 50;
+    const smokeGeometry = new THREE.BufferGeometry();
+    const smokePositions = new Float32Array(particleCount * 3);
+    const smokeColors = new Float32Array(particleCount * 3);
+    
+    // Create random positions within a sphere
+    for (let i = 0; i < particleCount; i++) {
+      const i3 = i * 3;
+      const radius = 1.5;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      
+      smokePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
+      smokePositions[i3 + 1] = this.tank.position.y + radius * Math.cos(phi) + 1; // Slightly above ground
+      smokePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
+      
+      // Dark smoke color (dark gray to black)
+      const darkness = 0.1 + Math.random() * 0.2;
+      smokeColors[i3] = darkness;
+      smokeColors[i3 + 1] = darkness;
+      smokeColors[i3 + 2] = darkness;
+    }
+    
+    smokeGeometry.setAttribute('position', new THREE.BufferAttribute(smokePositions, 3));
+    smokeGeometry.setAttribute('color', new THREE.BufferAttribute(smokeColors, 3));
+    
+    const smokeMaterial = new THREE.PointsMaterial({
+      size: 0.7,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.8
+    });
+    
+    const smokeParticles = new THREE.Points(smokeGeometry, smokeMaterial);
+    this.scene.add(smokeParticles);
+    this.destroyedEffects.push(smokeParticles);
+    
+    // Create fire effect (orange-red particles)
+    const fireCount = 30;
+    const fireGeometry = new THREE.BufferGeometry();
+    const firePositions = new Float32Array(fireCount * 3);
+    const fireColors = new Float32Array(fireCount * 3);
+    
+    // Create random positions for fire (concentrated lower)
+    for (let i = 0; i < fireCount; i++) {
+      const i3 = i * 3;
+      const radius = 1.0;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI / 2; // Concentrate in lower hemisphere
+      
+      firePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
+      firePositions[i3 + 1] = this.tank.position.y + 0.5; // Lower than smoke
+      firePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
+      
+      // Fire colors (orange to red)
+      fireColors[i3] = 0.9 + Math.random() * 0.1; // Red
+      fireColors[i3 + 1] = 0.3 + Math.random() * 0.3; // Green
+      fireColors[i3 + 2] = 0; // No blue
+    }
+    
+    fireGeometry.setAttribute('position', new THREE.BufferAttribute(firePositions, 3));
+    fireGeometry.setAttribute('color', new THREE.BufferAttribute(fireColors, 3));
+    
+    const fireMaterial = new THREE.PointsMaterial({
+      size: 0.5,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending
+    });
+    
+    const fireParticles = new THREE.Points(fireGeometry, fireMaterial);
+    this.scene.add(fireParticles);
+    this.destroyedEffects.push(fireParticles);
   }
   
   // Debug helper to visualize the collision sphere (for development)
@@ -429,6 +574,16 @@ export class NPCTank implements ITank {
   private readonly BARREL_END_OFFSET = 1.5; // Distance from turret pivot to end of barrel
   private readonly FIRE_PROBABILITY = 0.01; // 1% chance to fire each frame when canFire is true
   private readonly TARGETING_DISTANCE = 300; // Increased from 100 to match new shell range
+  
+  // Health properties
+  private health: number = 100; // Full health
+  private readonly MAX_HEALTH: number = 100;
+  private isDestroyed: boolean = false;
+  private destroyedEffects: THREE.Object3D[] = [];
+  
+  // Health bar display
+  private healthBar: THREE.Mesh;
+  private healthBarBackground: THREE.Mesh;
 
   private scene: THREE.Scene;
 
@@ -463,8 +618,77 @@ export class NPCTank implements ITank {
       this.setupPatrolPoints();
     }
     
+    // Create health bar
+    this.createHealthBar();
+    
     // Add to scene
     scene.add(this.tank);
+  }
+  
+  private createHealthBar(): void {
+    // Create a group for the health bar that will follow the tank
+    const healthBarGroup = new THREE.Group();
+    
+    // Background bar (black)
+    const bgGeometry = new THREE.PlaneGeometry(2.0, 0.2);
+    const bgMaterial = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false
+    });
+    this.healthBarBackground = new THREE.Mesh(bgGeometry, bgMaterial);
+    
+    // Actual health bar (green)
+    const barGeometry = new THREE.PlaneGeometry(2.0, 0.2);
+    const barMaterial = new THREE.MeshBasicMaterial({
+      color: 0x00ff00,
+      transparent: true,
+      opacity: 0.8,
+      depthWrite: false
+    });
+    this.healthBar = new THREE.Mesh(barGeometry, barMaterial);
+    
+    // Position slightly in front so it doesn't z-fight with the background
+    this.healthBar.position.z = 0.01;
+    
+    // Add bars to group
+    healthBarGroup.add(this.healthBarBackground);
+    healthBarGroup.add(this.healthBar);
+    
+    // Position above tank
+    healthBarGroup.position.y = 3.0;
+    
+    // Rotate to face upward
+    healthBarGroup.rotation.x = -Math.PI / 2;
+    
+    // Add to tank so it moves with it
+    this.tank.add(healthBarGroup);
+    
+    // Update health bar initially
+    this.updateHealthBar();
+  }
+  
+  private updateHealthBar(): void {
+    // Scale the health bar based on current health percentage
+    const healthPercent = this.health / this.MAX_HEALTH;
+    
+    // Scale width only, from the center
+    this.healthBar.scale.x = healthPercent;
+    
+    // Change color based on health
+    const material = this.healthBar.material as THREE.MeshBasicMaterial;
+    
+    if (healthPercent > 0.6) {
+      // Green for high health
+      material.color.setHex(0x00ff00);
+    } else if (healthPercent > 0.3) {
+      // Yellow for medium health
+      material.color.setHex(0xffff00);
+    } else {
+      // Red for low health
+      material.color.setHex(0xff0000);
+    }
   }
 
   private createTank() {
@@ -579,6 +803,11 @@ export class NPCTank implements ITank {
 
   update(keys?: { [key: string]: boolean }, colliders?: ICollidable[]): Shell | null {
     this.movementTimer++;
+    
+    // If tank is destroyed, don't process movement or firing
+    if (this.isDestroyed) {
+      return null;
+    }
     
     // Store the current position before movement
     this.lastPosition.copy(this.tank.position);
@@ -923,5 +1152,153 @@ export class NPCTank implements ITank {
   dispose() {
     // Clean up resources
     this.scene.remove(this.tank);
+    
+    // Clean up any destroyed effects
+    for (const effect of this.destroyedEffects) {
+      this.scene.remove(effect);
+    }
+    this.destroyedEffects = [];
+  }
+  
+  // Health methods
+  takeDamage(amount: number): boolean {
+    if (this.isDestroyed) return true;
+    
+    this.health -= amount;
+    if (this.health <= 0) {
+      this.health = 0;
+      this.isDestroyed = true;
+      this.createDestroyedEffect();
+      return true;
+    }
+    
+    // Update health bar
+    this.updateHealthBar();
+    
+    return false;
+  }
+  
+  getHealth(): number {
+    return this.health;
+  }
+  
+  respawn(position?: THREE.Vector3): void {
+    // Reset health
+    this.health = this.MAX_HEALTH;
+    this.isDestroyed = false;
+    
+    // Reset position if provided, otherwise use random position
+    if (position) {
+      this.tank.position.copy(position);
+    } else {
+      // Generate a random position within a certain radius
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 200 + Math.random() * 300;
+      this.tank.position.set(
+        Math.cos(angle) * distance,
+        0,
+        Math.sin(angle) * distance
+      );
+    }
+    
+    // Make tank visible again
+    this.tank.visible = true;
+    
+    // Reset collider
+    this.collider.center.copy(this.tank.position);
+    this.lastPosition.copy(this.tank.position);
+    
+    // Update health bar
+    this.updateHealthBar();
+    
+    // Remove destroyed effects
+    for (const effect of this.destroyedEffects) {
+      this.scene.remove(effect);
+    }
+    this.destroyedEffects = [];
+  }
+  
+  private createDestroyedEffect(): void {
+    // Hide the tank
+    this.tank.visible = false;
+    
+    // Hide the health bar by setting it to zero width
+    this.healthBar.scale.x = 0;
+    
+    // Create black smoke particle system
+    const particleCount = 40;
+    const smokeGeometry = new THREE.BufferGeometry();
+    const smokePositions = new Float32Array(particleCount * 3);
+    const smokeColors = new Float32Array(particleCount * 3);
+    
+    // Create random positions within a sphere
+    for (let i = 0; i < particleCount; i++) {
+      const i3 = i * 3;
+      const radius = 1.5;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      
+      smokePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
+      smokePositions[i3 + 1] = this.tank.position.y + radius * Math.cos(phi) + 1; // Slightly above ground
+      smokePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
+      
+      // Dark smoke color (dark gray to black)
+      const darkness = 0.1 + Math.random() * 0.2;
+      smokeColors[i3] = darkness;
+      smokeColors[i3 + 1] = darkness;
+      smokeColors[i3 + 2] = darkness;
+    }
+    
+    smokeGeometry.setAttribute('position', new THREE.BufferAttribute(smokePositions, 3));
+    smokeGeometry.setAttribute('color', new THREE.BufferAttribute(smokeColors, 3));
+    
+    const smokeMaterial = new THREE.PointsMaterial({
+      size: 0.7,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.8
+    });
+    
+    const smokeParticles = new THREE.Points(smokeGeometry, smokeMaterial);
+    this.scene.add(smokeParticles);
+    this.destroyedEffects.push(smokeParticles);
+    
+    // Create fire effect (orange-red particles)
+    const fireCount = 25;
+    const fireGeometry = new THREE.BufferGeometry();
+    const firePositions = new Float32Array(fireCount * 3);
+    const fireColors = new Float32Array(fireCount * 3);
+    
+    // Create random positions for fire (concentrated lower)
+    for (let i = 0; i < fireCount; i++) {
+      const i3 = i * 3;
+      const radius = 1.0;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI / 2; // Concentrate in lower hemisphere
+      
+      firePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
+      firePositions[i3 + 1] = this.tank.position.y + 0.5; // Lower than smoke
+      firePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
+      
+      // Fire colors (orange to red)
+      fireColors[i3] = 0.9 + Math.random() * 0.1; // Red
+      fireColors[i3 + 1] = 0.3 + Math.random() * 0.3; // Green
+      fireColors[i3 + 2] = 0; // No blue
+    }
+    
+    fireGeometry.setAttribute('position', new THREE.BufferAttribute(firePositions, 3));
+    fireGeometry.setAttribute('color', new THREE.BufferAttribute(fireColors, 3));
+    
+    const fireMaterial = new THREE.PointsMaterial({
+      size: 0.5,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending
+    });
+    
+    const fireParticles = new THREE.Points(fireGeometry, fireMaterial);
+    this.scene.add(fireParticles);
+    this.destroyedEffects.push(fireParticles);
   }
 }

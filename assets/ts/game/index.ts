@@ -40,6 +40,11 @@ export class GameComponent extends LitElement {
   // Shells management
   private activeShells: Shell[] = [];
   
+  // Game state
+  private playerDestroyed = false;
+  private respawnTimer = 0;
+  private readonly RESPAWN_TIME = 300; // 5 seconds at 60fps
+  
   // Control state
   private keys: { [key: string]: boolean } = {};
   
@@ -71,6 +76,42 @@ export class GameComponent extends LitElement {
       font-family: monospace;
       pointer-events: none;
     }
+    
+    .game-over {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      pointer-events: none;
+      transition: opacity 0.5s ease-in-out;
+      opacity: 0;
+      background-color: rgba(0, 0, 0, 0.3);
+    }
+    
+    .game-over.visible {
+      opacity: 1;
+    }
+    
+    .wasted-text {
+      font-family: "Pricedown", Impact, sans-serif;
+      font-size: 8rem;
+      color: #FF0000;
+      text-transform: uppercase;
+      text-shadow: 3px 3px 5px rgba(0, 0, 0, 0.8);
+      transform: skewY(-5deg);
+      letter-spacing: 5px;
+      animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 0.8; transform: scale(1) skewY(-5deg); }
+      50% { opacity: 1; transform: scale(1.05) skewY(-5deg); }
+      100% { opacity: 0.8; transform: scale(1) skewY(-5deg); }
+    }
   `;
 
   render() {
@@ -84,6 +125,9 @@ export class GameComponent extends LitElement {
         <div>↑/↓: Raise/lower barrel</div>
         <div>Space or F: Fire shell</div>
       </div>
+      <div class="game-over ${this.playerDestroyed ? 'visible' : ''}">
+        <div class="wasted-text">Wasted</div>
+      </div>
     `;
   }
 
@@ -91,6 +135,10 @@ export class GameComponent extends LitElement {
     this.initThree();
     this.initKeyboardControls();
     this.animate();
+    
+    // Listen for tank destroyed events
+    this.handleTankDestroyed = this.handleTankDestroyed.bind(this);
+    document.addEventListener('tank-destroyed', this.handleTankDestroyed);
   }
 
   disconnectedCallback() {
@@ -103,6 +151,7 @@ export class GameComponent extends LitElement {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
     window.removeEventListener('resize', this.handleResize);
+    document.removeEventListener('tank-destroyed', this.handleTankDestroyed);
     
     // Clean up Tank resources
     if (this.playerTank) {
@@ -398,14 +447,28 @@ export class GameComponent extends LitElement {
     
     // Update player tank with current key states
     if (this.playerTank) {
-      // Update tank and check if shell was fired
-      const newShell = this.playerTank.update(this.keys, allColliders);
-      if (newShell) {
-        console.log('New shell created, adding to game');
-        this.addShell(newShell);
+      if (this.playerDestroyed) {
+        // If player is destroyed, handle respawn timer
+        this.respawnTimer++;
+        if (this.respawnTimer >= this.RESPAWN_TIME) {
+          // Time to respawn
+          this.playerTank.respawn();
+          this.playerDestroyed = false;
+          this.respawnTimer = 0;
+          
+          // Force UI refresh
+          this.requestUpdate();
+        }
+      } else {
+        // Update tank and check if shell was fired
+        const newShell = this.playerTank.update(this.keys, allColliders);
+        if (newShell) {
+          console.log('New shell created, adding to game');
+          this.addShell(newShell);
+        }
       }
       
-      // Update camera position to follow tank
+      // Always update camera, even when destroyed
       if (this.camera) {
         this.playerTank.updateCamera(this.camera);
       }
@@ -469,6 +532,33 @@ export class GameComponent extends LitElement {
       if (!isActive) {
         this.collisionSystem.removeCollider(shell);
         this.activeShells.splice(i, 1);
+      }
+    }
+  }
+  
+  // Handle tank destroyed events from shells
+  private handleTankDestroyed(event: CustomEvent) {
+    const { tank } = event.detail;
+    
+    // Check if this is the player tank
+    if (tank === this.playerTank) {
+      console.log('Player tank destroyed!');
+      this.playerDestroyed = true;
+      this.respawnTimer = 0;
+      
+      // Force UI refresh to show WASTED screen
+      this.requestUpdate();
+    } else {
+      // It's an NPC tank
+      console.log('NPC tank destroyed!');
+      
+      // Find the NPC tank in our array
+      const npcIndex = this.npcTanks.findIndex(npc => npc === tank);
+      if (npcIndex !== -1) {
+        // Respawn the NPC tank at a random location
+        setTimeout(() => {
+          this.npcTanks[npcIndex].respawn();
+        }, 2000); // 2 second delay before respawn
       }
     }
   }
