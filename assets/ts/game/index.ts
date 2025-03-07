@@ -190,9 +190,9 @@ export class GameComponent extends LitElement {
           <div class="controls">
             <div>W: Forward, S: Backward</div>
             <div>A: Rotate tank left, D: Rotate tank right</div>
-            <div>←/→: Rotate turret left/right</div>
-            <div>↑/↓: Raise/lower barrel</div>
-            <div>Space or F: Fire shell</div>
+            <div>Mouse: Aim turret and barrel</div>
+            <div>Left Click or Space: Fire shell</div>
+            <div>Click canvas to lock pointer</div>
           </div>
           <div class="game-over ${this.playerDestroyed ? 'visible' : ''}">
             <div class="wasted-text">Wasted</div>
@@ -231,6 +231,26 @@ export class GameComponent extends LitElement {
     window.removeEventListener('resize', this.handleResize);
     document.removeEventListener('tank-destroyed', this.handleTankDestroyed);
     document.removeEventListener('tank-hit', this.handleTankHit);
+    
+    // Remove pointer lock related event listeners
+    document.removeEventListener('pointerlockchange', this.handlePointerLockChange);
+    document.removeEventListener('mozpointerlockchange', this.handlePointerLockChange);
+    document.removeEventListener('webkitpointerlockchange', this.handlePointerLockChange);
+    
+    // Remove mouse events from both document and canvas
+    document.removeEventListener('mousemove', this.handleMouseMove);
+    document.removeEventListener('mousedown', this.handleMouseDown);
+    document.removeEventListener('mouseup', this.handleMouseUp);
+    
+    // Remove canvas-specific event listeners
+    this.canvas.removeEventListener('mousemove', this.handleMouseMove);
+    this.canvas.removeEventListener('mousedown', this.handleMouseDown);
+    this.canvas.removeEventListener('mouseup', this.handleMouseUp);
+    
+    // Exit pointer lock if active
+    if (document.pointerLockElement === this.canvas) {
+      document.exitPointerLock();
+    }
     
     // Clean up Tank resources
     if (this.playerTank) {
@@ -454,9 +474,18 @@ export class GameComponent extends LitElement {
     this.camera.lookAt(this.playerTank.tank.position);
   }
   
+  // Pointer lock variables
+  private isPointerLocked = false;
+  private mouseX = 0;
+  private mouseY = 0;
+  
   private initKeyboardControls() {
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handleKeyUp = this.handleKeyUp.bind(this);
+    this.handlePointerLockChange = this.handlePointerLockChange.bind(this);
+    this.handleMouseMove = this.handleMouseMove.bind(this);
+    this.handleMouseDown = this.handleMouseDown.bind(this);
+    this.handleMouseUp = this.handleMouseUp.bind(this);
     
     window.addEventListener('keydown', this.handleKeyDown, { capture: true });
     window.addEventListener('keyup', this.handleKeyUp, { capture: true });
@@ -465,6 +494,39 @@ export class GameComponent extends LitElement {
     this.keys['space'] = false;
     this.keys[' '] = false;
     this.keys['f'] = false;
+    this.keys['mousefire'] = false;
+    
+    // Set up pointer lock
+    document.addEventListener('pointerlockchange', this.handlePointerLockChange);
+    document.addEventListener('mozpointerlockchange', this.handlePointerLockChange);
+    document.addEventListener('webkitpointerlockchange', this.handlePointerLockChange);
+    
+    // Wait for the firstUpdated to complete to ensure canvas is available
+    setTimeout(() => {
+      console.log('Setting up mouse events on canvas', this.canvas);
+      
+      // Add click handler to canvas for requesting pointer lock
+      this.canvas.addEventListener('click', () => {
+        console.log('Canvas clicked, requesting pointer lock');
+        if (!this.isPointerLocked) {
+          try {
+            this.canvas.requestPointerLock();
+          } catch (e) {
+            console.error('Error requesting pointer lock:', e);
+          }
+        }
+      });
+      
+      // Add mouse handlers directly to the canvas for better event capture
+      this.canvas.addEventListener('mousemove', this.handleMouseMove);
+      this.canvas.addEventListener('mousedown', this.handleMouseDown);
+      this.canvas.addEventListener('mouseup', this.handleMouseUp);
+      
+      // Also add to document as fallback
+      document.addEventListener('mousemove', this.handleMouseMove);
+      document.addEventListener('mousedown', this.handleMouseDown);
+      document.addEventListener('mouseup', this.handleMouseUp);
+    }, 100);
   }
   
   private handleKeyDown(event: KeyboardEvent) {
@@ -497,6 +559,83 @@ export class GameComponent extends LitElement {
     }
     
     console.log('Key up:', key);
+  }
+  
+  private handlePointerLockChange() {
+    // Check if the pointer is now locked
+    this.isPointerLocked = 
+      document.pointerLockElement === this.canvas ||
+      (document as any).mozPointerLockElement === this.canvas ||
+      (document as any).webkitPointerLockElement === this.canvas;
+    
+    console.log('Pointer lock state changed:', this.isPointerLocked ? 'locked' : 'unlocked');
+  }
+  
+  private handleMouseMove(event: MouseEvent) {
+    // Log mouse movement even when not locked for debugging
+    console.log('Mouse move event received', {
+      movementX: event.movementX,
+      movementY: event.movementY,
+      isPointerLocked: this.isPointerLocked,
+      hasPlayerTank: !!this.playerTank
+    });
+    
+    // Skip actual turret movement if not pointer locked
+    if (!this.playerTank) return;
+    
+    // Get mouse movement deltas
+    const movementX = event.movementX || (event as any).mozMovementX || (event as any).webkitMovementX || 0;
+    const movementY = event.movementY || (event as any).mozMovementY || (event as any).webkitMovementY || 0;
+    
+    // Update mouse position
+    this.mouseX += movementX;
+    this.mouseY += movementY;
+    
+    // Apply turret rotation based on mouse X movement even when not locked (for testing)
+    // A sensitivity factor to adjust how fast the turret rotates
+    const turretSensitivity = 0.003;
+    if (this.playerTank.turretPivot) {
+      this.playerTank.turretPivot.rotation.y -= movementX * turretSensitivity;
+    }
+    
+    // Apply barrel elevation based on mouse Y movement
+    const barrelSensitivity = 0.002;
+    if (this.playerTank.barrelPivot) {
+      // Note: We limit the barrel elevation in the Tank class
+      this.playerTank.barrelPivot.rotation.x = Math.max(
+        this.playerTank.getMinBarrelElevation(),
+        Math.min(
+          this.playerTank.getMaxBarrelElevation(),
+          this.playerTank.barrelPivot.rotation.x + movementY * barrelSensitivity
+        )
+      );
+    }
+  }
+  
+  private handleMouseDown(event: MouseEvent) {
+    // Log all mouse down events for debugging
+    console.log('Mouse down event received', {
+      button: event.button,
+      isPointerLocked: this.isPointerLocked
+    });
+    
+    // Handle left mouse button (button 0) even when not locked (for testing)
+    if (event.button === 0) {
+      this.keys['mousefire'] = true;
+    }
+  }
+  
+  private handleMouseUp(event: MouseEvent) {
+    // Log all mouse up events for debugging
+    console.log('Mouse up event received', {
+      button: event.button,
+      isPointerLocked: this.isPointerLocked
+    });
+    
+    // Only handle left mouse button (button 0)
+    if (event.button === 0) {
+      this.keys['mousefire'] = false;
+    }
   }
   
   

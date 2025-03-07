@@ -26445,6 +26445,12 @@ class Tank {
   barrelElevationSpeed = 0.03;
   maxBarrelElevation = 0;
   minBarrelElevation = -Math.PI / 4;
+  getMinBarrelElevation() {
+    return this.minBarrelElevation;
+  }
+  getMaxBarrelElevation() {
+    return this.maxBarrelElevation;
+  }
   collider;
   collisionRadius = 2;
   lastPosition = new Vector3;
@@ -26579,7 +26585,7 @@ class Tank {
         }
       }
     }
-    if ((keys["space"] || keys[" "] || keys["f"]) && this.canFire) {
+    if ((keys["space"] || keys[" "] || keys["f"] || keys["mousefire"]) && this.canFire) {
       console.log("Firing shell!");
       return this.fireShell();
     }
@@ -26760,6 +26766,12 @@ class NPCTank {
   turretPivot;
   barrel;
   barrelPivot;
+  getMinBarrelElevation() {
+    return this.minBarrelElevation;
+  }
+  getMaxBarrelElevation() {
+    return this.maxBarrelElevation;
+  }
   tankSpeed = 0.1;
   tankRotationSpeed = 0.03;
   turretRotationSpeed = 0.02;
@@ -27621,9 +27633,9 @@ class GameComponent extends LitElement {
           <div class="controls">
             <div>W: Forward, S: Backward</div>
             <div>A: Rotate tank left, D: Rotate tank right</div>
-            <div>←/→: Rotate turret left/right</div>
-            <div>↑/↓: Raise/lower barrel</div>
-            <div>Space or F: Fire shell</div>
+            <div>Mouse: Aim turret and barrel</div>
+            <div>Left Click or Space: Fire shell</div>
+            <div>Click canvas to lock pointer</div>
           </div>
           <div class="game-over ${this.playerDestroyed ? "visible" : ""}">
             <div class="wasted-text">Wasted</div>
@@ -27652,6 +27664,18 @@ class GameComponent extends LitElement {
     window.removeEventListener("resize", this.handleResize);
     document.removeEventListener("tank-destroyed", this.handleTankDestroyed);
     document.removeEventListener("tank-hit", this.handleTankHit);
+    document.removeEventListener("pointerlockchange", this.handlePointerLockChange);
+    document.removeEventListener("mozpointerlockchange", this.handlePointerLockChange);
+    document.removeEventListener("webkitpointerlockchange", this.handlePointerLockChange);
+    document.removeEventListener("mousemove", this.handleMouseMove);
+    document.removeEventListener("mousedown", this.handleMouseDown);
+    document.removeEventListener("mouseup", this.handleMouseUp);
+    this.canvas.removeEventListener("mousemove", this.handleMouseMove);
+    this.canvas.removeEventListener("mousedown", this.handleMouseDown);
+    this.canvas.removeEventListener("mouseup", this.handleMouseUp);
+    if (document.pointerLockElement === this.canvas) {
+      document.exitPointerLock();
+    }
     if (this.playerTank) {
       this.collisionSystem.removeCollider(this.playerTank);
       this.playerTank.dispose();
@@ -27773,14 +27797,44 @@ class GameComponent extends LitElement {
     this.camera.position.set(0, 6, -8);
     this.camera.lookAt(this.playerTank.tank.position);
   }
+  isPointerLocked = false;
+  mouseX = 0;
+  mouseY = 0;
   initKeyboardControls() {
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handleKeyUp = this.handleKeyUp.bind(this);
+    this.handlePointerLockChange = this.handlePointerLockChange.bind(this);
+    this.handleMouseMove = this.handleMouseMove.bind(this);
+    this.handleMouseDown = this.handleMouseDown.bind(this);
+    this.handleMouseUp = this.handleMouseUp.bind(this);
     window.addEventListener("keydown", this.handleKeyDown, { capture: true });
     window.addEventListener("keyup", this.handleKeyUp, { capture: true });
     this.keys["space"] = false;
     this.keys[" "] = false;
     this.keys["f"] = false;
+    this.keys["mousefire"] = false;
+    document.addEventListener("pointerlockchange", this.handlePointerLockChange);
+    document.addEventListener("mozpointerlockchange", this.handlePointerLockChange);
+    document.addEventListener("webkitpointerlockchange", this.handlePointerLockChange);
+    setTimeout(() => {
+      console.log("Setting up mouse events on canvas", this.canvas);
+      this.canvas.addEventListener("click", () => {
+        console.log("Canvas clicked, requesting pointer lock");
+        if (!this.isPointerLocked) {
+          try {
+            this.canvas.requestPointerLock();
+          } catch (e) {
+            console.error("Error requesting pointer lock:", e);
+          }
+        }
+      });
+      this.canvas.addEventListener("mousemove", this.handleMouseMove);
+      this.canvas.addEventListener("mousedown", this.handleMouseDown);
+      this.canvas.addEventListener("mouseup", this.handleMouseUp);
+      document.addEventListener("mousemove", this.handleMouseMove);
+      document.addEventListener("mousedown", this.handleMouseDown);
+      document.addEventListener("mouseup", this.handleMouseUp);
+    }, 100);
   }
   handleKeyDown(event) {
     const key = event.key.toLowerCase();
@@ -27802,6 +27856,50 @@ class GameComponent extends LitElement {
       this.keys["space"] = false;
     }
     console.log("Key up:", key);
+  }
+  handlePointerLockChange() {
+    this.isPointerLocked = document.pointerLockElement === this.canvas || document.mozPointerLockElement === this.canvas || document.webkitPointerLockElement === this.canvas;
+    console.log("Pointer lock state changed:", this.isPointerLocked ? "locked" : "unlocked");
+  }
+  handleMouseMove(event) {
+    console.log("Mouse move event received", {
+      movementX: event.movementX,
+      movementY: event.movementY,
+      isPointerLocked: this.isPointerLocked,
+      hasPlayerTank: !!this.playerTank
+    });
+    if (!this.playerTank)
+      return;
+    const movementX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
+    const movementY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
+    this.mouseX += movementX;
+    this.mouseY += movementY;
+    const turretSensitivity = 0.003;
+    if (this.playerTank.turretPivot) {
+      this.playerTank.turretPivot.rotation.y -= movementX * turretSensitivity;
+    }
+    const barrelSensitivity = 0.002;
+    if (this.playerTank.barrelPivot) {
+      this.playerTank.barrelPivot.rotation.x = Math.max(this.playerTank.getMinBarrelElevation(), Math.min(this.playerTank.getMaxBarrelElevation(), this.playerTank.barrelPivot.rotation.x + movementY * barrelSensitivity));
+    }
+  }
+  handleMouseDown(event) {
+    console.log("Mouse down event received", {
+      button: event.button,
+      isPointerLocked: this.isPointerLocked
+    });
+    if (event.button === 0) {
+      this.keys["mousefire"] = true;
+    }
+  }
+  handleMouseUp(event) {
+    console.log("Mouse up event received", {
+      button: event.button,
+      isPointerLocked: this.isPointerLocked
+    });
+    if (event.button === 0) {
+      this.keys["mousefire"] = false;
+    }
   }
   handleResize() {
     if (!this.camera || !this.renderer)

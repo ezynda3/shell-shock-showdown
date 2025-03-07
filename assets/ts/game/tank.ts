@@ -12,11 +12,15 @@ export interface ICollidable {
 // Interface for common tank properties and methods
 export interface ITank extends ICollidable {
   tank: THREE.Group;
+  turretPivot: THREE.Group;
+  barrelPivot: THREE.Group;
   update(keys?: { [key: string]: boolean }, colliders?: ICollidable[]): Shell | null;
   dispose(): void;
   takeDamage(amount: number): boolean; // Returns true if tank is destroyed
   getHealth(): number; // Returns current health percentage (0-100)
   respawn(position?: THREE.Vector3): void; // Respawn the tank
+  getMinBarrelElevation(): number; // Get minimum barrel elevation angle
+  getMaxBarrelElevation(): number; // Get maximum barrel elevation angle
 }
 
 export class Tank implements ITank {
@@ -35,6 +39,15 @@ export class Tank implements ITank {
   private barrelElevationSpeed = 0.03;
   private maxBarrelElevation = 0;           // Barrel can't go lower than starting position
   private minBarrelElevation = -Math.PI / 4; // Barrel pointing up limit
+  
+  // Getter methods for barrel elevation limits
+  getMinBarrelElevation(): number {
+    return this.minBarrelElevation;
+  }
+  
+  getMaxBarrelElevation(): number {
+    return this.maxBarrelElevation;
+  }
   
   // Collision properties
   private collider: THREE.Sphere;
@@ -251,8 +264,8 @@ export class Tank implements ITank {
       }
     }
     
-    // Handle firing - use both space and 'f' key
-    if ((keys['space'] || keys[' '] || keys['f']) && this.canFire) {
+    // Handle firing - use space, 'f', or left mouse button
+    if ((keys['space'] || keys[' '] || keys['f'] || keys['mousefire']) && this.canFire) {
       console.log('Firing shell!');
       return this.fireShell();
     }
@@ -564,6 +577,15 @@ export class NPCTank implements ITank {
   turretPivot: THREE.Group;
   barrel?: THREE.Mesh;
   barrelPivot: THREE.Group;
+  
+  // Implement required interface methods
+  getMinBarrelElevation(): number {
+    return this.minBarrelElevation;
+  }
+  
+  getMaxBarrelElevation(): number {
+    return this.maxBarrelElevation;
+  }
   
   // Tank properties
   private tankSpeed = 0.1;
