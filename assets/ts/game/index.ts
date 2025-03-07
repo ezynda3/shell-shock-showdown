@@ -449,6 +449,11 @@ export class GameComponent extends LitElement {
       this.lowPerformanceMode = fps < 30;
     }
     
+    // Store camera position for health bar billboarding
+    if (this.camera) {
+      (window as any).cameraPosition = this.camera.position;
+    }
+    
     // Run the collision system check
     this.collisionSystem.checkCollisions();
     

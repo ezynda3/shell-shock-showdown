@@ -429,6 +429,11 @@ export class Tank implements ITank {
     // Make tank visible again
     this.tank.visible = true;
     
+    // Make health bar visible again
+    if (this.billboardGroup) {
+      this.billboardGroup.visible = true;
+    }
+    
     // Reset collider
     this.collider.center.copy(this.tank.position);
     
@@ -442,6 +447,11 @@ export class Tank implements ITank {
   private createDestroyedEffect(): void {
     // Hide the tank
     this.tank.visible = false;
+    
+    // Hide health bar - find it in the tank's children
+    if (this.billboardGroup) {
+      this.billboardGroup.visible = false;
+    }
     
     // Create black smoke particle system
     const particleCount = 50;
@@ -588,6 +598,8 @@ export class NPCTank implements ITank {
   // Health bar display
   private healthBar: THREE.Mesh;
   private healthBarBackground: THREE.Mesh;
+  private healthBarGroup: THREE.Group;
+  private billboardGroup: THREE.Group;
 
   private scene: THREE.Scene;
 
@@ -630,7 +642,7 @@ export class NPCTank implements ITank {
   }
   
   private createHealthBar(): void {
-    // Create a group for the health bar that will follow the tank
+    // Create a simple health bar directly above the tank
     const healthBarGroup = new THREE.Group();
     
     // Background bar (black)
@@ -663,11 +675,19 @@ export class NPCTank implements ITank {
     // Position above tank
     healthBarGroup.position.y = 3.0;
     
-    // Rotate to face upward
-    healthBarGroup.rotation.x = -Math.PI / 2;
+    // Rotate to face forward initially
+    healthBarGroup.rotation.y = Math.PI;
+    
+    // Create a separate group to handle the billboard effect
+    const billboardGroup = new THREE.Group();
+    billboardGroup.add(healthBarGroup);
     
     // Add to tank so it moves with it
-    this.tank.add(healthBarGroup);
+    this.tank.add(billboardGroup);
+    
+    // Store references
+    this.healthBarGroup = healthBarGroup;
+    this.billboardGroup = billboardGroup;
     
     // Update health bar initially
     this.updateHealthBar();
@@ -679,6 +699,30 @@ export class NPCTank implements ITank {
     
     // Scale width only, from the center
     this.healthBar.scale.x = healthPercent;
+    
+    // Make health bar always face the camera (billboard effect)
+    if (this.billboardGroup && this.healthBarGroup) {
+      const cameraPosition = (window as any).cameraPosition;
+      if (cameraPosition) {
+        // Get the world position of the tank
+        const tankWorldPos = new THREE.Vector3();
+        this.tank.getWorldPosition(tankWorldPos);
+        
+        // Calculate direction from tank to camera in world space
+        const lookDirection = new THREE.Vector3().subVectors(cameraPosition, tankWorldPos);
+        
+        // We only care about the horizontal direction (y-rotation)
+        lookDirection.y = 0;
+        lookDirection.normalize();
+        
+        // Calculate the angle between the z-axis and the look direction
+        const angle = Math.atan2(lookDirection.x, lookDirection.z);
+        
+        // Reset billboard group rotation, then apply the calculated angle
+        // This counters the tank's rotation, making the health bar always face the camera
+        this.billboardGroup.rotation.y = angle - this.tank.rotation.y;
+      }
+    }
     
     // Change color based on health
     const material = this.healthBar.material as THREE.MeshBasicMaterial;
@@ -1156,6 +1200,8 @@ export class NPCTank implements ITank {
   dispose() {
     // Clean up resources
     this.scene.remove(this.tank);
+    
+    // Health bar is already attached to tank, so no need to remove it separately
     
     // Clean up any destroyed effects
     for (const effect of this.destroyedEffects) {

@@ -26198,6 +26198,9 @@ class Tank {
       this.tank.position.set(0, 0, 0);
     }
     this.tank.visible = true;
+    if (this.billboardGroup) {
+      this.billboardGroup.visible = true;
+    }
     this.collider.center.copy(this.tank.position);
     for (const effect of this.destroyedEffects) {
       this.scene.remove(effect);
@@ -26206,6 +26209,9 @@ class Tank {
   }
   createDestroyedEffect() {
     this.tank.visible = false;
+    if (this.billboardGroup) {
+      this.billboardGroup.visible = false;
+    }
     const particleCount = 50;
     const smokeGeometry = new BufferGeometry;
     const smokePositions = new Float32Array(particleCount * 3);
@@ -26317,6 +26323,8 @@ class NPCTank {
   destroyedEffects = [];
   healthBar;
   healthBarBackground;
+  healthBarGroup;
+  billboardGroup;
   scene;
   constructor(scene, position, color = 16711680) {
     this.scene = scene;
@@ -26359,13 +26367,29 @@ class NPCTank {
     healthBarGroup.add(this.healthBarBackground);
     healthBarGroup.add(this.healthBar);
     healthBarGroup.position.y = 3;
-    healthBarGroup.rotation.x = -Math.PI / 2;
-    this.tank.add(healthBarGroup);
+    healthBarGroup.rotation.y = Math.PI;
+    const billboardGroup = new Group;
+    billboardGroup.add(healthBarGroup);
+    this.tank.add(billboardGroup);
+    this.healthBarGroup = healthBarGroup;
+    this.billboardGroup = billboardGroup;
     this.updateHealthBar();
   }
   updateHealthBar() {
     const healthPercent = this.health / this.MAX_HEALTH;
     this.healthBar.scale.x = healthPercent;
+    if (this.billboardGroup && this.healthBarGroup) {
+      const cameraPosition = window.cameraPosition;
+      if (cameraPosition) {
+        const tankWorldPos = new Vector3;
+        this.tank.getWorldPosition(tankWorldPos);
+        const lookDirection = new Vector3().subVectors(cameraPosition, tankWorldPos);
+        lookDirection.y = 0;
+        lookDirection.normalize();
+        const angle = Math.atan2(lookDirection.x, lookDirection.z);
+        this.billboardGroup.rotation.y = angle - this.tank.rotation.y;
+      }
+    }
     const material = this.healthBar.material;
     if (healthPercent > 0.6) {
       material.color.setHex(65280);
@@ -27261,6 +27285,9 @@ class GameComponent extends LitElement {
     if (this.renderer && this.renderer.info && this.renderer.info.render) {
       const fps = 1000 / (this.renderer.info.render.frame || 16.7);
       this.lowPerformanceMode = fps < 30;
+    }
+    if (this.camera) {
+      window.cameraPosition = this.camera.position;
     }
     this.collisionSystem.checkCollisions();
     const allColliders = this.collisionSystem.getColliders();
