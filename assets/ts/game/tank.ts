@@ -547,6 +547,24 @@ export class Tank implements ITank {
     return false;
   }
   
+  // Set health directly (for remote players)
+  setHealth(health: number): void {
+    if (this.isDestroyed) return;
+    
+    // Set health value
+    this.health = Math.max(0, Math.min(this.MAX_HEALTH, health));
+    
+    // Update health bar if it exists
+    this.updateHealthBar();
+    
+    // Check if destroyed
+    if (this.health <= 0 && !this.isDestroyed) {
+      this.health = 0;
+      this.isDestroyed = true;
+      this.createDestroyedEffect();
+    }
+  }
+  
   getHealth(): number {
     return this.health;
   }

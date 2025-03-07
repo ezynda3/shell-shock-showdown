@@ -7,14 +7,53 @@ import { CollisionSystem } from './collision';
 import { Shell } from './shell';
 import './stats'; // Import stats component
 
+// Interface for player state
+interface PlayerState {
+  id: string;
+  name: string;
+  position: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  tankRotation: number;
+  turretRotation: number;
+  barrelElevation: number;
+  health: number;
+  isMoving: boolean;
+  velocity: number;
+  timestamp: number;
+  color?: string;
+}
+
+// Interface for game state
+interface MultiplayerGameState {
+  players: { [playerId: string]: PlayerState };
+}
+
 @customElement('game-component')
 export class GameComponent extends LitElement {
   @query('#canvas')
   private canvas!: HTMLCanvasElement;
   
-  // Game state property that can be set from outside
-  @property({ type: String, attribute: 'game-state' })
+  // Game state property that can be set from outside with reactive processing
+  @property({ type: String, attribute: 'game-state', hasChanged(newVal: string, oldVal: string) {
+    // Always process game state updates - important for multiplayer
+    console.log('gameState property change detected');
+    return true;
+  }})
   public gameState: string = '';
+  
+  // Parsed multiplayer state
+  @property({ attribute: false })
+  private multiplayerState?: MultiplayerGameState;
+  
+  // Player ID from server-side attribute
+  @property({ type: String, attribute: 'player-id' })
+  public playerId: string = '';
+  
+  // Flag to track if we've processed initial game state
+  private gameStateInitialized: boolean = false;
   
   // Camera variables - exposed as properties to allow stats component to access
   @property({ attribute: false })
@@ -30,8 +69,10 @@ export class GameComponent extends LitElement {
   
   // Tank instances
   private playerTank?: Tank;
+  private remoteTanks: Map<string, NPCTank> = new Map();
   private npcTanks: NPCTank[] = [];
-  private readonly NUM_NPC_TANKS = 30; // Increased from 6 for a more exciting battlefield
+  // Disabled NPC tanks for multiplayer testing
+  private readonly NUM_NPC_TANKS = 0;
   
   // Performance settings
   private lowPerformanceMode = false;
@@ -95,6 +136,20 @@ export class GameComponent extends LitElement {
       border-radius: 5px;
       font-family: monospace;
       pointer-events: none;
+    }
+    
+    .player-count {
+      position: absolute;
+      top: 75px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      pointer-events: none;
+      font-size: 16px;
+      font-weight: bold;
     }
     
     .game-state-display {
@@ -283,6 +338,9 @@ export class GameComponent extends LitElement {
             <div>Left Click, Space, or F: Fire shell</div>
             <div>Click canvas to lock pointer</div>
           </div>
+          <div class="player-count">
+            Players: ${this.multiplayerState?.players ? Object.keys(this.multiplayerState.players).length : 0}
+          </div>
           <div class="game-over ${this.playerDestroyed ? 'visible' : ''}">
             <div class="wasted-text">Wasted</div>
           </div>
@@ -320,15 +378,417 @@ export class GameComponent extends LitElement {
     this.handleTankHit = this.handleTankHit.bind(this);
     document.addEventListener('tank-hit', this.handleTankHit);
     
+    // Listen for shell fired events for multiplayer
+    this.handleShellFired = this.handleShellFired.bind(this);
+    document.addEventListener('shell-fired', this.handleShellFired);
+    
     // Initialize game stats
     this.updateStats();
+  }
+  
+  // Handle shell fired events from player tank
+  private handleShellFired(event: CustomEvent) {
+    console.log('Shell fired event received:', event.detail);
+    
+    // Create a custom event for DataStar to send to server
+    const shellFiredEvent = new CustomEvent('shell-fired', { 
+      detail: event.detail,
+      bubbles: true,
+      composed: true // Allows the event to cross shadow DOM boundaries
+    });
+    
+    this.dispatchEvent(shellFiredEvent);
   }
   
   // Called when gameState property changes
   updated(changedProperties: Map<string, any>) {
     if (changedProperties.has('gameState') && this.gameState) {
-      console.log('Game state changed:', this.gameState);
+      console.log('Game state changed (raw):', this.gameState);
+      
+      // Force logging of player-id attribute
+      console.log('Current player-id attribute value:', this.playerId);
+      
+      try {
+        if (this.gameState && typeof this.gameState === 'string') {
+          // IMPORTANT: For debugging - log exactly what we're getting
+          console.log('Game state string length:', this.gameState.length);
+          console.log('First 200 chars of game state:', this.gameState.substring(0, 200));
+          
+          // Try to parse the game state as JSON
+          let parsed;
+          try {
+            parsed = JSON.parse(this.gameState);
+            console.log('Parsed game state (first level):', parsed);
+          } catch (parseError) {
+            console.error('Initial JSON parse failed:', parseError);
+            console.error('Game state is not valid JSON:', this.gameState);
+            return;
+          }
+          
+          // Handle the format from DataStar in views/index.templ
+          // The gameState property in our component gets ONLY the inner JSON
+          // directly from the server via: data-attr-game-state__case.kebab="$gameState"
+          
+          // CASE 1: Direct players object (most likely format)
+          if (parsed && parsed.players && typeof parsed.players === 'object') {
+            console.log('✅ Found direct players object - this is the correct format!');
+            this.multiplayerState = parsed;
+          }
+          // CASE 2: Maybe we still have a gameState wrapper in some cases
+          else if (parsed && parsed.gameState) {
+            console.log('Found gameState property - extracting inner content');
+            
+            // If gameState is an object with players, use it directly
+            if (typeof parsed.gameState === 'object' && parsed.gameState.players) {
+              console.log('✅ Extracted players from nested gameState object');
+              this.multiplayerState = parsed.gameState;
+            }
+            // If gameState is a string, try to parse it
+            else if (typeof parsed.gameState === 'string') {
+              try {
+                const nestedState = JSON.parse(parsed.gameState);
+                console.log('Parsed nested string gameState:', nestedState);
+                if (nestedState && nestedState.players) {
+                  this.multiplayerState = nestedState;
+                  console.log('✅ Successfully parsed nested gameState string');
+                }
+              } catch (err) {
+                console.error('Failed to parse nested gameState string:', err);
+                return;
+              }
+            }
+          } 
+          else {
+            console.error('❌ Unrecognized game state format - missing players object:', parsed);
+            return;
+          }
+          
+          // Log player keys and count
+          if (this.multiplayerState && this.multiplayerState.players) {
+            const playerKeys = Object.keys(this.multiplayerState.players);
+            console.log('Player keys found in parsed state:', playerKeys);
+            
+            // Ensure player ID is known before we start processing
+            if (!this.playerId && playerKeys.length > 0) {
+              console.log('No player ID set, but state contains players - might need to set player ID');
+            }
+          }
+          
+          // Count and log the players in the state
+          const playerCount = this.multiplayerState && this.multiplayerState.players ? 
+            Object.keys(this.multiplayerState.players).length : 0;
+          
+          console.log(`Found ${playerCount} players in game state`);
+          
+          if (playerCount > 0 && this.multiplayerState && this.multiplayerState.players) {
+            // Log detailed info about each player
+            Object.entries(this.multiplayerState.players).forEach(([id, playerData]) => {
+              console.log(`Player ${id}:`, {
+                name: (playerData as any).name,
+                position: (playerData as any).position,
+                color: (playerData as any).color
+              });
+            });
+          }
+          
+          // Update remote players
+          this.updateRemotePlayers();
+          
+          // Use the player ID from the attribute, or generate one if not set
+          if (!this.gameStateInitialized && this.playerTank) {
+            if (!this.playerId) {
+              // Generate fallback ID only if attribute wasn't set
+              this.playerId = 'player_' + Math.random().toString(36).substring(2, 9);
+              console.log('No player-id attribute found, using random ID:', this.playerId);
+            } else {
+              console.log('Using player ID from attribute:', this.playerId);
+            }
+            
+            console.log('My position:', this.playerTank.tank.position);
+            this.gameStateInitialized = true;
+          }
+        }
+      } catch (error) {
+        console.error('Error parsing game state:', error);
+        console.error('Raw game state that caused error:', this.gameState);
+      }
     }
+  }
+  
+  // Update remote players from game state
+  private updateRemotePlayers() {
+    console.log('🔄 updateRemotePlayers called - checking for remote players');
+    
+    // CRITICAL FIX: First, wait until we have a valid scene initialized
+    if (!this.scene) {
+      console.error('Cannot update remote players: scene not initialized');
+      return;
+    }
+    
+    // Check for valid game state
+    if (!this.multiplayerState) {
+      console.error('Cannot update remote players: no multiplayer state available');
+      return;
+    }
+    
+    // IMPORTANT DEBUG: Show the complete multiplayer state structure
+    console.log('Complete multiplayerState:', JSON.stringify(this.multiplayerState));
+    
+    // Check for valid players object
+    if (!this.multiplayerState.players) {
+      console.error('No players object in multiplayer state:', this.multiplayerState);
+      return;
+    }
+    
+    // Log what's in the players object to see if it's what we expect
+    const playerKeys = Object.keys(this.multiplayerState.players);
+    if (playerKeys.length === 0) {
+      console.warn('Players object is empty - no players to update');
+      return;
+    }
+    
+    // IMPORTANT: Don't force player ID - it should come from the HTML attribute
+    // If we don't have a player ID by now, something is wrong with the component setup
+    if (!this.playerId) {
+      console.error('NO PLAYER ID AVAILABLE - remote tanks will not be created correctly');
+      console.error('Available player IDs in state:', playerKeys);
+      
+      // For testing only - uncomment this to force a player ID
+      // this.playerId = playerKeys[0];
+      // console.warn('FORCED PLAYER ID FOR TESTING:', this.playerId);
+    }
+    
+    // Wait until we have a player ID before processing (important for multiplayer)
+    if (!this.playerId) {
+      console.error('Waiting for player ID before processing remote players');
+      return;
+    }
+    
+    console.log('========= PROCESSING REMOTE PLAYERS =========');
+    console.log(`Found ${playerKeys.length} players in state with my ID: ${this.playerId}`);
+    
+    // Log all players from state for debugging
+    Object.entries(this.multiplayerState.players).forEach(([id, data]) => {
+      console.log(`Player in state: ${id}, Name: ${(data as any).name}, Is me: ${id === this.playerId}`);
+    });
+    
+    // Process each player in the game state
+    for (const [playerId, playerData] of Object.entries(this.multiplayerState.players)) {
+      // Skip our own player - this is crucial for multiplayer
+      if (playerId === this.playerId) {
+        console.log('⛔ Skipping own player:', playerId);
+        continue;
+      }
+      
+      // Reduce log noise - only log first time we see a player
+      if (!this.remoteTanks.has(playerId)) {
+        console.log('Processing new remote player:', playerId);
+      }
+      
+      // If we already have this player, update their position
+      if (this.remoteTanks.has(playerId)) {
+        // No need to log every position update
+        const remoteTank = this.remoteTanks.get(playerId);
+        if (remoteTank) {
+          this.updateRemoteTankPosition(remoteTank, playerData);
+        }
+      } else {
+        // Create a new remote tank for this player
+        console.log('Creating new remote tank for player:', playerId);
+        this.createRemoteTank(playerId, playerData);
+      }
+    }
+    
+    // Remove tanks for players that are no longer in the game state
+    for (const [playerId, tank] of this.remoteTanks.entries()) {
+      if (!this.multiplayerState.players[playerId]) {
+        console.log('Removing tank for disconnected player:', playerId);
+        // Remove tank from scene and collision system
+        this.collisionSystem.removeCollider(tank);
+        tank.dispose();
+        this.remoteTanks.delete(playerId);
+      }
+    }
+    
+    console.log('After update, remote tanks count:', this.remoteTanks.size);
+  }
+  
+  // Create a new remote tank for another player
+  private createRemoteTank(playerId: string, playerData: PlayerState) {
+    if (!this.scene) return;
+    
+    console.log('Creating remote tank for player:', playerId, 'with data:', playerData);
+    
+    try {
+      // Ensure we have position data
+      if (!playerData.position) {
+        console.error('Remote player data missing position:', playerData);
+        return;
+      }
+      
+      // Create a position vector from the player data
+      const position = new THREE.Vector3(
+        playerData.position.x,
+        playerData.position.y,
+        playerData.position.z
+      );
+      
+      // Create a new NPC tank with the player's name and color
+      // Handle different color formats (hex string or object with r,g,b)
+      let tankColor = 0xff0000; // Default red
+      if (playerData.color) {
+        if (typeof playerData.color === 'string' && playerData.color.startsWith('#')) {
+          tankColor = parseInt(playerData.color.substring(1), 16);
+          console.log('Parsed color from hex string:', playerData.color, 'to', tankColor);
+        } else {
+          console.log('Using default color, received:', playerData.color);
+        }
+      }
+      
+      const tankName = playerData.name || `Player ${playerId.substring(0, 6)}`;
+      console.log('Remote tank name:', tankName);
+      
+      // Create the remote tank
+      const remoteTank = new NPCTank(
+        this.scene,
+        position,
+        tankColor,
+        tankName
+      );
+      
+      // Set initial rotation if available
+      if (typeof playerData.tankRotation === 'number') {
+        remoteTank.tank.rotation.y = playerData.tankRotation;
+      }
+      
+      if (typeof playerData.turretRotation === 'number') {
+        remoteTank.turretPivot.rotation.y = playerData.turretRotation;
+      }
+      
+      if (typeof playerData.barrelElevation === 'number') {
+        remoteTank.barrelPivot.rotation.x = playerData.barrelElevation;
+      }
+      
+      // Add debug visualization - big blue transparent cube
+      this.addDebugVisualToRemoteTank(remoteTank);
+      
+      // Add to collision system
+      this.collisionSystem.addCollider(remoteTank);
+      
+      // Store in remoteTanks map
+      this.remoteTanks.set(playerId, remoteTank);
+      
+      // Log the creation success and current state
+      console.log('Remote tank created successfully at position:', remoteTank.tank.position);
+      console.log('Current remote tanks count:', this.remoteTanks.size);
+    } catch (error) {
+      console.error('Error creating remote tank:', error);
+      console.error('Problem player data:', playerData);
+    }
+  }
+  
+  // Add debug visualization to remote tank
+  private addDebugVisualToRemoteTank(remoteTank: NPCTank): void {
+    // Create a larger transparent blue cube around the tank
+    const cubeSize = 10; // Large size to be very visible
+    const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x0088ff,
+      transparent: true,
+      opacity: 0.3,
+      wireframe: true,
+      wireframeLinewidth: 2
+    });
+    
+    // Create the cube and add it to the tank
+    const debugCube = new THREE.Mesh(geometry, material);
+    debugCube.position.set(0, cubeSize/2, 0); // Center height on the tank
+    remoteTank.tank.add(debugCube);
+    
+    // Also add a floating text label using sprite
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 128;
+    
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = 'rgba(0, 0, 100, 0.8)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = 'bold 36px Arial';
+      ctx.fillStyle = 'white';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('REMOTE PLAYER', canvas.width/2, canvas.height/2);
+      
+      const texture = new THREE.CanvasTexture(canvas);
+      const spriteMaterial = new THREE.SpriteMaterial({ 
+        map: texture,
+        transparent: true
+      });
+      
+      const sprite = new THREE.Sprite(spriteMaterial);
+      sprite.position.set(0, cubeSize, 0); // Position above the tank
+      sprite.scale.set(10, 5, 1); // Scale the sprite
+      
+      remoteTank.tank.add(sprite);
+    }
+    
+    console.log('Added debug visual to remote tank');
+  }
+  
+  // Update an existing remote tank's position and rotation
+  private updateRemoteTankPosition(tank: NPCTank, playerData: PlayerState) {
+    // Don't log every position update - they happen frequently
+    
+    try {
+      // Ensure we have position data
+      if (!playerData.position) {
+        console.error('Cannot update remote tank: Missing position data');
+        return;
+      }
+      
+      // Update position with interpolation for smooth movement
+      tank.tank.position.lerp(
+        new THREE.Vector3(
+          playerData.position.x,
+          playerData.position.y,
+          playerData.position.z
+        ),
+        0.2 // Lower interpolation factor for smoother movement
+      );
+      
+      // Update rotations if provided
+      if (typeof playerData.tankRotation === 'number') {
+        tank.tank.rotation.y = this.lerpAngle(tank.tank.rotation.y, playerData.tankRotation, 0.2);
+      }
+      
+      if (typeof playerData.turretRotation === 'number') {
+        tank.turretPivot.rotation.y = this.lerpAngle(tank.turretPivot.rotation.y, playerData.turretRotation, 0.2);
+      }
+      
+      if (typeof playerData.barrelElevation === 'number') {
+        tank.barrelPivot.rotation.x = this.lerpAngle(tank.barrelPivot.rotation.x, playerData.barrelElevation, 0.2);
+      }
+      
+      // Update health if provided
+      if (typeof playerData.health === 'number') {
+        tank.setHealth(playerData.health);
+      }
+      
+      // Position updates happen frequently - don't log them
+    } catch (error) {
+      console.error('Error updating remote tank:', error);
+      console.error('Problem player data:', playerData);
+    }
+  }
+  
+  // Helper for angle interpolation (handles wrapping)
+  private lerpAngle(start: number, end: number, t: number): number {
+    // Handle angle wrapping for smoothest path
+    let diff = end - start;
+    if (diff > Math.PI) diff -= Math.PI * 2;
+    if (diff < -Math.PI) diff += Math.PI * 2;
+    return start + diff * t;
   }
 
   disconnectedCallback() {
@@ -765,11 +1225,11 @@ export class GameComponent extends LitElement {
     
     // Wait for the firstUpdated to complete to ensure canvas is available
     setTimeout(() => {
-      console.log('Setting up mouse events on canvas', this.canvas);
+      // Set up mouse events on the canvas
       
       // Add click handler to canvas for requesting pointer lock
       this.canvas.addEventListener('click', () => {
-        console.log('Canvas clicked, requesting pointer lock');
+        // Request pointer lock on canvas click
         if (!this.isPointerLocked) {
           try {
             this.canvas.requestPointerLock();
@@ -797,13 +1257,11 @@ export class GameComponent extends LitElement {
     
     // Special handling for space key
     if (key === ' ' || key === 'space') {
-      console.log('SPACE KEY PRESSED');
+      // Space key for firing
       this.keys['space'] = true;
     }
     
-    // Log key pressed for debugging
-    console.log('Key down:', key, 'KeyCode:', event.keyCode);
-    console.log('Current active keys:', this.keys);
+    // No need to log every key press
     
     // Prevent default for arrow keys, WASD, and Space to avoid page scrolling/browser shortcuts
     if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', ' ', 'space'].includes(key)) {
@@ -820,7 +1278,7 @@ export class GameComponent extends LitElement {
       this.keys['space'] = false;
     }
     
-    console.log('Key up:', key);
+    // Key release event
   }
   
   private handlePointerLockChange() {
@@ -833,19 +1291,11 @@ export class GameComponent extends LitElement {
     // Force UI update
     this.requestUpdate();
     
-    console.log('Pointer lock state changed:', this.isPointerLocked ? 'locked' : 'unlocked');
+    // Update pointer lock state
   }
   
   private handleMouseMove(event: MouseEvent) {
-    // Log mouse movement even when not locked for debugging
-    console.log('Mouse move event received', {
-      movementX: event.movementX,
-      movementY: event.movementY,
-      isPointerLocked: this.isPointerLocked,
-      hasPlayerTank: !!this.playerTank
-    });
-    
-    // Skip actual turret movement if not pointer locked
+    // Skip if we don't have a player tank
     if (!this.playerTank) return;
     
     // Get mouse movement deltas
@@ -930,6 +1380,18 @@ export class GameComponent extends LitElement {
     // Store camera position for health bar billboarding
     if (this.camera) {
       (window as any).cameraPosition = this.camera.position;
+    }
+    
+    // Process any pending game state updates in the animation loop
+    // This ensures we constantly check for remote player updates
+    if (this.multiplayerState && this.multiplayerState.players && 
+        this.scene && this.gameStateInitialized) {
+      // Check for remote players periodically in the animation loop
+      const frameCount = this.renderer?.info.render.frame || 0;
+      if (frameCount % 60 === 0) { // Process once per second (at 60fps)
+        // Periodic checks are helpful but don't need to log every time
+        this.updateRemotePlayers();
+      }
     }
     
     // Update crosshair position to align with tank barrel
@@ -1341,9 +1803,18 @@ export class GameComponent extends LitElement {
   private emitPlayerPositionEvent(): void {
     if (!this.playerTank) return;
     
+    // Only emit if we have a playerId assigned (important for multiplayer)
+    if (!this.playerId) {
+      console.log('Cannot emit position: No player ID assigned yet');
+      return;
+    }
+    
     // Create event detail with all relevant position and orientation data
     // Ensuring all data is clean serializable JSON
     const detail = {
+      // Add player ID
+      id: this.playerId,
+      
       // Position data (convert THREE.Vector3 to simple object)
       position: {
         x: this.playerTank.tank.position.x,
@@ -1364,6 +1835,9 @@ export class GameComponent extends LitElement {
       // Timestamp for tracking
       timestamp: Date.now()
     };
+    
+    // Position updates are frequent, so don't log them
+    // console.log(`Emitting position update for player ${this.playerId}`);
     
     // Create and dispatch custom event
     const event = new CustomEvent('player-movement', { 
