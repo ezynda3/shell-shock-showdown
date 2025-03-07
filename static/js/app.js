@@ -9883,6 +9883,194 @@ class Frustum {
     return new this.constructor().copy(this);
   }
 }
+class LineBasicMaterial extends Material {
+  constructor(parameters) {
+    super();
+    this.isLineBasicMaterial = true;
+    this.type = "LineBasicMaterial";
+    this.color = new Color(16777215);
+    this.map = null;
+    this.linewidth = 1;
+    this.linecap = "round";
+    this.linejoin = "round";
+    this.fog = true;
+    this.setValues(parameters);
+  }
+  copy(source) {
+    super.copy(source);
+    this.color.copy(source.color);
+    this.map = source.map;
+    this.linewidth = source.linewidth;
+    this.linecap = source.linecap;
+    this.linejoin = source.linejoin;
+    this.fog = source.fog;
+    return this;
+  }
+}
+var _vStart = /* @__PURE__ */ new Vector3;
+var _vEnd = /* @__PURE__ */ new Vector3;
+var _inverseMatrix$1 = /* @__PURE__ */ new Matrix4;
+var _ray$1 = /* @__PURE__ */ new Ray;
+var _sphere$1 = /* @__PURE__ */ new Sphere;
+var _intersectPointOnRay = /* @__PURE__ */ new Vector3;
+var _intersectPointOnSegment = /* @__PURE__ */ new Vector3;
+
+class Line extends Object3D {
+  constructor(geometry = new BufferGeometry, material = new LineBasicMaterial) {
+    super();
+    this.isLine = true;
+    this.type = "Line";
+    this.geometry = geometry;
+    this.material = material;
+    this.morphTargetDictionary = undefined;
+    this.morphTargetInfluences = undefined;
+    this.updateMorphTargets();
+  }
+  copy(source, recursive) {
+    super.copy(source, recursive);
+    this.material = Array.isArray(source.material) ? source.material.slice() : source.material;
+    this.geometry = source.geometry;
+    return this;
+  }
+  computeLineDistances() {
+    const geometry = this.geometry;
+    if (geometry.index === null) {
+      const positionAttribute = geometry.attributes.position;
+      const lineDistances = [0];
+      for (let i = 1, l = positionAttribute.count;i < l; i++) {
+        _vStart.fromBufferAttribute(positionAttribute, i - 1);
+        _vEnd.fromBufferAttribute(positionAttribute, i);
+        lineDistances[i] = lineDistances[i - 1];
+        lineDistances[i] += _vStart.distanceTo(_vEnd);
+      }
+      geometry.setAttribute("lineDistance", new Float32BufferAttribute(lineDistances, 1));
+    } else {
+      console.warn("THREE.Line.computeLineDistances(): Computation only possible with non-indexed BufferGeometry.");
+    }
+    return this;
+  }
+  raycast(raycaster, intersects) {
+    const geometry = this.geometry;
+    const matrixWorld = this.matrixWorld;
+    const threshold = raycaster.params.Line.threshold;
+    const drawRange = geometry.drawRange;
+    if (geometry.boundingSphere === null)
+      geometry.computeBoundingSphere();
+    _sphere$1.copy(geometry.boundingSphere);
+    _sphere$1.applyMatrix4(matrixWorld);
+    _sphere$1.radius += threshold;
+    if (raycaster.ray.intersectsSphere(_sphere$1) === false)
+      return;
+    _inverseMatrix$1.copy(matrixWorld).invert();
+    _ray$1.copy(raycaster.ray).applyMatrix4(_inverseMatrix$1);
+    const localThreshold = threshold / ((this.scale.x + this.scale.y + this.scale.z) / 3);
+    const localThresholdSq = localThreshold * localThreshold;
+    const step = this.isLineSegments ? 2 : 1;
+    const index = geometry.index;
+    const attributes = geometry.attributes;
+    const positionAttribute = attributes.position;
+    if (index !== null) {
+      const start = Math.max(0, drawRange.start);
+      const end = Math.min(index.count, drawRange.start + drawRange.count);
+      for (let i = start, l = end - 1;i < l; i += step) {
+        const a = index.getX(i);
+        const b = index.getX(i + 1);
+        const intersect = checkIntersection(this, raycaster, _ray$1, localThresholdSq, a, b, i);
+        if (intersect) {
+          intersects.push(intersect);
+        }
+      }
+      if (this.isLineLoop) {
+        const a = index.getX(end - 1);
+        const b = index.getX(start);
+        const intersect = checkIntersection(this, raycaster, _ray$1, localThresholdSq, a, b, end - 1);
+        if (intersect) {
+          intersects.push(intersect);
+        }
+      }
+    } else {
+      const start = Math.max(0, drawRange.start);
+      const end = Math.min(positionAttribute.count, drawRange.start + drawRange.count);
+      for (let i = start, l = end - 1;i < l; i += step) {
+        const intersect = checkIntersection(this, raycaster, _ray$1, localThresholdSq, i, i + 1, i);
+        if (intersect) {
+          intersects.push(intersect);
+        }
+      }
+      if (this.isLineLoop) {
+        const intersect = checkIntersection(this, raycaster, _ray$1, localThresholdSq, end - 1, start, end - 1);
+        if (intersect) {
+          intersects.push(intersect);
+        }
+      }
+    }
+  }
+  updateMorphTargets() {
+    const geometry = this.geometry;
+    const morphAttributes = geometry.morphAttributes;
+    const keys = Object.keys(morphAttributes);
+    if (keys.length > 0) {
+      const morphAttribute = morphAttributes[keys[0]];
+      if (morphAttribute !== undefined) {
+        this.morphTargetInfluences = [];
+        this.morphTargetDictionary = {};
+        for (let m = 0, ml = morphAttribute.length;m < ml; m++) {
+          const name = morphAttribute[m].name || String(m);
+          this.morphTargetInfluences.push(0);
+          this.morphTargetDictionary[name] = m;
+        }
+      }
+    }
+  }
+}
+function checkIntersection(object, raycaster, ray, thresholdSq, a, b, i) {
+  const positionAttribute = object.geometry.attributes.position;
+  _vStart.fromBufferAttribute(positionAttribute, a);
+  _vEnd.fromBufferAttribute(positionAttribute, b);
+  const distSq = ray.distanceSqToSegment(_vStart, _vEnd, _intersectPointOnRay, _intersectPointOnSegment);
+  if (distSq > thresholdSq)
+    return;
+  _intersectPointOnRay.applyMatrix4(object.matrixWorld);
+  const distance = raycaster.ray.origin.distanceTo(_intersectPointOnRay);
+  if (distance < raycaster.near || distance > raycaster.far)
+    return;
+  return {
+    distance,
+    point: _intersectPointOnSegment.clone().applyMatrix4(object.matrixWorld),
+    index: i,
+    face: null,
+    faceIndex: null,
+    barycoord: null,
+    object
+  };
+}
+var _start = /* @__PURE__ */ new Vector3;
+var _end = /* @__PURE__ */ new Vector3;
+
+class LineSegments extends Line {
+  constructor(geometry, material) {
+    super(geometry, material);
+    this.isLineSegments = true;
+    this.type = "LineSegments";
+  }
+  computeLineDistances() {
+    const geometry = this.geometry;
+    if (geometry.index === null) {
+      const positionAttribute = geometry.attributes.position;
+      const lineDistances = [];
+      for (let i = 0, l = positionAttribute.count;i < l; i += 2) {
+        _start.fromBufferAttribute(positionAttribute, i);
+        _end.fromBufferAttribute(positionAttribute, i + 1);
+        lineDistances[i] = i === 0 ? 0 : lineDistances[i - 1];
+        lineDistances[i + 1] = lineDistances[i] + _start.distanceTo(_end);
+      }
+      geometry.setAttribute("lineDistance", new Float32BufferAttribute(lineDistances, 1));
+    } else {
+      console.warn("THREE.LineSegments.computeLineDistances(): Computation only possible with non-indexed BufferGeometry.");
+    }
+    return this;
+  }
+}
 class PointsMaterial extends Material {
   constructor(parameters) {
     super();
@@ -27501,6 +27689,7 @@ class GameComponent extends LitElement {
   showDamageOverlay = false;
   cameraShaking = false;
   lastPlayerHealth = 100;
+  crosshairObject;
   keys = {};
   skyColor = new Color(8900331);
   static styles = css`
@@ -27587,6 +27776,7 @@ class GameComponent extends LitElement {
       100% { background-color: rgba(255, 0, 0, 0); }
     }
     
+    
     .camera-shake {
       animation: shake 0.25s ease-in-out;
     }
@@ -27629,6 +27819,7 @@ class GameComponent extends LitElement {
         <div class="${this.cameraShaking ? "camera-shake" : ""}">
           <canvas id="canvas"></canvas>
           <div class="damage-overlay ${this.showDamageOverlay ? "active" : ""}"></div>
+          
           <game-stats></game-stats>
           <div class="controls">
             <div>W: Forward, S: Backward</div>
@@ -27677,6 +27868,10 @@ class GameComponent extends LitElement {
     if (document.pointerLockElement === this.canvas) {
       document.exitPointerLock();
     }
+    if (this.crosshairObject && this.camera) {
+      this.camera.remove(this.crosshairObject);
+      this.crosshairObject = undefined;
+    }
     if (this.playerTank) {
       this.collisionSystem.removeCollider(this.playerTank);
       this.playerTank.dispose();
@@ -27697,6 +27892,8 @@ class GameComponent extends LitElement {
     this.scene.fog = new FogExp2(this.skyColor.clone().multiplyScalar(1.2), 0.0005);
     this.createSkybox();
     this.camera = new PerspectiveCamera(60, this.canvas.clientWidth / this.canvas.clientHeight, 0.1, 2000);
+    this.scene.add(this.camera);
+    this.scene.updateMatrixWorld(true);
     this.renderer = new WebGLRenderer({
       canvas: this.canvas,
       antialias: false,
@@ -27797,6 +27994,47 @@ class GameComponent extends LitElement {
       return;
     this.camera.position.set(0, 6, -8);
     this.camera.lookAt(this.playerTank.tank.position);
+    if (!this.crosshairObject) {
+      this.createCrosshair();
+    }
+  }
+  createCrosshair() {
+    if (!this.scene || !this.camera)
+      return;
+    const crosshairSize = 0.01;
+    const crosshairMaterial = new LineBasicMaterial({
+      color: 16777215,
+      linewidth: 2,
+      depthTest: false
+    });
+    const crosshairGeometry = new BufferGeometry;
+    const vertices = new Float32Array([
+      -crosshairSize,
+      0,
+      0,
+      crosshairSize,
+      0,
+      0,
+      0,
+      -crosshairSize,
+      0,
+      0,
+      crosshairSize,
+      0
+    ]);
+    crosshairGeometry.setAttribute("position", new BufferAttribute(vertices, 3));
+    const crosshair = new LineSegments(crosshairGeometry, crosshairMaterial);
+    this.crosshairObject = new Object3D;
+    this.crosshairObject.add(crosshair);
+    this.crosshairObject.position.z = -0.3;
+    crosshair.renderOrder = 999;
+    this.camera.add(this.crosshairObject);
+    this.crosshairObject.updateMatrix();
+    this.camera.updateMatrixWorld(true);
+    if (this.scene) {
+      this.scene.updateMatrixWorld(true);
+    }
+    console.log("THREE.js crosshair created");
   }
   isPointerLocked = false;
   mouseX = 0;
@@ -27860,6 +28098,7 @@ class GameComponent extends LitElement {
   }
   handlePointerLockChange() {
     this.isPointerLocked = document.pointerLockElement === this.canvas || document.mozPointerLockElement === this.canvas || document.webkitPointerLockElement === this.canvas;
+    this.requestUpdate();
     console.log("Pointer lock state changed:", this.isPointerLocked ? "locked" : "unlocked");
   }
   handleMouseMove(event) {

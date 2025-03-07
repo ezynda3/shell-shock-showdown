@@ -52,6 +52,9 @@ export class GameComponent extends LitElement {
   private cameraShaking = false;
   private lastPlayerHealth = 100;
   
+  // Crosshair as a THREE.js object
+  private crosshairObject?: THREE.Object3D;
+  
   // Control state
   private keys: { [key: string]: boolean } = {};
   
@@ -143,6 +146,7 @@ export class GameComponent extends LitElement {
       100% { background-color: rgba(255, 0, 0, 0); }
     }
     
+    
     .camera-shake {
       animation: shake 0.25s ease-in-out;
     }
@@ -186,6 +190,7 @@ export class GameComponent extends LitElement {
         <div class="${this.cameraShaking ? 'camera-shake' : ''}">
           <canvas id="canvas"></canvas>
           <div class="damage-overlay ${this.showDamageOverlay ? 'active' : ''}"></div>
+          
           <game-stats></game-stats>
           <div class="controls">
             <div>W: Forward, S: Backward</div>
@@ -253,6 +258,12 @@ export class GameComponent extends LitElement {
       document.exitPointerLock();
     }
     
+    // Remove crosshair from camera
+    if (this.crosshairObject && this.camera) {
+      this.camera.remove(this.crosshairObject);
+      this.crosshairObject = undefined;
+    }
+    
     // Clean up Tank resources
     if (this.playerTank) {
       this.collisionSystem.removeCollider(this.playerTank);
@@ -294,6 +305,12 @@ export class GameComponent extends LitElement {
       0.1,
       2000 // Reduced far plane for better performance
     );
+    
+    // Add camera to scene immediately
+    this.scene.add(this.camera);
+    
+    // Update scene matrices
+    this.scene.updateMatrixWorld(true);
     
     // Create optimized renderer
     this.renderer = new THREE.WebGLRenderer({
@@ -473,6 +490,64 @@ export class GameComponent extends LitElement {
     // Position camera behind and above the tank
     this.camera.position.set(0, 6, -8);
     this.camera.lookAt(this.playerTank.tank.position);
+    
+    // Create crosshair if it doesn't exist
+    if (!this.crosshairObject) {
+      this.createCrosshair();
+    }
+  }
+  
+  private createCrosshair() {
+    if (!this.scene || !this.camera) return;
+    
+    // Create a simple plus-shaped crosshair using lines
+    const crosshairSize = 0.01;
+    const crosshairMaterial = new THREE.LineBasicMaterial({ 
+      color: 0xffffff,  // White
+      linewidth: 2,     // Line width (note: not supported in WebGL)
+      depthTest: false  // Ensures the crosshair is always drawn on top
+    });
+    
+    // Create the crosshair geometry
+    const crosshairGeometry = new THREE.BufferGeometry();
+    
+    // Define the vertices for a plus shape
+    const vertices = new Float32Array([
+      // Horizontal line
+      -crosshairSize, 0, 0,
+      crosshairSize, 0, 0,
+      
+      // Vertical line
+      0, -crosshairSize, 0,
+      0, crosshairSize, 0
+    ]);
+    
+    crosshairGeometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    
+    // Create the crosshair line segments
+    const crosshair = new THREE.LineSegments(crosshairGeometry, crosshairMaterial);
+    
+    // Create a container that will be attached to the camera
+    this.crosshairObject = new THREE.Object3D();
+    this.crosshairObject.add(crosshair);
+    
+    // Position it in front of the camera
+    this.crosshairObject.position.z = -0.3;
+    
+    // Set render order to ensure it renders on top
+    crosshair.renderOrder = 999;
+    
+    // Add it to the camera so it moves with the camera
+    this.camera.add(this.crosshairObject);
+    
+    // Make sure the new object is properly transformed
+    this.crosshairObject.updateMatrix();
+    this.camera.updateMatrixWorld(true);
+    if (this.scene) {
+      this.scene.updateMatrixWorld(true);
+    }
+    
+    console.log("THREE.js crosshair created");
   }
   
   // Pointer lock variables
@@ -568,6 +643,9 @@ export class GameComponent extends LitElement {
       document.pointerLockElement === this.canvas ||
       (document as any).mozPointerLockElement === this.canvas ||
       (document as any).webkitPointerLockElement === this.canvas;
+    
+    // Force UI update
+    this.requestUpdate();
     
     console.log('Pointer lock state changed:', this.isPointerLocked ? 'locked' : 'unlocked');
   }
