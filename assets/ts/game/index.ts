@@ -12,6 +12,10 @@ export class GameComponent extends LitElement {
   @query('#canvas')
   private canvas!: HTMLCanvasElement;
   
+  // Game state property that can be set from outside
+  @property({ type: String, attribute: 'game-state' })
+  public gameState: string = '';
+  
   // Camera variables - exposed as properties to allow stats component to access
   @property({ attribute: false })
   public scene?: THREE.Scene;
@@ -91,6 +95,20 @@ export class GameComponent extends LitElement {
       border-radius: 5px;
       font-family: monospace;
       pointer-events: none;
+    }
+    
+    .game-state-display {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      pointer-events: none;
+      z-index: 1000;
+      font-size: 16px;
     }
     
     .game-over {
@@ -269,6 +287,13 @@ export class GameComponent extends LitElement {
             <div class="wasted-text">Wasted</div>
           </div>
           
+          <!-- Game state display -->
+          ${this.gameState ? html`
+            <div class="game-state-display">
+              Game State: ${this.gameState}
+            </div>
+          ` : ''}
+          
           <!-- Kill notifications container -->
           <div class="kill-notifications">
             ${this.killNotifications.map(notification => html`
@@ -297,6 +322,13 @@ export class GameComponent extends LitElement {
     
     // Initialize game stats
     this.updateStats();
+  }
+  
+  // Called when gameState property changes
+  updated(changedProperties: Map<string, any>) {
+    if (changedProperties.has('gameState') && this.gameState) {
+      console.log('Game state changed:', this.gameState);
+    }
   }
 
   disconnectedCallback() {
@@ -941,8 +973,11 @@ export class GameComponent extends LitElement {
         this.playerTank.updateCamera(this.camera);
       }
       
-      // Emit player position and orientation event
-      this.emitPlayerPositionEvent();
+      // Emit player position and orientation event, but limit frequency
+      // Only emit every 5 frames to reduce event frequency
+      if (this.animationFrameId % 5 === 0) {
+        this.emitPlayerPositionEvent();
+      }
       
       // Update stats for health changes
       this.updateStats();

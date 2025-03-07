@@ -14,6 +14,11 @@ import (
 	datastar "github.com/starfederation/datastar/sdk/go"
 )
 
+type Signals struct {
+	Update    string `json:"update"`
+	GameState string `json:"gameState"`
+}
+
 func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 	// Create a group for protected routes
 	protected := router.Group("")
@@ -21,8 +26,33 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 
 	// POST route for update endpoint
 	router.POST("/update", func(e *core.RequestEvent) error {
-		log.Println("posted")
+		signals := &Signals{}
+		if err := datastar.ReadSignals(e.Request, signals); err != nil {
+			log.Println("Error reading signals:", err)
+			return e.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+
+		log.Println("Received update:", signals.Update)
 		return e.JSON(http.StatusOK, map[string]bool{"success": true})
+	})
+
+	// GET route for gamestate endpoint
+	router.GET("/gamestate", func(e *core.RequestEvent) error {
+		sse := datastar.NewSSE(e.Response, e.Request)
+
+		for {
+			select {
+			case <-e.Request.Context().Done():
+				return nil
+			default:
+				currentTime := time.Now().Format("15:04:05")
+				stateJSON := fmt.Sprintf(`{"gameState": "%s"}`, currentTime)
+				_ = sse.MergeSignals([]byte(stateJSON))
+
+				// Add a small delay to reduce CPU usage and network traffic
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
 	})
 
 	// Add routes to protected group

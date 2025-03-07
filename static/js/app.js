@@ -28494,6 +28494,10 @@ GameStats = __legacyDecorateClassTS([
 
 // assets/ts/game/index.ts
 class GameComponent extends LitElement {
+  constructor() {
+    super(...arguments);
+    this.gameState = "";
+  }
   animationFrameId;
   playerTank;
   npcTanks = [];
@@ -28541,6 +28545,20 @@ class GameComponent extends LitElement {
       border-radius: 5px;
       font-family: monospace;
       pointer-events: none;
+    }
+    
+    .game-state-display {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      pointer-events: none;
+      z-index: 1000;
+      font-size: 16px;
     }
     
     .game-over {
@@ -28718,6 +28736,13 @@ class GameComponent extends LitElement {
             <div class="wasted-text">Wasted</div>
           </div>
           
+          <!-- Game state display -->
+          ${this.gameState ? html`
+            <div class="game-state-display">
+              Game State: ${this.gameState}
+            </div>
+          ` : ""}
+          
           <!-- Kill notifications container -->
           <div class="kill-notifications">
             ${this.killNotifications.map((notification) => html`
@@ -28739,6 +28764,11 @@ class GameComponent extends LitElement {
     this.handleTankHit = this.handleTankHit.bind(this);
     document.addEventListener("tank-hit", this.handleTankHit);
     this.updateStats();
+  }
+  updated(changedProperties) {
+    if (changedProperties.has("gameState") && this.gameState) {
+      console.log("Game state changed:", this.gameState);
+    }
   }
   disconnectedCallback() {
     super.disconnectedCallback();
@@ -29099,7 +29129,9 @@ class GameComponent extends LitElement {
       if (this.camera) {
         this.playerTank.updateCamera(this.camera);
       }
-      this.emitPlayerPositionEvent();
+      if (this.animationFrameId % 5 === 0) {
+        this.emitPlayerPositionEvent();
+      }
       this.updateStats();
     }
     if (this.playerTank) {
@@ -29339,6 +29371,9 @@ class GameComponent extends LitElement {
 __legacyDecorateClassTS([
   query("#canvas")
 ], GameComponent.prototype, "canvas", undefined);
+__legacyDecorateClassTS([
+  property({ type: String, attribute: "game-state" })
+], GameComponent.prototype, "gameState", undefined);
 __legacyDecorateClassTS([
   property({ attribute: false })
 ], GameComponent.prototype, "scene", undefined);
