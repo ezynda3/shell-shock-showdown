@@ -42,7 +42,7 @@ export class Tank implements ITank {
   private canFire = true;
   private readonly RELOAD_TIME = 60; // 1 second cooldown at 60fps
   private reloadCounter = 0;
-  private readonly SHELL_SPEED = 1.5; // Increased from 0.7 for longer range
+  private readonly SHELL_SPEED = 6.0; // 4x from 1.5 for much longer range
   private readonly BARREL_END_OFFSET = 1.5; // Distance from turret pivot to end of barrel
   
   private scene: THREE.Scene;
@@ -425,10 +425,10 @@ export class NPCTank implements ITank {
   private canFire = true;
   private readonly RELOAD_TIME = 180; // 3 second cooldown at 60fps - slower than player for balance
   private reloadCounter = 0;
-  private readonly SHELL_SPEED = 1.2; // Increased from 0.6 but still slower than player
+  private readonly SHELL_SPEED = 4.8; // 4x from 1.2 but still slower than player
   private readonly BARREL_END_OFFSET = 1.5; // Distance from turret pivot to end of barrel
   private readonly FIRE_PROBABILITY = 0.01; // 1% chance to fire each frame when canFire is true
-  private readonly TARGETING_DISTANCE = 100; // Will only attempt to target and fire if player is within this range
+  private readonly TARGETING_DISTANCE = 300; // Increased from 100 to match new shell range
 
   private scene: THREE.Scene;
 

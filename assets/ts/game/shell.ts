@@ -9,8 +9,8 @@ export class Shell implements ICollidable {
   private collider: THREE.Sphere;
   private isActive: boolean = true;
   private lifeTime: number = 0;
-  private readonly MAX_LIFETIME: number = 300; // 5 seconds at 60fps
-  private readonly GRAVITY: number = 0.02; // Reduced gravity for longer arcs
+  private readonly MAX_LIFETIME: number = 600; // 10 seconds at 60fps - doubled for longer range
+  private readonly GRAVITY: number = 0.01; // Reduced gravity for much longer arcs
   private readonly COLLISION_RADIUS: number = 0.2;
   
   // Trail effect properties
@@ -18,8 +18,8 @@ export class Shell implements ICollidable {
   private trailPositions: Float32Array;
   private trailColors: Float32Array;
   private trailGeometry: THREE.BufferGeometry;
-  private readonly TRAIL_LENGTH: number = 20; // Number of trail segments
-  private readonly TRAIL_FADE_RATE: number = 0.94; // How quickly trail fades (0-1, higher = slower fade)
+  private readonly TRAIL_LENGTH: number = 40; // Number of trail segments - doubled for longer trails
+  private readonly TRAIL_FADE_RATE: number = 0.96; // How quickly trail fades (0-1, higher = slower fade)
   
   // Tank that fired this shell - used to prevent self-collision
   private owner: ICollidable;
@@ -191,10 +191,10 @@ export class Shell implements ICollidable {
     
     // Create material for the trail
     const trailMaterial = new THREE.PointsMaterial({
-      size: 0.15,
+      size: 0.25, // Increased from 0.15 for better visibility
       vertexColors: true,
       transparent: true,
-      opacity: 0.6,
+      opacity: 0.8, // Increased from 0.6 for better visibility
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });

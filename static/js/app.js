@@ -25786,15 +25786,15 @@ class Shell {
   collider;
   isActive = true;
   lifeTime = 0;
-  MAX_LIFETIME = 300;
-  GRAVITY = 0.02;
+  MAX_LIFETIME = 600;
+  GRAVITY = 0.01;
   COLLISION_RADIUS = 0.2;
   trail;
   trailPositions;
   trailColors;
   trailGeometry;
-  TRAIL_LENGTH = 20;
-  TRAIL_FADE_RATE = 0.94;
+  TRAIL_LENGTH = 40;
+  TRAIL_FADE_RATE = 0.96;
   owner;
   constructor(scene, position, direction, velocity, owner) {
     this.scene = scene;
@@ -25891,10 +25891,10 @@ class Shell {
     this.trailGeometry.setAttribute("position", new BufferAttribute(this.trailPositions, 3));
     this.trailGeometry.setAttribute("color", new BufferAttribute(this.trailColors, 3));
     const trailMaterial = new PointsMaterial({
-      size: 0.15,
+      size: 0.25,
       vertexColors: true,
       transparent: true,
-      opacity: 0.6,
+      opacity: 0.8,
       blending: AdditiveBlending,
       depthWrite: false
     });
@@ -25966,7 +25966,7 @@ class Tank {
   canFire = true;
   RELOAD_TIME = 60;
   reloadCounter = 0;
-  SHELL_SPEED = 1.5;
+  SHELL_SPEED = 6;
   BARREL_END_OFFSET = 1.5;
   scene;
   camera;
@@ -26185,10 +26185,10 @@ class NPCTank {
   canFire = true;
   RELOAD_TIME = 180;
   reloadCounter = 0;
-  SHELL_SPEED = 1.2;
+  SHELL_SPEED = 4.8;
   BARREL_END_OFFSET = 1.5;
   FIRE_PROBABILITY = 0.01;
-  TARGETING_DISTANCE = 100;
+  TARGETING_DISTANCE = 300;
   scene;
   constructor(scene, position, color = 16711680) {
     this.scene = scene;
