@@ -26153,10 +26153,14 @@ class Tank {
   }
   updateCamera(camera) {
     const cameraOffset = new Vector3(0, 4, -8);
+    const combinedAngle = this.tank.rotation.y + this.turretPivot.rotation.y;
     const rotatedOffset = cameraOffset.clone();
-    rotatedOffset.applyAxisAngle(new Vector3(0, 1, 0), this.tank.rotation.y);
+    rotatedOffset.applyAxisAngle(new Vector3(0, 1, 0), combinedAngle);
     camera.position.copy(this.tank.position).add(rotatedOffset);
-    camera.lookAt(new Vector3(this.tank.position.x, this.tank.position.y + 4, this.tank.position.z));
+    const lookDirection = new Vector3(0, 0, 10);
+    lookDirection.applyAxisAngle(new Vector3(0, 1, 0), combinedAngle);
+    const targetPosition = this.tank.position.clone().add(lookDirection).add(new Vector3(0, 4, 0));
+    camera.lookAt(targetPosition);
   }
   dispose() {
     this.scene.remove(this.tank);

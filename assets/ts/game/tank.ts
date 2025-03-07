@@ -362,22 +362,26 @@ export class Tank implements ITank {
   }
 
   updateCamera(camera: THREE.PerspectiveCamera) {
-    // Camera follows tank
+    // Camera follows tank and turret direction
     const cameraOffset = new THREE.Vector3(0, 4, -8); // Decreased height to show more sky
     
-    // Rotate the offset based on tank's rotation
+    // Calculate the combined rotation of tank body and turret
+    const combinedAngle = this.tank.rotation.y + this.turretPivot.rotation.y;
+    
+    // Rotate the offset based on the combined rotation
     const rotatedOffset = cameraOffset.clone();
-    rotatedOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.tank.rotation.y);
+    rotatedOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), combinedAngle);
     
     // Apply the offset to the tank's position
     camera.position.copy(this.tank.position).add(rotatedOffset);
-    camera.lookAt(
-      new THREE.Vector3(
-        this.tank.position.x,
-        this.tank.position.y + 4, // Raised look target to aim camera higher
-        this.tank.position.z
-      )
-    );
+    
+    // Calculate a look target that considers both tank position and turret direction
+    const lookDirection = new THREE.Vector3(0, 0, 10); // Look forward
+    lookDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), combinedAngle); // Apply rotation
+    
+    // Set the target position with some height adjustment
+    const targetPosition = this.tank.position.clone().add(lookDirection).add(new THREE.Vector3(0, 4, 0));
+    camera.lookAt(targetPosition);
   }
   
   dispose() {
