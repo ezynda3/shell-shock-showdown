@@ -28499,7 +28499,7 @@ class GameComponent extends LitElement {
 
     .controls {
       position: absolute;
-      bottom: 10px;
+      bottom: 75px;
       left: 10px;
       background: rgba(0, 0, 0, 0.7);
       color: white;
