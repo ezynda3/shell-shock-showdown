@@ -26297,7 +26297,7 @@ class MapGenerator {
       this.createPineTree(1 + i * 0.05, Math.cos(angle) * radius, Math.sin(angle) * radius);
     }
   }
-  createRock(size, deformSeed, x, y, z, rotation, scale, material) {
+  createRock(size, deformSeed, x, y, z, rotation, scale, material, colliderPosition) {
     const rockGeometry = new DodecahedronGeometry(size, 0);
     const positions = rockGeometry.attributes.position;
     for (let j = 0;j < positions.count; j++) {
@@ -26319,7 +26319,7 @@ class MapGenerator {
     rock.receiveShadow = true;
     const maxScale = Math.max(scale.x, scale.y, scale.z);
     const collisionRadius = size * maxScale * 1.2;
-    const position = new Vector3(x, y, z);
+    const position = colliderPosition ? colliderPosition.clone() : new Vector3(x, y, z);
     const rockCollider = new StaticCollider(position, "rock", collisionRadius);
     this.rockColliders.push(rockCollider);
     return rock;
@@ -26341,7 +26341,10 @@ class MapGenerator {
       const scaleY = baseScale * 0.8;
       const scaleZ = baseScale * 1.2;
       const material = i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial;
-      const rock = this.createRock(0.5 + Math.sin(seed + i * 7) * 0.3, seed + i, x, y, z, new Vector3(rotX, rotY, rotZ), new Vector3(scaleX, scaleY, scaleZ), material);
+      const absX = x + centerX;
+      const absY = y;
+      const absZ = z + centerZ;
+      const rock = this.createRock(0.5 + Math.sin(seed + i * 7) * 0.3, seed + i, x, y, z, new Vector3(rotX, rotY, rotZ), new Vector3(scaleX, scaleY, scaleZ), material, new Vector3(absX, absY, absZ));
       cluster.add(rock);
     }
     cluster.position.set(centerX, 0, centerZ);

@@ -277,7 +277,7 @@ export class MapGenerator {
   
   // ===== ROCK METHODS =====
   
-  createRock(size: number, deformSeed: number, x: number, y: number, z: number, rotation: THREE.Vector3, scale: THREE.Vector3, material: THREE.Material) {
+  createRock(size: number, deformSeed: number, x: number, y: number, z: number, rotation: THREE.Vector3, scale: THREE.Vector3, material: THREE.Material, colliderPosition?: THREE.Vector3) {
     // Create base geometry
     const rockGeometry = new THREE.DodecahedronGeometry(size, 0);
     
@@ -313,7 +313,9 @@ export class MapGenerator {
     // Use the largest scale dimension to determine collision radius
     const maxScale = Math.max(scale.x, scale.y, scale.z);
     const collisionRadius = size * maxScale * 1.2; // Slightly larger than the visual size
-    const position = new THREE.Vector3(x, y, z);
+    
+    // Use provided collider position if available, otherwise use the mesh position
+    const position = colliderPosition ? colliderPosition.clone() : new THREE.Vector3(x, y, z);
     const rockCollider = new StaticCollider(position, 'rock', collisionRadius);
     this.rockColliders.push(rockCollider);
     
@@ -349,14 +351,20 @@ export class MapGenerator {
       // Alternate materials
       const material = i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial;
       
+      // Calculate absolute position (local rock position + cluster position)
+      const absX = x + centerX;
+      const absY = y;
+      const absZ = z + centerZ;
+      
       // Create the rock
       const rock = this.createRock(
         0.5 + Math.sin(seed + i * 7) * 0.3, // Size
         seed + i, // Deform seed
-        x, y, z, // Position
+        x, y, z, // Local Position (for the mesh)
         new THREE.Vector3(rotX, rotY, rotZ), // Rotation
         new THREE.Vector3(scaleX, scaleY, scaleZ), // Scale
-        material
+        material,
+        new THREE.Vector3(absX, absY, absZ) // Absolute position (for the collider)
       );
       
       cluster.add(rock);
