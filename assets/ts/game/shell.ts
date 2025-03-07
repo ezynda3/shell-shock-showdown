@@ -10,8 +10,16 @@ export class Shell implements ICollidable {
   private isActive: boolean = true;
   private lifeTime: number = 0;
   private readonly MAX_LIFETIME: number = 300; // 5 seconds at 60fps
-  private readonly GRAVITY: number = 0.03; // Gravity strength
+  private readonly GRAVITY: number = 0.02; // Reduced gravity for longer arcs
   private readonly COLLISION_RADIUS: number = 0.2;
+  
+  // Trail effect properties
+  private trail: THREE.Points;
+  private trailPositions: Float32Array;
+  private trailColors: Float32Array;
+  private trailGeometry: THREE.BufferGeometry;
+  private readonly TRAIL_LENGTH: number = 20; // Number of trail segments
+  private readonly TRAIL_FADE_RATE: number = 0.94; // How quickly trail fades (0-1, higher = slower fade)
   
   // Tank that fired this shell - used to prevent self-collision
   private owner: ICollidable;
@@ -45,6 +53,9 @@ export class Shell implements ICollidable {
     // Create collision sphere
     this.collider = new THREE.Sphere(position.clone(), this.COLLISION_RADIUS);
     
+    // Initialize trail system
+    this.initializeTrail(position.clone());
+    
     // Add to scene
     scene.add(this.mesh);
   }
@@ -70,6 +81,9 @@ export class Shell implements ICollidable {
     // Update collider position
     this.collider.center.copy(this.mesh.position);
     
+    // Update trail
+    this.updateTrail();
+    
     // Check if shell is below ground (y = 0)
     if (this.mesh.position.y < 0) {
       // Create explosion effect at ground level
@@ -84,6 +98,27 @@ export class Shell implements ICollidable {
     }
     
     return true;
+  }
+  
+  private updateTrail(): void {
+    // Shift all trail segments one position back (from last to first)
+    for (let i = this.TRAIL_LENGTH - 1; i > 0; i--) {
+      const currentIdx = i * 3;
+      const prevIdx = (i - 1) * 3;
+      
+      // Copy position from previous segment
+      this.trailPositions[currentIdx] = this.trailPositions[prevIdx];
+      this.trailPositions[currentIdx + 1] = this.trailPositions[prevIdx + 1];
+      this.trailPositions[currentIdx + 2] = this.trailPositions[prevIdx + 2];
+    }
+    
+    // Update the first segment with the current shell position
+    this.trailPositions[0] = this.mesh.position.x;
+    this.trailPositions[1] = this.mesh.position.y;
+    this.trailPositions[2] = this.mesh.position.z;
+    
+    // Update the geometry
+    (this.trailGeometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
   }
   
   // Implement ICollidable interface
@@ -121,7 +156,54 @@ export class Shell implements ICollidable {
   private destroy(): void {
     // Remove from scene
     this.scene.remove(this.mesh);
+    
+    // Remove trail
+    if (this.trail) {
+      this.scene.remove(this.trail);
+    }
+    
     this.isActive = false;
+  }
+  
+  private initializeTrail(initialPosition: THREE.Vector3): void {
+    // Create arrays for trail positions and colors
+    this.trailPositions = new Float32Array(this.TRAIL_LENGTH * 3); // xyz * trail length
+    this.trailColors = new Float32Array(this.TRAIL_LENGTH * 3); // rgb * trail length
+    
+    // Initialize all trail positions to the starting position
+    for (let i = 0; i < this.TRAIL_LENGTH; i++) {
+      const idx = i * 3;
+      this.trailPositions[idx] = initialPosition.x;
+      this.trailPositions[idx + 1] = initialPosition.y;
+      this.trailPositions[idx + 2] = initialPosition.z;
+      
+      // Initialize color with decreasing opacity based on position in trail
+      const alpha = Math.pow(this.TRAIL_FADE_RATE, i);
+      this.trailColors[idx] = 1.0;         // Red component 
+      this.trailColors[idx + 1] = 0.7;     // Green component (slight yellow tint)
+      this.trailColors[idx + 2] = 0.3 * alpha; // Blue component with fading
+    }
+    
+    // Create the geometry and set attributes
+    this.trailGeometry = new THREE.BufferGeometry();
+    this.trailGeometry.setAttribute('position', new THREE.BufferAttribute(this.trailPositions, 3));
+    this.trailGeometry.setAttribute('color', new THREE.BufferAttribute(this.trailColors, 3));
+    
+    // Create material for the trail
+    const trailMaterial = new THREE.PointsMaterial({
+      size: 0.15,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.6,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    
+    // Create the trail points system
+    this.trail = new THREE.Points(this.trailGeometry, trailMaterial);
+    
+    // Add trail to scene
+    this.scene.add(this.trail);
   }
   
   private createExplosion(position: THREE.Vector3): void {

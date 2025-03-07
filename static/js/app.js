@@ -25787,8 +25787,14 @@ class Shell {
   isActive = true;
   lifeTime = 0;
   MAX_LIFETIME = 300;
-  GRAVITY = 0.03;
+  GRAVITY = 0.02;
   COLLISION_RADIUS = 0.2;
+  trail;
+  trailPositions;
+  trailColors;
+  trailGeometry;
+  TRAIL_LENGTH = 20;
+  TRAIL_FADE_RATE = 0.94;
   owner;
   constructor(scene, position, direction, velocity, owner) {
     this.scene = scene;
@@ -25805,6 +25811,7 @@ class Shell {
     this.mesh.position.copy(position);
     this.velocity = direction.clone().normalize().multiplyScalar(velocity);
     this.collider = new Sphere(position.clone(), this.COLLISION_RADIUS);
+    this.initializeTrail(position.clone());
     scene.add(this.mesh);
   }
   update() {
@@ -25818,12 +25825,26 @@ class Shell {
     this.velocity.y -= this.GRAVITY;
     this.mesh.position.add(this.velocity);
     this.collider.center.copy(this.mesh.position);
+    this.updateTrail();
     if (this.mesh.position.y < 0) {
       this.createExplosion(new Vector3(this.mesh.position.x, 0, this.mesh.position.z));
       this.destroy();
       return false;
     }
     return true;
+  }
+  updateTrail() {
+    for (let i = this.TRAIL_LENGTH - 1;i > 0; i--) {
+      const currentIdx = i * 3;
+      const prevIdx = (i - 1) * 3;
+      this.trailPositions[currentIdx] = this.trailPositions[prevIdx];
+      this.trailPositions[currentIdx + 1] = this.trailPositions[prevIdx + 1];
+      this.trailPositions[currentIdx + 2] = this.trailPositions[prevIdx + 2];
+    }
+    this.trailPositions[0] = this.mesh.position.x;
+    this.trailPositions[1] = this.mesh.position.y;
+    this.trailPositions[2] = this.mesh.position.z;
+    this.trailGeometry.attributes.position.needsUpdate = true;
   }
   getCollider() {
     return this.collider;
@@ -25848,7 +25869,37 @@ class Shell {
   }
   destroy() {
     this.scene.remove(this.mesh);
+    if (this.trail) {
+      this.scene.remove(this.trail);
+    }
     this.isActive = false;
+  }
+  initializeTrail(initialPosition) {
+    this.trailPositions = new Float32Array(this.TRAIL_LENGTH * 3);
+    this.trailColors = new Float32Array(this.TRAIL_LENGTH * 3);
+    for (let i = 0;i < this.TRAIL_LENGTH; i++) {
+      const idx = i * 3;
+      this.trailPositions[idx] = initialPosition.x;
+      this.trailPositions[idx + 1] = initialPosition.y;
+      this.trailPositions[idx + 2] = initialPosition.z;
+      const alpha = Math.pow(this.TRAIL_FADE_RATE, i);
+      this.trailColors[idx] = 1;
+      this.trailColors[idx + 1] = 0.7;
+      this.trailColors[idx + 2] = 0.3 * alpha;
+    }
+    this.trailGeometry = new BufferGeometry;
+    this.trailGeometry.setAttribute("position", new BufferAttribute(this.trailPositions, 3));
+    this.trailGeometry.setAttribute("color", new BufferAttribute(this.trailColors, 3));
+    const trailMaterial = new PointsMaterial({
+      size: 0.15,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.6,
+      blending: AdditiveBlending,
+      depthWrite: false
+    });
+    this.trail = new Points(this.trailGeometry, trailMaterial);
+    this.scene.add(this.trail);
   }
   createExplosion(position) {
     const particleCount = 30;
@@ -25915,7 +25966,7 @@ class Tank {
   canFire = true;
   RELOAD_TIME = 60;
   reloadCounter = 0;
-  SHELL_SPEED = 0.7;
+  SHELL_SPEED = 1.5;
   BARREL_END_OFFSET = 1.5;
   scene;
   camera;
@@ -26134,7 +26185,7 @@ class NPCTank {
   canFire = true;
   RELOAD_TIME = 180;
   reloadCounter = 0;
-  SHELL_SPEED = 0.6;
+  SHELL_SPEED = 1.2;
   BARREL_END_OFFSET = 1.5;
   FIRE_PROBABILITY = 0.01;
   TARGETING_DISTANCE = 100;
