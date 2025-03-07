@@ -26704,6 +26704,8 @@ class Tank {
   barrelElevationSpeed = 0.03;
   maxBarrelElevation = 0;
   minBarrelElevation = -Math.PI / 4;
+  tankName;
+  tankColor = 4881497;
   getMinBarrelElevation() {
     return this.minBarrelElevation;
   }
@@ -26722,11 +26724,15 @@ class Tank {
   MAX_HEALTH = 100;
   isDestroyed = false;
   destroyedEffects = [];
+  healthBarSprite;
+  healthBarContext = null;
+  healthBarTexture = null;
   scene;
   camera;
-  constructor(scene, camera) {
+  constructor(scene, camera, name = "Player") {
     this.scene = scene;
     this.camera = camera;
+    this.tankName = name;
     this.tank = new Group;
     this.turretPivot = new Group;
     this.barrelPivot = new Group;
@@ -26899,6 +26905,56 @@ class Tank {
     const targetPosition = this.tank.position.clone().add(lookDirection).add(new Vector3(0, 4, 0));
     camera.lookAt(targetPosition);
   }
+  createHealthBar() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = 32;
+    const context = canvas.getContext("2d");
+    if (context) {
+      context.clearRect(0, 0, 128, 32);
+      context.font = "bold 12px Arial";
+      context.textAlign = "center";
+      context.fillStyle = "white";
+      context.strokeStyle = "black";
+      context.lineWidth = 2;
+      context.strokeText(this.tankName, 64, 12);
+      context.fillText(this.tankName, 64, 12);
+      context.fillStyle = "rgba(0,0,0,0.6)";
+      context.fillRect(0, 16, 128, 16);
+      context.fillStyle = "#00FF00";
+      context.fillRect(2, 18, 124, 12);
+      const texture = new CanvasTexture(canvas);
+      this.healthBarContext = context;
+      this.healthBarTexture = texture;
+      const spriteMaterial = new SpriteMaterial({
+        map: texture,
+        transparent: true
+      });
+      const sprite = new Sprite(spriteMaterial);
+      sprite.position.set(0, 3.5, 0);
+      sprite.scale.set(3, 1, 1);
+      this.tank.add(sprite);
+      this.healthBarSprite = sprite;
+    }
+  }
+  updateHealthBar() {
+    if (!this.healthBarContext || !this.healthBarTexture)
+      return;
+    const healthPercent = this.health / this.MAX_HEALTH;
+    this.healthBarContext.clearRect(0, 16, 128, 16);
+    this.healthBarContext.fillStyle = "rgba(0,0,0,0.6)";
+    this.healthBarContext.fillRect(0, 16, 128, 16);
+    if (healthPercent > 0.6) {
+      this.healthBarContext.fillStyle = "#00FF00";
+    } else if (healthPercent > 0.3) {
+      this.healthBarContext.fillStyle = "#FFFF00";
+    } else {
+      this.healthBarContext.fillStyle = "#FF0000";
+    }
+    const barWidth = Math.floor(124 * healthPercent);
+    this.healthBarContext.fillRect(2, 18, barWidth, 12);
+    this.healthBarTexture.needsUpdate = true;
+  }
   dispose() {
     this.scene.remove(this.tank);
     for (const effect of this.destroyedEffects) {
@@ -26917,7 +26973,6 @@ class Tank {
       this.createDestroyedEffect();
       return true;
     }
-    this.updateHealthBar();
     return false;
   }
   getHealth() {
@@ -26932,9 +26987,6 @@ class Tank {
       this.tank.position.set(0, 0, 0);
     }
     this.tank.visible = true;
-    if (this.healthBarSprite) {
-      this.healthBarSprite.visible = true;
-    }
     this.collider.center.copy(this.tank.position);
     for (const effect of this.destroyedEffects) {
       this.scene.remove(effect);
@@ -27315,6 +27367,75 @@ class Tank {
     return mesh;
   }
 }
+function generateRandomTankName() {
+  const adjectives = [
+    "Rusty",
+    "Mighty",
+    "Swift",
+    "Iron",
+    "Steel",
+    "Thunder",
+    "Lightning",
+    "Shadow",
+    "Desert",
+    "Arctic",
+    "Jungle",
+    "Mountain",
+    "Blazing",
+    "Frozen",
+    "Silent",
+    "Roaring",
+    "Ancient",
+    "Phantom",
+    "Savage",
+    "Noble",
+    "Fierce",
+    "Crimson",
+    "Stormy",
+    "Golden",
+    "Silver",
+    "Bronze",
+    "Heavy",
+    "Rapid",
+    "Relentless",
+    "Vigilant"
+  ];
+  const nouns = [
+    "Panther",
+    "Tiger",
+    "Dragon",
+    "Serpent",
+    "Ghost",
+    "Falcon",
+    "Eagle",
+    "Wolf",
+    "Rhino",
+    "Mammoth",
+    "Titan",
+    "Colossus",
+    "Hunter",
+    "Stalker",
+    "Crusher",
+    "Smasher",
+    "Destroyer",
+    "Guardian",
+    "Sentinel",
+    "Avenger",
+    "Hammer",
+    "Blade",
+    "Thunder",
+    "Viper",
+    "Cobra",
+    "Scorpion",
+    "Shark",
+    "Raven",
+    "Phoenix",
+    "Barracuda"
+  ];
+  const randomAdjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const randomNoun = nouns[Math.floor(Math.random() * nouns.length)];
+  return `${randomAdjective} ${randomNoun}`;
+}
 
 class NPCTank {
   tank;
@@ -27343,6 +27464,7 @@ class NPCTank {
   patrolPoints = [];
   currentPatrolIndex = 0;
   tankColor;
+  tankName;
   collider;
   collisionRadius = 2;
   lastPosition = new Vector3;
@@ -27363,9 +27485,10 @@ class NPCTank {
   healthBarContext = null;
   healthBarTexture = null;
   scene;
-  constructor(scene, position, color = 16711680) {
+  constructor(scene, position, color = 16711680, name) {
     this.scene = scene;
     this.tankColor = color;
+    this.tankName = name || generateRandomTankName();
     this.tank = new Group;
     this.turretPivot = new Group;
     this.barrelPivot = new Group;
@@ -27384,14 +27507,22 @@ class NPCTank {
   }
   createHealthBar() {
     const canvas = document.createElement("canvas");
-    canvas.width = 64;
-    canvas.height = 16;
+    canvas.width = 128;
+    canvas.height = 32;
     const context = canvas.getContext("2d");
     if (context) {
+      context.clearRect(0, 0, 128, 32);
+      context.font = "bold 12px Arial";
+      context.textAlign = "center";
+      context.fillStyle = "white";
+      context.strokeStyle = "black";
+      context.lineWidth = 2;
+      context.strokeText(this.tankName, 64, 12);
+      context.fillText(this.tankName, 64, 12);
       context.fillStyle = "rgba(0,0,0,0.6)";
-      context.fillRect(0, 0, 64, 16);
+      context.fillRect(0, 16, 128, 16);
       context.fillStyle = "#00FF00";
-      context.fillRect(2, 2, 60, 12);
+      context.fillRect(2, 18, 124, 12);
       const texture = new CanvasTexture(canvas);
       this.healthBarContext = context;
       this.healthBarTexture = texture;
@@ -27400,8 +27531,8 @@ class NPCTank {
         transparent: true
       });
       const sprite = new Sprite(spriteMaterial);
-      sprite.position.set(0, 3, 0);
-      sprite.scale.set(2, 0.5, 1);
+      sprite.position.set(0, 3.5, 0);
+      sprite.scale.set(3, 1, 1);
       this.tank.add(sprite);
       this.healthBarSprite = sprite;
     }
@@ -27411,9 +27542,9 @@ class NPCTank {
     if (!this.healthBarContext || !this.healthBarTexture)
       return;
     const healthPercent = this.health / this.MAX_HEALTH;
-    this.healthBarContext.clearRect(0, 0, 64, 16);
+    this.healthBarContext.clearRect(0, 16, 128, 16);
     this.healthBarContext.fillStyle = "rgba(0,0,0,0.6)";
-    this.healthBarContext.fillRect(0, 0, 64, 16);
+    this.healthBarContext.fillRect(0, 16, 128, 16);
     if (healthPercent > 0.6) {
       this.healthBarContext.fillStyle = "#00FF00";
     } else if (healthPercent > 0.3) {
@@ -27421,8 +27552,8 @@ class NPCTank {
     } else {
       this.healthBarContext.fillStyle = "#FF0000";
     }
-    const barWidth = Math.floor(60 * healthPercent);
-    this.healthBarContext.fillRect(2, 2, barWidth, 12);
+    const barWidth = Math.floor(124 * healthPercent);
+    this.healthBarContext.fillRect(2, 18, barWidth, 12);
     this.healthBarTexture.needsUpdate = true;
   }
   createTank() {

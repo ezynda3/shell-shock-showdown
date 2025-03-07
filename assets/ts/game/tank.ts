@@ -39,6 +39,8 @@ export class Tank implements ITank {
   private barrelElevationSpeed = 0.03;
   private maxBarrelElevation = 0;           // Barrel can't go lower than starting position
   private minBarrelElevation = -Math.PI / 4; // Barrel pointing up limit
+  private tankName: string;                  // Name to display above tank
+  private tankColor: number = 0x4a7c59;      // Default tank color
   
   // Getter methods for barrel elevation limits
   getMinBarrelElevation(): number {
@@ -67,12 +69,20 @@ export class Tank implements ITank {
   private isDestroyed: boolean = false;
   private destroyedEffects: THREE.Object3D[] = [];
   
+  // Health bar display
+  private healthBarSprite: THREE.Sprite;
+  private healthBarContext: CanvasRenderingContext2D | null = null;
+  private healthBarTexture: THREE.CanvasTexture | null = null;
+  
   private scene: THREE.Scene;
   private camera?: THREE.PerspectiveCamera;
 
-  constructor(scene: THREE.Scene, camera?: THREE.PerspectiveCamera) {
+  constructor(scene: THREE.Scene, camera?: THREE.PerspectiveCamera, name: string = "Player") {
     this.scene = scene;
     this.camera = camera;
+    
+    // Set player name
+    this.tankName = name;
     
     // Initialize tank group
     this.tank = new THREE.Group();
@@ -85,6 +95,8 @@ export class Tank implements ITank {
     // Initialize collision sphere
     this.collider = new THREE.Sphere(this.tank.position.clone(), this.collisionRadius);
     this.lastPosition = this.tank.position.clone();
+    
+    // No health bar for player tank - it's shown in the UI
     
     // Add to scene
     scene.add(this.tank);
@@ -397,6 +409,94 @@ export class Tank implements ITank {
     camera.lookAt(targetPosition);
   }
   
+  private createHealthBar(): void {
+    // Creating a canvas for the health bar and name tag
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;  // Wider canvas to fit the name
+    canvas.height = 32;  // Taller canvas for name + health bar
+    const context = canvas.getContext('2d');
+    
+    if (context) {
+      // Clear the entire canvas
+      context.clearRect(0, 0, 128, 32);
+      
+      // Draw the tank name
+      context.font = 'bold 12px Arial';
+      context.textAlign = 'center';
+      context.fillStyle = 'white';
+      context.strokeStyle = 'black';
+      context.lineWidth = 2;
+      context.strokeText(this.tankName, 64, 12);
+      context.fillText(this.tankName, 64, 12);
+      
+      // Draw the background (black) for health bar
+      context.fillStyle = 'rgba(0,0,0,0.6)';
+      context.fillRect(0, 16, 128, 16);
+      
+      // Draw the health bar (green)
+      context.fillStyle = '#00FF00';
+      context.fillRect(2, 18, 124, 12);
+      
+      // Create a texture from the canvas
+      const texture = new THREE.CanvasTexture(canvas);
+      
+      // Store the canvas context for updating the health bar
+      this.healthBarContext = context;
+      this.healthBarTexture = texture;
+      
+      // Create a sprite material that uses the canvas texture
+      const spriteMaterial = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+      });
+      
+      // Create a sprite that will always face the camera
+      const sprite = new THREE.Sprite(spriteMaterial);
+      
+      // Position the sprite above the tank
+      sprite.position.set(0, 3.5, 0); // Higher position to make room for name
+      
+      // Scale the sprite to an appropriate size
+      sprite.scale.set(3.0, 1.0, 1.0); // Wider to accommodate name
+      
+      // Add the sprite to the tank
+      this.tank.add(sprite);
+      
+      // Store the sprite for later reference
+      this.healthBarSprite = sprite;
+    }
+  }
+  
+  private updateHealthBar(): void {
+    if (!this.healthBarContext || !this.healthBarTexture) return;
+    
+    // Calculate health percentage
+    const healthPercent = this.health / this.MAX_HEALTH;
+    
+    // Clear only the health bar portion (bottom half of the canvas)
+    this.healthBarContext.clearRect(0, 16, 128, 16);
+    
+    // Draw background (black) for health bar
+    this.healthBarContext.fillStyle = 'rgba(0,0,0,0.6)';
+    this.healthBarContext.fillRect(0, 16, 128, 16);
+    
+    // Determine color based on health percentage
+    if (healthPercent > 0.6) {
+      this.healthBarContext.fillStyle = '#00FF00'; // Green
+    } else if (healthPercent > 0.3) {
+      this.healthBarContext.fillStyle = '#FFFF00'; // Yellow
+    } else {
+      this.healthBarContext.fillStyle = '#FF0000'; // Red
+    }
+    
+    // Draw health bar with current percentage
+    const barWidth = Math.floor(124 * healthPercent);
+    this.healthBarContext.fillRect(2, 18, barWidth, 12);
+    
+    // Update the texture
+    this.healthBarTexture.needsUpdate = true;
+  }
+  
   dispose() {
     // Clean up resources
     this.scene.remove(this.tank);
@@ -426,8 +526,7 @@ export class Tank implements ITank {
       return true;
     }
     
-    // Update health bar
-    this.updateHealthBar();
+    // Player's health bar is shown in the UI, not above the tank
     
     return false;
   }
@@ -451,11 +550,6 @@ export class Tank implements ITank {
     
     // Make tank visible again
     this.tank.visible = true;
-    
-    // Make health bar visible again
-    if (this.healthBarSprite) {
-      this.healthBarSprite.visible = true;
-    }
     
     // Reset collider
     this.collider.center.copy(this.tank.position);
@@ -1033,6 +1127,26 @@ export class Tank implements ITank {
   }
 }
 
+// Helper function to generate random tank names
+function generateRandomTankName(): string {
+  const adjectives = [
+    "Rusty", "Mighty", "Swift", "Iron", "Steel", "Thunder", "Lightning", "Shadow", "Desert", "Arctic",
+    "Jungle", "Mountain", "Blazing", "Frozen", "Silent", "Roaring", "Ancient", "Phantom", "Savage", "Noble",
+    "Fierce", "Crimson", "Stormy", "Golden", "Silver", "Bronze", "Heavy", "Rapid", "Relentless", "Vigilant"
+  ];
+  
+  const nouns = [
+    "Panther", "Tiger", "Dragon", "Serpent", "Ghost", "Falcon", "Eagle", "Wolf", "Rhino", "Mammoth",
+    "Titan", "Colossus", "Hunter", "Stalker", "Crusher", "Smasher", "Destroyer", "Guardian", "Sentinel", "Avenger",
+    "Hammer", "Blade", "Thunder", "Viper", "Cobra", "Scorpion", "Shark", "Raven", "Phoenix", "Barracuda"
+  ];
+  
+  const randomAdjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const randomNoun = nouns[Math.floor(Math.random() * nouns.length)];
+  
+  return `${randomAdjective} ${randomNoun}`;
+}
+
 export class NPCTank implements ITank {
   // Tank components
   tank: THREE.Group;
@@ -1068,6 +1182,7 @@ export class NPCTank implements ITank {
   private patrolPoints: THREE.Vector3[] = [];
   private currentPatrolIndex = 0;
   private tankColor: number;
+  private tankName: string;
   
   // Collision properties
   private collider: THREE.Sphere;
@@ -1098,9 +1213,12 @@ export class NPCTank implements ITank {
 
   private scene: THREE.Scene;
 
-  constructor(scene: THREE.Scene, position: THREE.Vector3, color = 0xff0000) {
+  constructor(scene: THREE.Scene, position: THREE.Vector3, color = 0xff0000, name?: string) {
     this.scene = scene;
     this.tankColor = color;
+    
+    // Initialize tank name (use provided name or generate a random one)
+    this.tankName = name || generateRandomTankName();
     
     // Initialize tank group
     this.tank = new THREE.Group();
@@ -1129,7 +1247,7 @@ export class NPCTank implements ITank {
       this.setupPatrolPoints();
     }
     
-    // Create health bar
+    // Create health bar with tank name
     this.createHealthBar();
     
     // Add to scene
@@ -1138,20 +1256,32 @@ export class NPCTank implements ITank {
   
   private createHealthBar(): void {
     // Follow the billboarding example from three.js manual
-    // Creating a canvas for the health bar
+    // Creating a canvas for the health bar and name tag
     const canvas = document.createElement('canvas');
-    canvas.width = 64;
-    canvas.height = 16;
+    canvas.width = 128;  // Wider canvas to fit the name
+    canvas.height = 32;  // Taller canvas for name + health bar
     const context = canvas.getContext('2d');
     
     if (context) {
-      // Draw the background (black)
+      // Clear the entire canvas
+      context.clearRect(0, 0, 128, 32);
+      
+      // Draw the tank name
+      context.font = 'bold 12px Arial';
+      context.textAlign = 'center';
+      context.fillStyle = 'white';
+      context.strokeStyle = 'black';
+      context.lineWidth = 2;
+      context.strokeText(this.tankName, 64, 12);
+      context.fillText(this.tankName, 64, 12);
+      
+      // Draw the background (black) for health bar
       context.fillStyle = 'rgba(0,0,0,0.6)';
-      context.fillRect(0, 0, 64, 16);
+      context.fillRect(0, 16, 128, 16);
       
       // Draw the health bar (green)
       context.fillStyle = '#00FF00';
-      context.fillRect(2, 2, 60, 12);
+      context.fillRect(2, 18, 124, 12);
       
       // Create a texture from the canvas
       const texture = new THREE.CanvasTexture(canvas);
@@ -1170,10 +1300,10 @@ export class NPCTank implements ITank {
       const sprite = new THREE.Sprite(spriteMaterial);
       
       // Position the sprite above the tank
-      sprite.position.set(0, 3.0, 0);
+      sprite.position.set(0, 3.5, 0); // Higher position to make room for name
       
       // Scale the sprite to an appropriate size
-      sprite.scale.set(2.0, 0.5, 1.0);
+      sprite.scale.set(3.0, 1.0, 1.0); // Wider to accommodate name
       
       // Add the sprite to the tank
       this.tank.add(sprite);
@@ -1192,12 +1322,12 @@ export class NPCTank implements ITank {
     // Calculate health percentage
     const healthPercent = this.health / this.MAX_HEALTH;
     
-    // Clear the canvas
-    this.healthBarContext.clearRect(0, 0, 64, 16);
+    // Clear only the health bar portion (bottom half of the canvas)
+    this.healthBarContext.clearRect(0, 16, 128, 16);
     
-    // Draw background (black)
+    // Draw background (black) for health bar
     this.healthBarContext.fillStyle = 'rgba(0,0,0,0.6)';
-    this.healthBarContext.fillRect(0, 0, 64, 16);
+    this.healthBarContext.fillRect(0, 16, 128, 16);
     
     // Determine color based on health percentage
     if (healthPercent > 0.6) {
@@ -1209,8 +1339,8 @@ export class NPCTank implements ITank {
     }
     
     // Draw health bar with current percentage
-    const barWidth = Math.floor(60 * healthPercent);
-    this.healthBarContext.fillRect(2, 2, barWidth, 12);
+    const barWidth = Math.floor(124 * healthPercent);
+    this.healthBarContext.fillRect(2, 18, barWidth, 12);
     
     // Update the texture
     this.healthBarTexture.needsUpdate = true;

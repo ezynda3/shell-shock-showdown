@@ -476,11 +476,12 @@ export class GameComponent extends LitElement {
         Math.sin(angle) * distance
       );
       
-      // Create tank with color from the colors array
+      // Create tank with color from the colors array and a random name
       const npcTank = new NPCTank(
         this.scene,
         position,
-        colors[i % colors.length]
+        colors[i % colors.length],
+        // Name is auto-generated in the Tank constructor
       );
       
       // Add tank to the collision system
