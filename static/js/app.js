@@ -28478,6 +28478,9 @@ class GameComponent extends LitElement {
   cameraShaking = false;
   lastPlayerHealth = 100;
   crosshairObject;
+  killNotifications = [];
+  MAX_NOTIFICATIONS = 5;
+  NOTIFICATION_DURATION = 5000;
   keys = {};
   skyColor = new Color(8900331);
   static styles = css`
@@ -28600,6 +28603,66 @@ class GameComponent extends LitElement {
       90% { transform: translate(-5px, 5px) rotate(-0.5deg); }
       100% { transform: translate(0, 0) rotate(0deg); }
     }
+    
+    /* Kill notifications */
+    .kill-notifications {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 300px;
+      max-height: 300px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    
+    .kill-notification {
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 5px;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      transform-origin: right;
+      animation: notification-enter 0.3s ease-out, notification-exit 0.5s ease-in forwards;
+      animation-delay: 0s, 4.5s;
+      opacity: 0.9;
+      text-shadow: 1px 1px 2px black;
+    }
+    
+    @keyframes notification-enter {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 0.9;
+      }
+    }
+    
+    @keyframes notification-exit {
+      from {
+        transform: translateX(0);
+        opacity: 0.9;
+      }
+      to {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+    }
+    
+    .kill-notification .killer {
+      color: #ff9900; /* Orange for the killer's name */
+      font-weight: bold;
+    }
+    
+    .kill-notification .victim {
+      color: #ff3333; /* Red for the victim's name */
+      font-weight: bold;
+    }
   `;
   render() {
     return html`
@@ -28619,6 +28682,15 @@ class GameComponent extends LitElement {
           </div>
           <div class="game-over ${this.playerDestroyed ? "visible" : ""}">
             <div class="wasted-text">Wasted</div>
+          </div>
+          
+          <!-- Kill notifications container -->
+          <div class="kill-notifications">
+            ${this.killNotifications.map((notification) => html`
+              <div class="kill-notification">
+                <span .innerHTML=${notification.text}></span>
+              </div>
+            `)}
           </div>
         </div>
       </div>
@@ -28970,6 +29042,7 @@ class GameComponent extends LitElement {
       window.cameraPosition = this.camera.position;
     }
     this.updateCrosshairPosition();
+    this.updateKillNotifications();
     this.collisionSystem.checkCollisions();
     const allColliders = this.collisionSystem.getColliders();
     if (this.playerTank) {
@@ -29068,6 +29141,25 @@ class GameComponent extends LitElement {
   }
   handleTankDestroyed(event) {
     const { tank, source } = event.detail;
+    let killerName = "Unknown";
+    let victimName = "Unknown";
+    if (tank === this.playerTank) {
+      victimName = "Player";
+    } else {
+      const npcIndex = this.npcTanks.findIndex((npc) => npc === tank);
+      if (npcIndex !== -1) {
+        victimName = this.npcTanks[npcIndex].tankName || `NPC ${npcIndex + 1}`;
+      }
+    }
+    if (source === this.playerTank) {
+      killerName = "Player";
+    } else if (source) {
+      const npcIndex = this.npcTanks.findIndex((npc) => npc === source);
+      if (npcIndex !== -1) {
+        killerName = this.npcTanks[npcIndex].tankName || `NPC ${npcIndex + 1}`;
+      }
+    }
+    this.addKillNotification(killerName, victimName);
     if (tank === this.playerTank) {
       console.log("Player tank destroyed!");
       this.playerDestroyed = true;
@@ -29087,6 +29179,46 @@ class GameComponent extends LitElement {
           this.npcTanks[npcIndex].respawn();
         }, 2000);
       }
+    }
+  }
+  addKillNotification(killerName, victimName) {
+    const verbs = [
+      "obliterated",
+      "destroyed",
+      "eliminated",
+      "vaporized",
+      "annihilated",
+      "demolished",
+      "terminated",
+      "crushed",
+      "wrecked",
+      "decimated",
+      "shattered",
+      "dismantled",
+      "erased",
+      "disintegrated",
+      "neutralized"
+    ];
+    const verb = verbs[Math.floor(Math.random() * verbs.length)];
+    const notificationText = `<span class="killer">${killerName}</span> ${verb} <span class="victim">${victimName}</span>`;
+    this.killNotifications.push({
+      text: notificationText,
+      time: Date.now()
+    });
+    if (this.killNotifications.length > this.MAX_NOTIFICATIONS) {
+      this.killNotifications.shift();
+    }
+    this.requestUpdate();
+  }
+  updateKillNotifications() {
+    const currentTime = Date.now();
+    let changed = false;
+    const activeNotifications = this.killNotifications.filter((notification) => {
+      return currentTime - notification.time < this.NOTIFICATION_DURATION;
+    });
+    if (activeNotifications.length !== this.killNotifications.length) {
+      this.killNotifications = activeNotifications;
+      this.requestUpdate();
     }
   }
   findRandomSpawnPoint() {

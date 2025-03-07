@@ -55,6 +55,11 @@ export class GameComponent extends LitElement {
   // Crosshair as a THREE.js object
   private crosshairObject?: THREE.Object3D;
   
+  // Kill notification system
+  private killNotifications: { text: string, time: number }[] = [];
+  private readonly MAX_NOTIFICATIONS = 5; // Maximum number of visible notifications
+  private readonly NOTIFICATION_DURATION = 5000; // How long notifications stay visible (ms)
+  
   // Control state
   private keys: { [key: string]: boolean } = {};
   
@@ -182,6 +187,66 @@ export class GameComponent extends LitElement {
       90% { transform: translate(-5px, 5px) rotate(-0.5deg); }
       100% { transform: translate(0, 0) rotate(0deg); }
     }
+    
+    /* Kill notifications */
+    .kill-notifications {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 300px;
+      max-height: 300px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    
+    .kill-notification {
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 5px;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      transform-origin: right;
+      animation: notification-enter 0.3s ease-out, notification-exit 0.5s ease-in forwards;
+      animation-delay: 0s, 4.5s;
+      opacity: 0.9;
+      text-shadow: 1px 1px 2px black;
+    }
+    
+    @keyframes notification-enter {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 0.9;
+      }
+    }
+    
+    @keyframes notification-exit {
+      from {
+        transform: translateX(0);
+        opacity: 0.9;
+      }
+      to {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+    }
+    
+    .kill-notification .killer {
+      color: #ff9900; /* Orange for the killer's name */
+      font-weight: bold;
+    }
+    
+    .kill-notification .victim {
+      color: #ff3333; /* Red for the victim's name */
+      font-weight: bold;
+    }
   `;
 
   render() {
@@ -202,6 +267,15 @@ export class GameComponent extends LitElement {
           </div>
           <div class="game-over ${this.playerDestroyed ? 'visible' : ''}">
             <div class="wasted-text">Wasted</div>
+          </div>
+          
+          <!-- Kill notifications container -->
+          <div class="kill-notifications">
+            ${this.killNotifications.map(notification => html`
+              <div class="kill-notification">
+                <span .innerHTML=${notification.text}></span>
+              </div>
+            `)}
           </div>
         </div>
       </div>
@@ -829,6 +903,9 @@ export class GameComponent extends LitElement {
     // Update crosshair position to align with tank barrel
     this.updateCrosshairPosition();
     
+    // Update kill notifications (remove expired ones)
+    this.updateKillNotifications();
+    
     // Run the collision system check
     this.collisionSystem.checkCollisions();
     
@@ -999,6 +1076,35 @@ export class GameComponent extends LitElement {
   private handleTankDestroyed(event: CustomEvent) {
     const { tank, source } = event.detail;
     
+    // Get tank names
+    let killerName = "Unknown";
+    let victimName = "Unknown";
+    
+    // Get victim name
+    if (tank === this.playerTank) {
+      victimName = "Player";
+    } else {
+      // Find NPC tank name
+      const npcIndex = this.npcTanks.findIndex(npc => npc === tank);
+      if (npcIndex !== -1) {
+        victimName = this.npcTanks[npcIndex].tankName || `NPC ${npcIndex + 1}`;
+      }
+    }
+    
+    // Get killer name
+    if (source === this.playerTank) {
+      killerName = "Player";
+    } else if (source) {
+      // Find NPC tank name
+      const npcIndex = this.npcTanks.findIndex(npc => npc === source);
+      if (npcIndex !== -1) {
+        killerName = this.npcTanks[npcIndex].tankName || `NPC ${npcIndex + 1}`;
+      }
+    }
+    
+    // Add kill notification
+    this.addKillNotification(killerName, victimName);
+    
     // Check if this is the player tank
     if (tank === this.playerTank) {
       console.log('Player tank destroyed!');
@@ -1029,6 +1135,68 @@ export class GameComponent extends LitElement {
           this.npcTanks[npcIndex].respawn();
         }, 2000); // 2 second delay before respawn
       }
+    }
+  }
+  
+  /**
+   * Adds a kill notification with random destruction verb
+   */
+  private addKillNotification(killerName: string, victimName: string): void {
+    const verbs = [
+      "obliterated",
+      "destroyed",
+      "eliminated",
+      "vaporized",
+      "annihilated",
+      "demolished",
+      "terminated",
+      "crushed",
+      "wrecked",
+      "decimated",
+      "shattered",
+      "dismantled",
+      "erased",
+      "disintegrated",
+      "neutralized"
+    ];
+    
+    // Choose a random verb
+    const verb = verbs[Math.floor(Math.random() * verbs.length)];
+    
+    // Create the notification text with HTML for styling
+    const notificationText = `<span class="killer">${killerName}</span> ${verb} <span class="victim">${victimName}</span>`;
+    
+    // Add to the notifications array
+    this.killNotifications.push({
+      text: notificationText,
+      time: Date.now()
+    });
+    
+    // Limit to max notifications by removing oldest if needed
+    if (this.killNotifications.length > this.MAX_NOTIFICATIONS) {
+      this.killNotifications.shift(); // Remove oldest notification
+    }
+    
+    // Request UI update
+    this.requestUpdate();
+  }
+  
+  /**
+   * Update and remove expired notifications
+   */
+  private updateKillNotifications(): void {
+    const currentTime = Date.now();
+    let changed = false;
+    
+    // Filter out notifications older than NOTIFICATION_DURATION
+    const activeNotifications = this.killNotifications.filter(notification => {
+      return currentTime - notification.time < this.NOTIFICATION_DURATION;
+    });
+    
+    // If we removed any notifications, update the array and request UI update
+    if (activeNotifications.length !== this.killNotifications.length) {
+      this.killNotifications = activeNotifications;
+      this.requestUpdate();
     }
   }
   

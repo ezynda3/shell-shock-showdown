@@ -1182,7 +1182,7 @@ export class NPCTank implements ITank {
   private patrolPoints: THREE.Vector3[] = [];
   private currentPatrolIndex = 0;
   private tankColor: number;
-  private tankName: string;
+  tankName: string; // Public to allow access from game component
   
   // Collision properties
   private collider: THREE.Sphere;
