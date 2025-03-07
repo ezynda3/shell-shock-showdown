@@ -9258,6 +9258,427 @@ class Scene extends Object3D {
     return data;
   }
 }
+
+class InterleavedBuffer {
+  constructor(array, stride) {
+    this.isInterleavedBuffer = true;
+    this.array = array;
+    this.stride = stride;
+    this.count = array !== undefined ? array.length / stride : 0;
+    this.usage = StaticDrawUsage;
+    this.updateRanges = [];
+    this.version = 0;
+    this.uuid = generateUUID();
+  }
+  onUploadCallback() {
+  }
+  set needsUpdate(value) {
+    if (value === true)
+      this.version++;
+  }
+  setUsage(value) {
+    this.usage = value;
+    return this;
+  }
+  addUpdateRange(start, count) {
+    this.updateRanges.push({ start, count });
+  }
+  clearUpdateRanges() {
+    this.updateRanges.length = 0;
+  }
+  copy(source) {
+    this.array = new source.array.constructor(source.array);
+    this.count = source.count;
+    this.stride = source.stride;
+    this.usage = source.usage;
+    return this;
+  }
+  copyAt(index1, attribute, index2) {
+    index1 *= this.stride;
+    index2 *= attribute.stride;
+    for (let i = 0, l = this.stride;i < l; i++) {
+      this.array[index1 + i] = attribute.array[index2 + i];
+    }
+    return this;
+  }
+  set(value, offset = 0) {
+    this.array.set(value, offset);
+    return this;
+  }
+  clone(data) {
+    if (data.arrayBuffers === undefined) {
+      data.arrayBuffers = {};
+    }
+    if (this.array.buffer._uuid === undefined) {
+      this.array.buffer._uuid = generateUUID();
+    }
+    if (data.arrayBuffers[this.array.buffer._uuid] === undefined) {
+      data.arrayBuffers[this.array.buffer._uuid] = this.array.slice(0).buffer;
+    }
+    const array = new this.array.constructor(data.arrayBuffers[this.array.buffer._uuid]);
+    const ib = new this.constructor(array, this.stride);
+    ib.setUsage(this.usage);
+    return ib;
+  }
+  onUpload(callback) {
+    this.onUploadCallback = callback;
+    return this;
+  }
+  toJSON(data) {
+    if (data.arrayBuffers === undefined) {
+      data.arrayBuffers = {};
+    }
+    if (this.array.buffer._uuid === undefined) {
+      this.array.buffer._uuid = generateUUID();
+    }
+    if (data.arrayBuffers[this.array.buffer._uuid] === undefined) {
+      data.arrayBuffers[this.array.buffer._uuid] = Array.from(new Uint32Array(this.array.buffer));
+    }
+    return {
+      uuid: this.uuid,
+      buffer: this.array.buffer._uuid,
+      type: this.array.constructor.name,
+      stride: this.stride
+    };
+  }
+}
+var _vector$7 = /* @__PURE__ */ new Vector3;
+
+class InterleavedBufferAttribute {
+  constructor(interleavedBuffer, itemSize, offset, normalized = false) {
+    this.isInterleavedBufferAttribute = true;
+    this.name = "";
+    this.data = interleavedBuffer;
+    this.itemSize = itemSize;
+    this.offset = offset;
+    this.normalized = normalized;
+  }
+  get count() {
+    return this.data.count;
+  }
+  get array() {
+    return this.data.array;
+  }
+  set needsUpdate(value) {
+    this.data.needsUpdate = value;
+  }
+  applyMatrix4(m) {
+    for (let i = 0, l = this.data.count;i < l; i++) {
+      _vector$7.fromBufferAttribute(this, i);
+      _vector$7.applyMatrix4(m);
+      this.setXYZ(i, _vector$7.x, _vector$7.y, _vector$7.z);
+    }
+    return this;
+  }
+  applyNormalMatrix(m) {
+    for (let i = 0, l = this.count;i < l; i++) {
+      _vector$7.fromBufferAttribute(this, i);
+      _vector$7.applyNormalMatrix(m);
+      this.setXYZ(i, _vector$7.x, _vector$7.y, _vector$7.z);
+    }
+    return this;
+  }
+  transformDirection(m) {
+    for (let i = 0, l = this.count;i < l; i++) {
+      _vector$7.fromBufferAttribute(this, i);
+      _vector$7.transformDirection(m);
+      this.setXYZ(i, _vector$7.x, _vector$7.y, _vector$7.z);
+    }
+    return this;
+  }
+  getComponent(index, component) {
+    let value = this.array[index * this.data.stride + this.offset + component];
+    if (this.normalized)
+      value = denormalize(value, this.array);
+    return value;
+  }
+  setComponent(index, component, value) {
+    if (this.normalized)
+      value = normalize(value, this.array);
+    this.data.array[index * this.data.stride + this.offset + component] = value;
+    return this;
+  }
+  setX(index, x) {
+    if (this.normalized)
+      x = normalize(x, this.array);
+    this.data.array[index * this.data.stride + this.offset] = x;
+    return this;
+  }
+  setY(index, y) {
+    if (this.normalized)
+      y = normalize(y, this.array);
+    this.data.array[index * this.data.stride + this.offset + 1] = y;
+    return this;
+  }
+  setZ(index, z) {
+    if (this.normalized)
+      z = normalize(z, this.array);
+    this.data.array[index * this.data.stride + this.offset + 2] = z;
+    return this;
+  }
+  setW(index, w) {
+    if (this.normalized)
+      w = normalize(w, this.array);
+    this.data.array[index * this.data.stride + this.offset + 3] = w;
+    return this;
+  }
+  getX(index) {
+    let x = this.data.array[index * this.data.stride + this.offset];
+    if (this.normalized)
+      x = denormalize(x, this.array);
+    return x;
+  }
+  getY(index) {
+    let y = this.data.array[index * this.data.stride + this.offset + 1];
+    if (this.normalized)
+      y = denormalize(y, this.array);
+    return y;
+  }
+  getZ(index) {
+    let z = this.data.array[index * this.data.stride + this.offset + 2];
+    if (this.normalized)
+      z = denormalize(z, this.array);
+    return z;
+  }
+  getW(index) {
+    let w = this.data.array[index * this.data.stride + this.offset + 3];
+    if (this.normalized)
+      w = denormalize(w, this.array);
+    return w;
+  }
+  setXY(index, x, y) {
+    index = index * this.data.stride + this.offset;
+    if (this.normalized) {
+      x = normalize(x, this.array);
+      y = normalize(y, this.array);
+    }
+    this.data.array[index + 0] = x;
+    this.data.array[index + 1] = y;
+    return this;
+  }
+  setXYZ(index, x, y, z) {
+    index = index * this.data.stride + this.offset;
+    if (this.normalized) {
+      x = normalize(x, this.array);
+      y = normalize(y, this.array);
+      z = normalize(z, this.array);
+    }
+    this.data.array[index + 0] = x;
+    this.data.array[index + 1] = y;
+    this.data.array[index + 2] = z;
+    return this;
+  }
+  setXYZW(index, x, y, z, w) {
+    index = index * this.data.stride + this.offset;
+    if (this.normalized) {
+      x = normalize(x, this.array);
+      y = normalize(y, this.array);
+      z = normalize(z, this.array);
+      w = normalize(w, this.array);
+    }
+    this.data.array[index + 0] = x;
+    this.data.array[index + 1] = y;
+    this.data.array[index + 2] = z;
+    this.data.array[index + 3] = w;
+    return this;
+  }
+  clone(data) {
+    if (data === undefined) {
+      console.log("THREE.InterleavedBufferAttribute.clone(): Cloning an interleaved buffer attribute will de-interleave buffer data.");
+      const array = [];
+      for (let i = 0;i < this.count; i++) {
+        const index = i * this.data.stride + this.offset;
+        for (let j = 0;j < this.itemSize; j++) {
+          array.push(this.data.array[index + j]);
+        }
+      }
+      return new BufferAttribute(new this.array.constructor(array), this.itemSize, this.normalized);
+    } else {
+      if (data.interleavedBuffers === undefined) {
+        data.interleavedBuffers = {};
+      }
+      if (data.interleavedBuffers[this.data.uuid] === undefined) {
+        data.interleavedBuffers[this.data.uuid] = this.data.clone(data);
+      }
+      return new InterleavedBufferAttribute(data.interleavedBuffers[this.data.uuid], this.itemSize, this.offset, this.normalized);
+    }
+  }
+  toJSON(data) {
+    if (data === undefined) {
+      console.log("THREE.InterleavedBufferAttribute.toJSON(): Serializing an interleaved buffer attribute will de-interleave buffer data.");
+      const array = [];
+      for (let i = 0;i < this.count; i++) {
+        const index = i * this.data.stride + this.offset;
+        for (let j = 0;j < this.itemSize; j++) {
+          array.push(this.data.array[index + j]);
+        }
+      }
+      return {
+        itemSize: this.itemSize,
+        type: this.array.constructor.name,
+        array,
+        normalized: this.normalized
+      };
+    } else {
+      if (data.interleavedBuffers === undefined) {
+        data.interleavedBuffers = {};
+      }
+      if (data.interleavedBuffers[this.data.uuid] === undefined) {
+        data.interleavedBuffers[this.data.uuid] = this.data.toJSON(data);
+      }
+      return {
+        isInterleavedBufferAttribute: true,
+        itemSize: this.itemSize,
+        data: this.data.uuid,
+        offset: this.offset,
+        normalized: this.normalized
+      };
+    }
+  }
+}
+
+class SpriteMaterial extends Material {
+  constructor(parameters) {
+    super();
+    this.isSpriteMaterial = true;
+    this.type = "SpriteMaterial";
+    this.color = new Color(16777215);
+    this.map = null;
+    this.alphaMap = null;
+    this.rotation = 0;
+    this.sizeAttenuation = true;
+    this.transparent = true;
+    this.fog = true;
+    this.setValues(parameters);
+  }
+  copy(source) {
+    super.copy(source);
+    this.color.copy(source.color);
+    this.map = source.map;
+    this.alphaMap = source.alphaMap;
+    this.rotation = source.rotation;
+    this.sizeAttenuation = source.sizeAttenuation;
+    this.fog = source.fog;
+    return this;
+  }
+}
+var _geometry;
+var _intersectPoint = /* @__PURE__ */ new Vector3;
+var _worldScale = /* @__PURE__ */ new Vector3;
+var _mvPosition = /* @__PURE__ */ new Vector3;
+var _alignedPosition = /* @__PURE__ */ new Vector2;
+var _rotatedPosition = /* @__PURE__ */ new Vector2;
+var _viewWorldMatrix = /* @__PURE__ */ new Matrix4;
+var _vA = /* @__PURE__ */ new Vector3;
+var _vB = /* @__PURE__ */ new Vector3;
+var _vC = /* @__PURE__ */ new Vector3;
+var _uvA = /* @__PURE__ */ new Vector2;
+var _uvB = /* @__PURE__ */ new Vector2;
+var _uvC = /* @__PURE__ */ new Vector2;
+
+class Sprite extends Object3D {
+  constructor(material = new SpriteMaterial) {
+    super();
+    this.isSprite = true;
+    this.type = "Sprite";
+    if (_geometry === undefined) {
+      _geometry = new BufferGeometry;
+      const float32Array = new Float32Array([
+        -0.5,
+        -0.5,
+        0,
+        0,
+        0,
+        0.5,
+        -0.5,
+        0,
+        1,
+        0,
+        0.5,
+        0.5,
+        0,
+        1,
+        1,
+        -0.5,
+        0.5,
+        0,
+        0,
+        1
+      ]);
+      const interleavedBuffer = new InterleavedBuffer(float32Array, 5);
+      _geometry.setIndex([0, 1, 2, 0, 2, 3]);
+      _geometry.setAttribute("position", new InterleavedBufferAttribute(interleavedBuffer, 3, 0, false));
+      _geometry.setAttribute("uv", new InterleavedBufferAttribute(interleavedBuffer, 2, 3, false));
+    }
+    this.geometry = _geometry;
+    this.material = material;
+    this.center = new Vector2(0.5, 0.5);
+  }
+  raycast(raycaster, intersects) {
+    if (raycaster.camera === null) {
+      console.error('THREE.Sprite: "Raycaster.camera" needs to be set in order to raycast against sprites.');
+    }
+    _worldScale.setFromMatrixScale(this.matrixWorld);
+    _viewWorldMatrix.copy(raycaster.camera.matrixWorld);
+    this.modelViewMatrix.multiplyMatrices(raycaster.camera.matrixWorldInverse, this.matrixWorld);
+    _mvPosition.setFromMatrixPosition(this.modelViewMatrix);
+    if (raycaster.camera.isPerspectiveCamera && this.material.sizeAttenuation === false) {
+      _worldScale.multiplyScalar(-_mvPosition.z);
+    }
+    const rotation = this.material.rotation;
+    let sin, cos;
+    if (rotation !== 0) {
+      cos = Math.cos(rotation);
+      sin = Math.sin(rotation);
+    }
+    const center = this.center;
+    transformVertex(_vA.set(-0.5, -0.5, 0), _mvPosition, center, _worldScale, sin, cos);
+    transformVertex(_vB.set(0.5, -0.5, 0), _mvPosition, center, _worldScale, sin, cos);
+    transformVertex(_vC.set(0.5, 0.5, 0), _mvPosition, center, _worldScale, sin, cos);
+    _uvA.set(0, 0);
+    _uvB.set(1, 0);
+    _uvC.set(1, 1);
+    let intersect = raycaster.ray.intersectTriangle(_vA, _vB, _vC, false, _intersectPoint);
+    if (intersect === null) {
+      transformVertex(_vB.set(-0.5, 0.5, 0), _mvPosition, center, _worldScale, sin, cos);
+      _uvB.set(0, 1);
+      intersect = raycaster.ray.intersectTriangle(_vA, _vC, _vB, false, _intersectPoint);
+      if (intersect === null) {
+        return;
+      }
+    }
+    const distance = raycaster.ray.origin.distanceTo(_intersectPoint);
+    if (distance < raycaster.near || distance > raycaster.far)
+      return;
+    intersects.push({
+      distance,
+      point: _intersectPoint.clone(),
+      uv: Triangle.getInterpolation(_intersectPoint, _vA, _vB, _vC, _uvA, _uvB, _uvC, new Vector2),
+      face: null,
+      object: this
+    });
+  }
+  copy(source, recursive) {
+    super.copy(source, recursive);
+    if (source.center !== undefined)
+      this.center.copy(source.center);
+    this.material = source.material;
+    return this;
+  }
+}
+function transformVertex(vertexPosition, mvPosition, center, scale, sin, cos) {
+  _alignedPosition.subVectors(vertexPosition, center).addScalar(0.5).multiply(scale);
+  if (sin !== undefined) {
+    _rotatedPosition.x = cos * _alignedPosition.x - sin * _alignedPosition.y;
+    _rotatedPosition.y = sin * _alignedPosition.x + cos * _alignedPosition.y;
+  } else {
+    _rotatedPosition.copy(_alignedPosition);
+  }
+  vertexPosition.copy(mvPosition);
+  vertexPosition.x += _rotatedPosition.x;
+  vertexPosition.y += _rotatedPosition.y;
+  vertexPosition.applyMatrix4(_viewWorldMatrix);
+}
 var _vector1 = /* @__PURE__ */ new Vector3;
 var _vector2 = /* @__PURE__ */ new Vector3;
 var _normalMatrix = /* @__PURE__ */ new Matrix3;
@@ -9583,6 +10004,14 @@ function testPoint(point, index, localThresholdSq, matrixWorld, raycaster, inter
     });
   }
 }
+class CanvasTexture extends Texture {
+  constructor(canvas, mapping, wrapS, wrapT, magFilter, minFilter, format, type, anisotropy) {
+    super(canvas, mapping, wrapS, wrapT, magFilter, minFilter, format, type, anisotropy);
+    this.isCanvasTexture = true;
+    this.needsUpdate = true;
+  }
+}
+
 class DepthTexture extends Texture {
   constructor(width, height, type, mapping, wrapS, wrapT, magFilter, minFilter, anisotropy, format = DepthFormat) {
     if (format !== DepthFormat && format !== DepthStencilFormat) {
@@ -26198,8 +26627,8 @@ class Tank {
       this.tank.position.set(0, 0, 0);
     }
     this.tank.visible = true;
-    if (this.billboardGroup) {
-      this.billboardGroup.visible = true;
+    if (this.healthBarSprite) {
+      this.healthBarSprite.visible = true;
     }
     this.collider.center.copy(this.tank.position);
     for (const effect of this.destroyedEffects) {
@@ -26209,8 +26638,8 @@ class Tank {
   }
   createDestroyedEffect() {
     this.tank.visible = false;
-    if (this.billboardGroup) {
-      this.billboardGroup.visible = false;
+    if (this.healthBarSprite) {
+      this.healthBarSprite.visible = false;
     }
     const particleCount = 50;
     const smokeGeometry = new BufferGeometry;
@@ -26321,10 +26750,9 @@ class NPCTank {
   MAX_HEALTH = 100;
   isDestroyed = false;
   destroyedEffects = [];
-  healthBar;
-  healthBarBackground;
-  healthBarGroup;
-  billboardGroup;
+  healthBarSprite;
+  healthBarContext = null;
+  healthBarTexture = null;
   scene;
   constructor(scene, position, color = 16711680) {
     this.scene = scene;
@@ -26346,58 +26774,47 @@ class NPCTank {
     scene.add(this.tank);
   }
   createHealthBar() {
-    const healthBarGroup = new Group;
-    const bgGeometry = new PlaneGeometry(2, 0.4);
-    const bgMaterial = new MeshBasicMaterial({
-      color: 0,
-      transparent: true,
-      opacity: 0.6,
-      depthWrite: false
-    });
-    this.healthBarBackground = new Mesh(bgGeometry, bgMaterial);
-    const barGeometry = new PlaneGeometry(2, 0.4);
-    const barMaterial = new MeshBasicMaterial({
-      color: 65280,
-      transparent: true,
-      opacity: 0.8,
-      depthWrite: false
-    });
-    this.healthBar = new Mesh(barGeometry, barMaterial);
-    this.healthBar.position.z = 0.01;
-    healthBarGroup.add(this.healthBarBackground);
-    healthBarGroup.add(this.healthBar);
-    healthBarGroup.position.y = 3;
-    healthBarGroup.rotation.y = Math.PI;
-    const billboardGroup = new Group;
-    billboardGroup.add(healthBarGroup);
-    this.tank.add(billboardGroup);
-    this.healthBarGroup = healthBarGroup;
-    this.billboardGroup = billboardGroup;
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 16;
+    const context = canvas.getContext("2d");
+    if (context) {
+      context.fillStyle = "rgba(0,0,0,0.6)";
+      context.fillRect(0, 0, 64, 16);
+      context.fillStyle = "#00FF00";
+      context.fillRect(2, 2, 60, 12);
+      const texture = new CanvasTexture(canvas);
+      this.healthBarContext = context;
+      this.healthBarTexture = texture;
+      const spriteMaterial = new SpriteMaterial({
+        map: texture,
+        transparent: true
+      });
+      const sprite = new Sprite(spriteMaterial);
+      sprite.position.set(0, 3, 0);
+      sprite.scale.set(2, 0.5, 1);
+      this.tank.add(sprite);
+      this.healthBarSprite = sprite;
+    }
     this.updateHealthBar();
   }
   updateHealthBar() {
+    if (!this.healthBarContext || !this.healthBarTexture)
+      return;
     const healthPercent = this.health / this.MAX_HEALTH;
-    this.healthBar.scale.x = healthPercent;
-    if (this.billboardGroup && this.healthBarGroup) {
-      const cameraPosition = window.cameraPosition;
-      if (cameraPosition) {
-        const tankWorldPos = new Vector3;
-        this.tank.getWorldPosition(tankWorldPos);
-        const lookDirection = new Vector3().subVectors(cameraPosition, tankWorldPos);
-        lookDirection.y = 0;
-        lookDirection.normalize();
-        const angle = Math.atan2(lookDirection.x, lookDirection.z);
-        this.billboardGroup.rotation.y = angle - this.tank.rotation.y;
-      }
-    }
-    const material = this.healthBar.material;
+    this.healthBarContext.clearRect(0, 0, 64, 16);
+    this.healthBarContext.fillStyle = "rgba(0,0,0,0.6)";
+    this.healthBarContext.fillRect(0, 0, 64, 16);
     if (healthPercent > 0.6) {
-      material.color.setHex(65280);
+      this.healthBarContext.fillStyle = "#00FF00";
     } else if (healthPercent > 0.3) {
-      material.color.setHex(16776960);
+      this.healthBarContext.fillStyle = "#FFFF00";
     } else {
-      material.color.setHex(16711680);
+      this.healthBarContext.fillStyle = "#FF0000";
     }
+    const barWidth = Math.floor(60 * healthPercent);
+    this.healthBarContext.fillRect(2, 2, barWidth, 12);
+    this.healthBarTexture.needsUpdate = true;
   }
   createTank() {
     const bodyGeometry = new BoxGeometry(2, 0.75, 3);

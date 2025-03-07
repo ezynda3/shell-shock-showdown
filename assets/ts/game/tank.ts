@@ -430,8 +430,8 @@ export class Tank implements ITank {
     this.tank.visible = true;
     
     // Make health bar visible again
-    if (this.billboardGroup) {
-      this.billboardGroup.visible = true;
+    if (this.healthBarSprite) {
+      this.healthBarSprite.visible = true;
     }
     
     // Reset collider
@@ -448,9 +448,9 @@ export class Tank implements ITank {
     // Hide the tank
     this.tank.visible = false;
     
-    // Hide health bar - find it in the tank's children
-    if (this.billboardGroup) {
-      this.billboardGroup.visible = false;
+    // Hide health bar sprite
+    if (this.healthBarSprite) {
+      this.healthBarSprite.visible = false;
     }
     
     // Create black smoke particle system
@@ -596,10 +596,9 @@ export class NPCTank implements ITank {
   private destroyedEffects: THREE.Object3D[] = [];
   
   // Health bar display
-  private healthBar: THREE.Mesh;
-  private healthBarBackground: THREE.Mesh;
-  private healthBarGroup: THREE.Group;
-  private billboardGroup: THREE.Group;
+  private healthBarSprite: THREE.Sprite;
+  private healthBarContext: CanvasRenderingContext2D | null = null;
+  private healthBarTexture: THREE.CanvasTexture | null = null;
 
   private scene: THREE.Scene;
 
@@ -642,101 +641,83 @@ export class NPCTank implements ITank {
   }
   
   private createHealthBar(): void {
-    // Create a simple health bar directly above the tank
-    const healthBarGroup = new THREE.Group();
+    // Follow the billboarding example from three.js manual
+    // Creating a canvas for the health bar
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 16;
+    const context = canvas.getContext('2d');
     
-    // Background bar (black)
-    const bgGeometry = new THREE.PlaneGeometry(2.0, 0.4);
-    const bgMaterial = new THREE.MeshBasicMaterial({
-      color: 0x000000,
-      transparent: true,
-      opacity: 0.6,
-      depthWrite: false
-    });
-    this.healthBarBackground = new THREE.Mesh(bgGeometry, bgMaterial);
-    
-    // Actual health bar (green)
-    const barGeometry = new THREE.PlaneGeometry(2.0, 0.4);
-    const barMaterial = new THREE.MeshBasicMaterial({
-      color: 0x00ff00,
-      transparent: true,
-      opacity: 0.8,
-      depthWrite: false
-    });
-    this.healthBar = new THREE.Mesh(barGeometry, barMaterial);
-    
-    // Position slightly in front so it doesn't z-fight with the background
-    this.healthBar.position.z = 0.01;
-    
-    // Add bars to group
-    healthBarGroup.add(this.healthBarBackground);
-    healthBarGroup.add(this.healthBar);
-    
-    // Position above tank
-    healthBarGroup.position.y = 3.0;
-    
-    // Rotate to face forward initially
-    healthBarGroup.rotation.y = Math.PI;
-    
-    // Create a separate group to handle the billboard effect
-    const billboardGroup = new THREE.Group();
-    billboardGroup.add(healthBarGroup);
-    
-    // Add to tank so it moves with it
-    this.tank.add(billboardGroup);
-    
-    // Store references
-    this.healthBarGroup = healthBarGroup;
-    this.billboardGroup = billboardGroup;
+    if (context) {
+      // Draw the background (black)
+      context.fillStyle = 'rgba(0,0,0,0.6)';
+      context.fillRect(0, 0, 64, 16);
+      
+      // Draw the health bar (green)
+      context.fillStyle = '#00FF00';
+      context.fillRect(2, 2, 60, 12);
+      
+      // Create a texture from the canvas
+      const texture = new THREE.CanvasTexture(canvas);
+      
+      // Store the canvas context for updating the health bar
+      this.healthBarContext = context;
+      this.healthBarTexture = texture;
+      
+      // Create a sprite material that uses the canvas texture
+      const spriteMaterial = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+      });
+      
+      // Create a sprite that will always face the camera
+      const sprite = new THREE.Sprite(spriteMaterial);
+      
+      // Position the sprite above the tank
+      sprite.position.set(0, 3.0, 0);
+      
+      // Scale the sprite to an appropriate size
+      sprite.scale.set(2.0, 0.5, 1.0);
+      
+      // Add the sprite to the tank
+      this.tank.add(sprite);
+      
+      // Store the sprite for later reference
+      this.healthBarSprite = sprite;
+    }
     
     // Update health bar initially
     this.updateHealthBar();
   }
   
   private updateHealthBar(): void {
-    // Scale the health bar based on current health percentage
+    if (!this.healthBarContext || !this.healthBarTexture) return;
+    
+    // Calculate health percentage
     const healthPercent = this.health / this.MAX_HEALTH;
     
-    // Scale width only, from the center
-    this.healthBar.scale.x = healthPercent;
+    // Clear the canvas
+    this.healthBarContext.clearRect(0, 0, 64, 16);
     
-    // Make health bar always face the camera (billboard effect)
-    if (this.billboardGroup && this.healthBarGroup) {
-      const cameraPosition = (window as any).cameraPosition;
-      if (cameraPosition) {
-        // Get the world position of the tank
-        const tankWorldPos = new THREE.Vector3();
-        this.tank.getWorldPosition(tankWorldPos);
-        
-        // Calculate direction from tank to camera in world space
-        const lookDirection = new THREE.Vector3().subVectors(cameraPosition, tankWorldPos);
-        
-        // We only care about the horizontal direction (y-rotation)
-        lookDirection.y = 0;
-        lookDirection.normalize();
-        
-        // Calculate the angle between the z-axis and the look direction
-        const angle = Math.atan2(lookDirection.x, lookDirection.z);
-        
-        // Reset billboard group rotation, then apply the calculated angle
-        // This counters the tank's rotation, making the health bar always face the camera
-        this.billboardGroup.rotation.y = angle - this.tank.rotation.y;
-      }
-    }
+    // Draw background (black)
+    this.healthBarContext.fillStyle = 'rgba(0,0,0,0.6)';
+    this.healthBarContext.fillRect(0, 0, 64, 16);
     
-    // Change color based on health
-    const material = this.healthBar.material as THREE.MeshBasicMaterial;
-    
+    // Determine color based on health percentage
     if (healthPercent > 0.6) {
-      // Green for high health
-      material.color.setHex(0x00ff00);
+      this.healthBarContext.fillStyle = '#00FF00'; // Green
     } else if (healthPercent > 0.3) {
-      // Yellow for medium health
-      material.color.setHex(0xffff00);
+      this.healthBarContext.fillStyle = '#FFFF00'; // Yellow
     } else {
-      // Red for low health
-      material.color.setHex(0xff0000);
+      this.healthBarContext.fillStyle = '#FF0000'; // Red
     }
+    
+    // Draw health bar with current percentage
+    const barWidth = Math.floor(60 * healthPercent);
+    this.healthBarContext.fillRect(2, 2, barWidth, 12);
+    
+    // Update the texture
+    this.healthBarTexture.needsUpdate = true;
   }
 
   private createTank() {
