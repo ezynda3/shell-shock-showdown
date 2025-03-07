@@ -9187,28 +9187,26 @@ class WebXRController {
     return hand.joints[inputjoint.jointName];
   }
 }
-class Fog {
-  constructor(color, near = 1, far = 1000) {
-    this.isFog = true;
+
+class FogExp2 {
+  constructor(color, density = 0.00025) {
+    this.isFogExp2 = true;
     this.name = "";
     this.color = new Color(color);
-    this.near = near;
-    this.far = far;
+    this.density = density;
   }
   clone() {
-    return new Fog(this.color, this.near, this.far);
+    return new FogExp2(this.color, this.density);
   }
   toJSON() {
     return {
-      type: "Fog",
+      type: "FogExp2",
       name: this.name,
       color: this.color.getHex(),
-      near: this.near,
-      far: this.far
+      density: this.density
     };
   }
 }
-
 class Scene extends Object3D {
   constructor() {
     super();
@@ -10201,6 +10199,79 @@ class MeshStandardMaterial extends Material {
     return this;
   }
 }
+class MeshLambertMaterial extends Material {
+  constructor(parameters) {
+    super();
+    this.isMeshLambertMaterial = true;
+    this.type = "MeshLambertMaterial";
+    this.color = new Color(16777215);
+    this.map = null;
+    this.lightMap = null;
+    this.lightMapIntensity = 1;
+    this.aoMap = null;
+    this.aoMapIntensity = 1;
+    this.emissive = new Color(0);
+    this.emissiveIntensity = 1;
+    this.emissiveMap = null;
+    this.bumpMap = null;
+    this.bumpScale = 1;
+    this.normalMap = null;
+    this.normalMapType = TangentSpaceNormalMap;
+    this.normalScale = new Vector2(1, 1);
+    this.displacementMap = null;
+    this.displacementScale = 1;
+    this.displacementBias = 0;
+    this.specularMap = null;
+    this.alphaMap = null;
+    this.envMap = null;
+    this.envMapRotation = new Euler;
+    this.combine = MultiplyOperation;
+    this.reflectivity = 1;
+    this.refractionRatio = 0.98;
+    this.wireframe = false;
+    this.wireframeLinewidth = 1;
+    this.wireframeLinecap = "round";
+    this.wireframeLinejoin = "round";
+    this.flatShading = false;
+    this.fog = true;
+    this.setValues(parameters);
+  }
+  copy(source) {
+    super.copy(source);
+    this.color.copy(source.color);
+    this.map = source.map;
+    this.lightMap = source.lightMap;
+    this.lightMapIntensity = source.lightMapIntensity;
+    this.aoMap = source.aoMap;
+    this.aoMapIntensity = source.aoMapIntensity;
+    this.emissive.copy(source.emissive);
+    this.emissiveMap = source.emissiveMap;
+    this.emissiveIntensity = source.emissiveIntensity;
+    this.bumpMap = source.bumpMap;
+    this.bumpScale = source.bumpScale;
+    this.normalMap = source.normalMap;
+    this.normalMapType = source.normalMapType;
+    this.normalScale.copy(source.normalScale);
+    this.displacementMap = source.displacementMap;
+    this.displacementScale = source.displacementScale;
+    this.displacementBias = source.displacementBias;
+    this.specularMap = source.specularMap;
+    this.alphaMap = source.alphaMap;
+    this.envMap = source.envMap;
+    this.envMapRotation.copy(source.envMapRotation);
+    this.combine = source.combine;
+    this.reflectivity = source.reflectivity;
+    this.refractionRatio = source.refractionRatio;
+    this.wireframe = source.wireframe;
+    this.wireframeLinewidth = source.wireframeLinewidth;
+    this.wireframeLinecap = source.wireframeLinecap;
+    this.wireframeLinejoin = source.wireframeLinejoin;
+    this.flatShading = source.flatShading;
+    this.fog = source.fog;
+    return this;
+  }
+}
+
 class MeshDepthMaterial extends Material {
   constructor(parameters) {
     super();
@@ -11099,6 +11170,14 @@ class DirectionalLight extends Light {
     this.target = source.target.clone();
     this.shadow = source.shadow.clone();
     return this;
+  }
+}
+
+class AmbientLight extends Light {
+  constructor(color, intensity) {
+    super(color, intensity);
+    this.isAmbientLight = true;
+    this.type = "AmbientLight";
   }
 }
 class ArrayCamera extends PerspectiveCamera {
@@ -26155,7 +26234,9 @@ class GameComponent extends LitElement {
   animationFrameId;
   playerTank;
   npcTanks = [];
-  NUM_NPC_TANKS = 10;
+  NUM_NPC_TANKS = 6;
+  enableShadows = true;
+  lodDistance = 300;
   collisionSystem = new CollisionSystem;
   mapGenerator;
   keys = {};
@@ -26223,33 +26304,42 @@ class GameComponent extends LitElement {
   initThree() {
     this.scene = new Scene;
     this.scene.background = this.skyColor;
-    this.scene.fog = new Fog(this.skyColor.clone().multiplyScalar(1.2), 1000, 50000);
+    this.scene.fog = new FogExp2(this.skyColor.clone().multiplyScalar(1.2), 0.0005);
     this.createSkybox();
-    this.camera = new PerspectiveCamera(60, this.canvas.clientWidth / this.canvas.clientHeight, 0.1, 1e5);
+    this.camera = new PerspectiveCamera(60, this.canvas.clientWidth / this.canvas.clientHeight, 0.1, 2000);
     this.renderer = new WebGLRenderer({
       canvas: this.canvas,
-      antialias: true
+      antialias: false,
+      powerPreference: "high-performance",
+      precision: "mediump"
     });
     this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    const pixelRatio = Math.min(window.devicePixelRatio, 2);
+    this.renderer.setPixelRatio(pixelRatio);
     this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = PCFSoftShadowMap;
+    this.renderer.sortObjects = true;
+    this.renderer.physicallyCorrectLights = false;
     const directionalLight = new DirectionalLight(16777164, 1.2);
     directionalLight.position.set(100, 200, 50);
     directionalLight.castShadow = true;
     directionalLight.shadow.camera.near = 0.5;
-    directionalLight.shadow.camera.far = 50;
-    directionalLight.shadow.camera.left = -30;
-    directionalLight.shadow.camera.right = 30;
-    directionalLight.shadow.camera.top = 30;
-    directionalLight.shadow.camera.bottom = -30;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
+    directionalLight.shadow.camera.far = 200;
+    directionalLight.shadow.camera.left = -100;
+    directionalLight.shadow.camera.right = 100;
+    directionalLight.shadow.camera.top = 100;
+    directionalLight.shadow.camera.bottom = -100;
+    directionalLight.shadow.mapSize.width = 1024;
+    directionalLight.shadow.mapSize.height = 1024;
+    directionalLight.shadow.bias = -0.001;
+    directionalLight.shadow.normalBias = 0.1;
+    const ambientLight = new AmbientLight(7829367, 0.5);
     this.scene.add(directionalLight);
-    const groundGeometry = new PlaneGeometry(1e4, 1e4);
-    const groundMaterial = new MeshStandardMaterial({
-      color: 5088859,
-      roughness: 0.8,
-      metalness: 0.1
+    this.scene.add(ambientLight);
+    const groundSize = 5000;
+    const groundGeometry = new PlaneGeometry(groundSize, groundSize);
+    const groundMaterial = new MeshLambertMaterial({
+      color: 5088859
     });
     const ground = new Mesh(groundGeometry, groundMaterial);
     ground.rotation.x = -Math.PI / 2;

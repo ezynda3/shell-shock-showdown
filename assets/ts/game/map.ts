@@ -158,56 +158,65 @@ export class MapGenerator {
   createTrees() {
     // 1. Trees surrounding the starting area
     // Create a circle of trees around the origin (tank starting point)
-    this.createCircleOfTrees(30, 12, 'pine');   // Inner ring of pine trees
-    this.createCircleOfTrees(45, 16, 'round');  // Middle ring of round trees
-    this.createCircleOfTrees(60, 20, 'pine');   // Outer ring of pine trees
+    this.createCircleOfTrees(30, 10, 'pine');   // Inner ring of pine trees (reduced from 12)
+    this.createCircleOfTrees(45, 12, 'round');  // Middle ring of round trees (reduced from 16)
+    this.createCircleOfTrees(60, 16, 'pine');   // Outer ring of pine trees (reduced from 20)
     
     // 2. Sacred grove - a perfect circle of alternating trees
     // Several sacred groves at key locations
-    this.createSacredGrove(200, 200, 40, 16);
-    this.createSacredGrove(-200, -200, 40, 16);
-    this.createSacredGrove(200, -200, 40, 16);
-    this.createSacredGrove(-200, 200, 40, 16);
+    this.createSacredGrove(200, 200, 40, 12);   // Reduced from 16
+    this.createSacredGrove(-200, -200, 40, 12); // Reduced from 16
+    this.createSacredGrove(200, -200, 40, 12);  // Reduced from 16
+    this.createSacredGrove(-200, 200, 40, 12);  // Reduced from 16
     
-    // 3. Large forests in distinct patterns
+    // 3. Large forests in distinct patterns with spacing optimization
     
     // North Forest - Pine
-    for (let x = -400; x <= 400; x += 25) {
-      for (let z = 400; z <= 800; z += 25) {
+    for (let x = -400; x <= 400; x += 40) {     // Increased spacing (from 25)
+      for (let z = 400; z <= 800; z += 40) {    // Increased spacing (from 25)
         // Skip some trees in a deterministic pattern for clearings
         if ((x + z) % 75 === 0) continue;
         
         // Scale based on position
         const scale = 1.2 + Math.sin(x * 0.01) * Math.cos(z * 0.01) * 0.5;
         
-        this.createPineTree(scale, x, z);
+        // Add some randomness to reduce regular patterns
+        const offsetX = (Math.random() - 0.5) * 15;
+        const offsetZ = (Math.random() - 0.5) * 15;
+        
+        this.createPineTree(scale, x + offsetX, z + offsetZ);
       }
     }
     
     // South Forest - Round
-    for (let x = -400; x <= 400; x += 25) {
-      for (let z = -800; z <= -400; z += 25) {
+    for (let x = -400; x <= 400; x += 40) {     // Increased spacing (from 25)
+      for (let z = -800; z <= -400; z += 40) {  // Increased spacing (from 25)
         // Skip some trees in a deterministic pattern
         if ((x - z) % 75 === 0) continue;
         
         // Scale based on position
         const scale = 1.0 + Math.cos(x * 0.01) * Math.sin(z * 0.01) * 0.4;
         
-        this.createRoundTree(scale, x, z);
+        // Add some randomness to reduce regular patterns
+        const offsetX = (Math.random() - 0.5) * 15;
+        const offsetZ = (Math.random() - 0.5) * 15;
+        
+        this.createRoundTree(scale, x + offsetX, z + offsetZ);
       }
     }
     
-    // East Forest - Mixed
-    for (let x = 400; x <= 800; x += 25) {
-      for (let z = -400; z <= 400; z += 25) {
+    // East Forest - Mixed (with reduced density)
+    for (let x = 400; x <= 800; x += 50) {      // Increased spacing (from 25)
+      for (let z = -400; z <= 400; z += 50) {   // Increased spacing (from 25)
         // Skip some trees in a deterministic pattern
         if ((x * z) % 1200 === 0) continue;
+        if (Math.random() < 0.2) continue;      // Skip 20% of trees randomly
         
         // Scale based on position
         const scale = 1.1 + Math.sin(x * 0.02) * Math.cos(z * 0.02) * 0.3;
         
         // Alternate tree types in a checkerboard pattern
-        if ((Math.floor(x / 25) + Math.floor(z / 25)) % 2 === 0) {
+        if ((Math.floor(x / 50) + Math.floor(z / 50)) % 2 === 0) {
           this.createPineTree(scale, x, z);
         } else {
           this.createRoundTree(scale, x, z);
@@ -215,23 +224,25 @@ export class MapGenerator {
       }
     }
     
-    // West Forest - Mixed
-    for (let x = -800; x <= -400; x += 25) {
-      for (let z = -400; z <= 400; z += 25) {
+    // West Forest - Mixed (with reduced density)
+    for (let x = -800; x <= -400; x += 50) {    // Increased spacing (from 25)
+      for (let z = -400; z <= 400; z += 50) {   // Increased spacing (from 25)
         // Skip some trees in a deterministic pattern
         if ((x * z) % 1000 === 0) continue;
+        if (Math.random() < 0.2) continue;      // Skip 20% of trees randomly
         
         // Scale based on position
         const scale = 1.1 + Math.cos(x * 0.015) * Math.sin(z * 0.015) * 0.3;
         
         // Alternate in rows
-        if (Math.floor(z / 25) % 2 === 0) {
+        if (Math.floor(z / 50) % 2 === 0) {
           this.createPineTree(scale, x, z);
         } else {
           this.createRoundTree(scale, x, z);
         }
       }
     }
+  }
     
     // 4. Tree lines - roads through the forests
     // North-South Road

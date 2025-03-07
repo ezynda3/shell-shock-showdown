@@ -26,7 +26,11 @@ export class GameComponent extends LitElement {
   // Tank instances
   private playerTank?: Tank;
   private npcTanks: NPCTank[] = [];
-  private readonly NUM_NPC_TANKS = 10;
+  private readonly NUM_NPC_TANKS = 6; // Reduced from 10 for better performance
+  
+  // Performance settings
+  private enableShadows = true;
+  private lodDistance = 300; // Distance at which to switch to lower detail
   
   // Collision system
   private collisionSystem: CollisionSystem = new CollisionSystem();
@@ -115,49 +119,78 @@ export class GameComponent extends LitElement {
     // Create scene with a blue sky background
     this.scene = new THREE.Scene();
     this.scene.background = this.skyColor;
-    this.scene.fog = new THREE.Fog(this.skyColor.clone().multiplyScalar(1.2), 1000, 50000);
+    
+    // Use exponential fog for better performance and appearance
+    this.scene.fog = new THREE.FogExp2(this.skyColor.clone().multiplyScalar(1.2), 0.0005);
     
     // Create skybox
     this.createSkybox();
     
-    // Create camera with increased far plane for larger world
+    // Create camera with optimized far plane for performance
     this.camera = new THREE.PerspectiveCamera(
       60,
       this.canvas.clientWidth / this.canvas.clientHeight,
       0.1,
-      100000 // Much larger far plane for the bigger world
+      2000 // Reduced far plane for better performance
     );
     
-    // Create renderer
+    // Create optimized renderer
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
-      antialias: true
+      antialias: false, // Disable antialias for better performance
+      powerPreference: 'high-performance',
+      precision: 'mediump' // Use medium precision for better performance
     });
     this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
-    this.renderer.setPixelRatio(window.devicePixelRatio);
-    this.renderer.shadowMap.enabled = true;
     
-    // Add directional sunlight
+    // Limit pixel ratio to 2 to prevent excessive rendering on high-DPI displays
+    const pixelRatio = Math.min(window.devicePixelRatio, 2);
+    this.renderer.setPixelRatio(pixelRatio);
+    
+    // Use more efficient shadow maps
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Better performance
+    
+    // Enable renderer optimizations
+    this.renderer.sortObjects = true;
+    this.renderer.physicallyCorrectLights = false;
+    
+    // Add optimized directional sunlight
     const directionalLight = new THREE.DirectionalLight(0xffffcc, 1.2);
     directionalLight.position.set(100, 200, 50);
     directionalLight.castShadow = true;
-    directionalLight.shadow.camera.near = 0.5;
-    directionalLight.shadow.camera.far = 50;
-    directionalLight.shadow.camera.left = -30;
-    directionalLight.shadow.camera.right = 30;
-    directionalLight.shadow.camera.top = 30;
-    directionalLight.shadow.camera.bottom = -30;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
-    this.scene.add(directionalLight);
     
-    // Create ground (100x larger)
-    const groundGeometry = new THREE.PlaneGeometry(10000, 10000);
-    const groundMaterial = new THREE.MeshStandardMaterial({ 
+    // Set up shadow properties more efficiently
+    directionalLight.shadow.camera.near = 0.5;
+    directionalLight.shadow.camera.far = 200; // Increased to cover gameplay area
+    directionalLight.shadow.camera.left = -100;
+    directionalLight.shadow.camera.right = 100;
+    directionalLight.shadow.camera.top = 100;
+    directionalLight.shadow.camera.bottom = -100;
+    
+    // Smaller shadow map for better performance
+    directionalLight.shadow.mapSize.width = 1024;  // Reduced from 2048
+    directionalLight.shadow.mapSize.height = 1024; // Reduced from 2048
+    
+    // Shadow optimizations
+    directionalLight.shadow.bias = -0.001; // Prevents shadow acne
+    directionalLight.shadow.normalBias = 0.1;
+    
+    // Add helper ambient light to reduce need for shadows
+    const ambientLight = new THREE.AmbientLight(0x777777, 0.5);
+    
+    this.scene.add(directionalLight);
+    this.scene.add(ambientLight);
+    
+    // Create ground with optimized geometry and material
+    const groundSize = 5000; // Reduced from 10000
+    const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
+    
+    // Use MeshLambertMaterial instead of MeshStandardMaterial for better performance
+    const groundMaterial = new THREE.MeshLambertMaterial({ 
       color: 0x4DA65B, // Slightly darker green
-      roughness: 0.8,
-      metalness: 0.1
     });
+    
     const ground = new THREE.Mesh(groundGeometry, groundMaterial);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
@@ -330,6 +363,23 @@ export class GameComponent extends LitElement {
   private animate() {
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
     
+    // Check if we need to toggle shadows based on performance
+    if (this.renderer && this.renderer.info && this.renderer.info.render) {
+      // If FPS is too low, disable shadows temporarily
+      const fps = 1000 / (this.renderer.info.render.frame || 16.7);
+      if (fps < 30 && this.enableShadows) {
+        this.enableShadows = false;
+        if (this.renderer) {
+          this.renderer.shadowMap.enabled = false;
+        }
+      } else if (fps > 40 && !this.enableShadows) {
+        this.enableShadows = true;
+        if (this.renderer) {
+          this.renderer.shadowMap.enabled = true;
+        }
+      }
+    }
+    
     // Run the collision system check
     this.collisionSystem.checkCollisions();
     
@@ -346,9 +396,20 @@ export class GameComponent extends LitElement {
       }
     }
     
-    // Update all NPC tanks
+    // Update all NPC tanks, apply LOD (level of detail) based on distance
     for (const npcTank of this.npcTanks) {
-      npcTank.update({}, allColliders);
+      // Get distance to player
+      const distanceToPlayer = this.playerTank?.tank.position.distanceTo(npcTank.tank.position) || 0;
+      
+      // Only update NPCs within a certain range
+      if (distanceToPlayer < this.lodDistance * 1.5) {
+        npcTank.update({}, allColliders);
+      } else {
+        // Simplified update for distant tanks - update less frequently
+        if (Math.random() < 0.2) { // Only update 20% of the time
+          npcTank.update({}, allColliders);
+        }
+      }
     }
     
     if (this.renderer && this.scene && this.camera) {
