@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, query } from 'lit/decorators.js';
 import * as THREE from 'three';
 import { MapGenerator } from './map';
-import { Tank } from './tank';
+import { Tank, NPCTank, ITank } from './tank';
 
 @customElement('game-component')
 export class GameComponent extends LitElement {
@@ -14,8 +14,10 @@ export class GameComponent extends LitElement {
   private renderer?: THREE.WebGLRenderer;
   private animationFrameId?: number;
   
-  // Tank instance
-  private tankInstance?: Tank;
+  // Tank instances
+  private playerTank?: Tank;
+  private npcTanks: NPCTank[] = [];
+  private readonly NUM_NPC_TANKS = 10;
   
   // Control state
   private keys: { [key: string]: boolean } = {};
@@ -58,7 +60,6 @@ export class GameComponent extends LitElement {
         <div>A: Rotate tank left, D: Rotate tank right</div>
         <div>←/→: Rotate turret left/right</div>
         <div>↑/↓: Raise/lower barrel</div>
-        <div>Space: Fire shell</div>
       </div>
     `;
   }
@@ -81,7 +82,12 @@ export class GameComponent extends LitElement {
     window.removeEventListener('resize', this.handleResize);
     
     // Clean up Tank resources
-    this.tankInstance?.dispose();
+    this.playerTank?.dispose();
+    
+    // Clean up NPC tank resources
+    for (const tank of this.npcTanks) {
+      tank.dispose();
+    }
     
     // Clean up Three.js resources
     this.renderer?.dispose();
@@ -143,8 +149,11 @@ export class GameComponent extends LitElement {
     this.createTrees();
     this.createRocks();
     
-    // Create tank
-    this.tankInstance = new Tank(this.scene, this.camera);
+    // Create player tank
+    this.playerTank = new Tank(this.scene, this.camera);
+    
+    // Create NPC tanks
+    this.createNpcTanks();
     
     // Position camera
     this.positionCamera();
@@ -182,12 +191,57 @@ export class GameComponent extends LitElement {
   }
   
   
+  private createNpcTanks() {
+    if (!this.scene) return;
+    
+    // Tank colors
+    const colors = [
+      0x3366cc, // Blue
+      0xdc3912, // Red
+      0xff9900, // Orange
+      0x109618, // Green
+      0x990099, // Purple
+      0x0099c6, // Teal
+      0xdd4477, // Pink
+      0x66aa00, // Lime
+      0xb82e2e, // Dark red
+      0x316395  // Dark blue
+    ];
+    
+    // Clear any existing NPC tanks
+    for (const tank of this.npcTanks) {
+      tank.dispose();
+    }
+    this.npcTanks = [];
+    
+    // Create new NPC tanks at random positions around the map
+    for (let i = 0; i < this.NUM_NPC_TANKS; i++) {
+      // Random position in a circle around origin (200-500 units away)
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 200 + Math.random() * 300;
+      const position = new THREE.Vector3(
+        Math.cos(angle) * distance,
+        0,
+        Math.sin(angle) * distance
+      );
+      
+      // Create tank with color from the colors array
+      const npcTank = new NPCTank(
+        this.scene,
+        position,
+        colors[i % colors.length]
+      );
+      
+      this.npcTanks.push(npcTank);
+    }
+  }
+  
   private positionCamera() {
-    if (!this.camera || !this.tankInstance) return;
+    if (!this.camera || !this.playerTank) return;
     
     // Position camera behind and above the tank
     this.camera.position.set(0, 6, -8);
-    this.camera.lookAt(this.tankInstance.tank.position);
+    this.camera.lookAt(this.playerTank.tank.position);
   }
   
   private initKeyboardControls() {
@@ -244,14 +298,19 @@ export class GameComponent extends LitElement {
   private animate() {
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
     
-    // Update tank with current key states
-    if (this.tankInstance) {
-      this.tankInstance.update(this.keys);
+    // Update player tank with current key states
+    if (this.playerTank) {
+      this.playerTank.update(this.keys);
       
       // Update camera position to follow tank
       if (this.camera) {
-        this.tankInstance.updateCamera(this.camera);
+        this.playerTank.updateCamera(this.camera);
       }
+    }
+    
+    // Update all NPC tanks
+    for (const npcTank of this.npcTanks) {
+      npcTank.update();
     }
     
     if (this.renderer && this.scene && this.camera) {

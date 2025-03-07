@@ -9404,127 +9404,6 @@ class Frustum {
     return new this.constructor().copy(this);
   }
 }
-class PointsMaterial extends Material {
-  constructor(parameters) {
-    super();
-    this.isPointsMaterial = true;
-    this.type = "PointsMaterial";
-    this.color = new Color(16777215);
-    this.map = null;
-    this.alphaMap = null;
-    this.size = 1;
-    this.sizeAttenuation = true;
-    this.fog = true;
-    this.setValues(parameters);
-  }
-  copy(source) {
-    super.copy(source);
-    this.color.copy(source.color);
-    this.map = source.map;
-    this.alphaMap = source.alphaMap;
-    this.size = source.size;
-    this.sizeAttenuation = source.sizeAttenuation;
-    this.fog = source.fog;
-    return this;
-  }
-}
-var _inverseMatrix = /* @__PURE__ */ new Matrix4;
-var _ray = /* @__PURE__ */ new Ray;
-var _sphere = /* @__PURE__ */ new Sphere;
-var _position$2 = /* @__PURE__ */ new Vector3;
-
-class Points extends Object3D {
-  constructor(geometry = new BufferGeometry, material = new PointsMaterial) {
-    super();
-    this.isPoints = true;
-    this.type = "Points";
-    this.geometry = geometry;
-    this.material = material;
-    this.morphTargetDictionary = undefined;
-    this.morphTargetInfluences = undefined;
-    this.updateMorphTargets();
-  }
-  copy(source, recursive) {
-    super.copy(source, recursive);
-    this.material = Array.isArray(source.material) ? source.material.slice() : source.material;
-    this.geometry = source.geometry;
-    return this;
-  }
-  raycast(raycaster, intersects) {
-    const geometry = this.geometry;
-    const matrixWorld = this.matrixWorld;
-    const threshold = raycaster.params.Points.threshold;
-    const drawRange = geometry.drawRange;
-    if (geometry.boundingSphere === null)
-      geometry.computeBoundingSphere();
-    _sphere.copy(geometry.boundingSphere);
-    _sphere.applyMatrix4(matrixWorld);
-    _sphere.radius += threshold;
-    if (raycaster.ray.intersectsSphere(_sphere) === false)
-      return;
-    _inverseMatrix.copy(matrixWorld).invert();
-    _ray.copy(raycaster.ray).applyMatrix4(_inverseMatrix);
-    const localThreshold = threshold / ((this.scale.x + this.scale.y + this.scale.z) / 3);
-    const localThresholdSq = localThreshold * localThreshold;
-    const index = geometry.index;
-    const attributes = geometry.attributes;
-    const positionAttribute = attributes.position;
-    if (index !== null) {
-      const start = Math.max(0, drawRange.start);
-      const end = Math.min(index.count, drawRange.start + drawRange.count);
-      for (let i = start, il = end;i < il; i++) {
-        const a = index.getX(i);
-        _position$2.fromBufferAttribute(positionAttribute, a);
-        testPoint(_position$2, a, localThresholdSq, matrixWorld, raycaster, intersects, this);
-      }
-    } else {
-      const start = Math.max(0, drawRange.start);
-      const end = Math.min(positionAttribute.count, drawRange.start + drawRange.count);
-      for (let i = start, l = end;i < l; i++) {
-        _position$2.fromBufferAttribute(positionAttribute, i);
-        testPoint(_position$2, i, localThresholdSq, matrixWorld, raycaster, intersects, this);
-      }
-    }
-  }
-  updateMorphTargets() {
-    const geometry = this.geometry;
-    const morphAttributes = geometry.morphAttributes;
-    const keys = Object.keys(morphAttributes);
-    if (keys.length > 0) {
-      const morphAttribute = morphAttributes[keys[0]];
-      if (morphAttribute !== undefined) {
-        this.morphTargetInfluences = [];
-        this.morphTargetDictionary = {};
-        for (let m = 0, ml = morphAttribute.length;m < ml; m++) {
-          const name = morphAttribute[m].name || String(m);
-          this.morphTargetInfluences.push(0);
-          this.morphTargetDictionary[name] = m;
-        }
-      }
-    }
-  }
-}
-function testPoint(point, index, localThresholdSq, matrixWorld, raycaster, intersects, object) {
-  const rayPointDistanceSq = _ray.distanceSqToPoint(point);
-  if (rayPointDistanceSq < localThresholdSq) {
-    const intersectPoint = new Vector3;
-    _ray.closestPointToPoint(point, intersectPoint);
-    intersectPoint.applyMatrix4(matrixWorld);
-    const distance = raycaster.ray.origin.distanceTo(intersectPoint);
-    if (distance < raycaster.near || distance > raycaster.far)
-      return;
-    intersects.push({
-      distance,
-      distanceToRay: Math.sqrt(rayPointDistanceSq),
-      point: intersectPoint,
-      index,
-      face: null,
-      faceIndex: null,
-      barycoord: null,
-      object
-    });
-  }
-}
 class DepthTexture extends Texture {
   constructor(width, height, type, mapping, wrapS, wrapT, magFilter, minFilter, anisotropy, format = DepthFormat) {
     if (format !== DepthFormat && format !== DepthStencilFormat) {
@@ -9556,54 +9435,6 @@ class DepthTexture extends Texture {
     return data;
   }
 }
-class CircleGeometry extends BufferGeometry {
-  constructor(radius = 1, segments = 32, thetaStart = 0, thetaLength = Math.PI * 2) {
-    super();
-    this.type = "CircleGeometry";
-    this.parameters = {
-      radius,
-      segments,
-      thetaStart,
-      thetaLength
-    };
-    segments = Math.max(3, segments);
-    const indices = [];
-    const vertices = [];
-    const normals = [];
-    const uvs = [];
-    const vertex = new Vector3;
-    const uv = new Vector2;
-    vertices.push(0, 0, 0);
-    normals.push(0, 0, 1);
-    uvs.push(0.5, 0.5);
-    for (let s = 0, i = 3;s <= segments; s++, i += 3) {
-      const segment = thetaStart + s / segments * thetaLength;
-      vertex.x = radius * Math.cos(segment);
-      vertex.y = radius * Math.sin(segment);
-      vertices.push(vertex.x, vertex.y, vertex.z);
-      normals.push(0, 0, 1);
-      uv.x = (vertices[i] / radius + 1) / 2;
-      uv.y = (vertices[i + 1] / radius + 1) / 2;
-      uvs.push(uv.x, uv.y);
-    }
-    for (let i = 1;i <= segments; i++) {
-      indices.push(i, i + 1, 0);
-    }
-    this.setIndex(indices);
-    this.setAttribute("position", new Float32BufferAttribute(vertices, 3));
-    this.setAttribute("normal", new Float32BufferAttribute(normals, 3));
-    this.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
-  }
-  copy(source) {
-    super.copy(source);
-    this.parameters = Object.assign({}, source.parameters);
-    return this;
-  }
-  static fromJSON(data) {
-    return new CircleGeometry(data.radius, data.segments, data.thetaStart, data.thetaLength);
-  }
-}
-
 class CylinderGeometry extends BufferGeometry {
   constructor(radiusTop = 1, radiusBottom = 1, height = 1, radialSegments = 32, heightSegments = 1, openEnded = false, thetaStart = 0, thetaLength = Math.PI * 2) {
     super();
@@ -11094,89 +10925,6 @@ class LightShadow {
     return object;
   }
 }
-var _projScreenMatrix = /* @__PURE__ */ new Matrix4;
-var _lightPositionWorld = /* @__PURE__ */ new Vector3;
-var _lookTarget = /* @__PURE__ */ new Vector3;
-
-class PointLightShadow extends LightShadow {
-  constructor() {
-    super(new PerspectiveCamera(90, 1, 0.5, 500));
-    this.isPointLightShadow = true;
-    this._frameExtents = new Vector2(4, 2);
-    this._viewportCount = 6;
-    this._viewports = [
-      new Vector4(2, 1, 1, 1),
-      new Vector4(0, 1, 1, 1),
-      new Vector4(3, 1, 1, 1),
-      new Vector4(1, 1, 1, 1),
-      new Vector4(3, 0, 1, 1),
-      new Vector4(1, 0, 1, 1)
-    ];
-    this._cubeDirections = [
-      new Vector3(1, 0, 0),
-      new Vector3(-1, 0, 0),
-      new Vector3(0, 0, 1),
-      new Vector3(0, 0, -1),
-      new Vector3(0, 1, 0),
-      new Vector3(0, -1, 0)
-    ];
-    this._cubeUps = [
-      new Vector3(0, 1, 0),
-      new Vector3(0, 1, 0),
-      new Vector3(0, 1, 0),
-      new Vector3(0, 1, 0),
-      new Vector3(0, 0, 1),
-      new Vector3(0, 0, -1)
-    ];
-  }
-  updateMatrices(light, viewportIndex = 0) {
-    const camera = this.camera;
-    const shadowMatrix = this.matrix;
-    const far = light.distance || camera.far;
-    if (far !== camera.far) {
-      camera.far = far;
-      camera.updateProjectionMatrix();
-    }
-    _lightPositionWorld.setFromMatrixPosition(light.matrixWorld);
-    camera.position.copy(_lightPositionWorld);
-    _lookTarget.copy(camera.position);
-    _lookTarget.add(this._cubeDirections[viewportIndex]);
-    camera.up.copy(this._cubeUps[viewportIndex]);
-    camera.lookAt(_lookTarget);
-    camera.updateMatrixWorld();
-    shadowMatrix.makeTranslation(-_lightPositionWorld.x, -_lightPositionWorld.y, -_lightPositionWorld.z);
-    _projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    this._frustum.setFromProjectionMatrix(_projScreenMatrix);
-  }
-}
-
-class PointLight extends Light {
-  constructor(color, intensity, distance = 0, decay = 2) {
-    super(color, intensity);
-    this.isPointLight = true;
-    this.type = "PointLight";
-    this.distance = distance;
-    this.decay = decay;
-    this.shadow = new PointLightShadow;
-  }
-  get power() {
-    return this.intensity * 4 * Math.PI;
-  }
-  set power(power) {
-    this.intensity = power / (4 * Math.PI);
-  }
-  dispose() {
-    this.shadow.dispose();
-  }
-  copy(source, recursive) {
-    super.copy(source, recursive);
-    this.distance = source.distance;
-    this.decay = source.decay;
-    this.shadow = source.shadow.clone();
-    return this;
-  }
-}
-
 class OrthographicCamera extends Camera {
   constructor(left = -1, right = 1, top = 1, bottom = -1, near = 0.1, far = 2000) {
     super();
@@ -23872,7 +23620,7 @@ class WebGLRenderer {
     let _localClippingEnabled = false;
     this.transmissionResolutionScale = 1;
     const _currentProjectionMatrix = new Matrix4;
-    const _projScreenMatrix2 = new Matrix4;
+    const _projScreenMatrix = new Matrix4;
     const _vector3 = new Vector3;
     const _vector4 = new Vector4;
     const _emptyScene = { background: null, fog: null, environment: null, overrideMaterial: null, isScene: true };
@@ -24397,8 +24145,8 @@ class WebGLRenderer {
       currentRenderState = renderStates.get(scene, renderStateStack.length);
       currentRenderState.init(camera);
       renderStateStack.push(currentRenderState);
-      _projScreenMatrix2.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-      _frustum.setFromProjectionMatrix(_projScreenMatrix2);
+      _projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      _frustum.setFromProjectionMatrix(_projScreenMatrix);
       _localClippingEnabled = this.localClippingEnabled;
       _clippingEnabled = clipping.init(this.clippingPlanes, _localClippingEnabled);
       currentRenderList = renderLists.get(scene, renderListStack.length);
@@ -24494,7 +24242,7 @@ class WebGLRenderer {
         } else if (object.isSprite) {
           if (!object.frustumCulled || _frustum.intersectsSprite(object)) {
             if (sortObjects) {
-              _vector4.setFromMatrixPosition(object.matrixWorld).applyMatrix4(_projScreenMatrix2);
+              _vector4.setFromMatrixPosition(object.matrixWorld).applyMatrix4(_projScreenMatrix);
             }
             const geometry = objects.update(object);
             const material = object.material;
@@ -24516,7 +24264,7 @@ class WebGLRenderer {
                   geometry.computeBoundingSphere();
                 _vector4.copy(geometry.boundingSphere.center);
               }
-              _vector4.applyMatrix4(object.matrixWorld).applyMatrix4(_projScreenMatrix2);
+              _vector4.applyMatrix4(object.matrixWorld).applyMatrix4(_projScreenMatrix);
             }
             if (Array.isArray(material)) {
               const groups = geometry.groups;
@@ -25638,22 +25386,6 @@ class Tank {
   barrelElevationSpeed = 0.03;
   maxBarrelElevation = 0;
   minBarrelElevation = -Math.PI / 4;
-  initialY = 0.1;
-  shells = [];
-  shellSpeed = 1.5;
-  gravity = 0.002;
-  lastShotTime = 0;
-  shotCooldown = 500;
-  maxActiveShells = 10;
-  shellMaterial;
-  shellGeometry;
-  explosionMaterial;
-  explosionGeometry;
-  scorchMaterial;
-  scorchGeometry;
-  particlesMaterial;
-  smokeGeometry;
-  dustGeometry;
   scene;
   camera;
   constructor(scene, camera) {
@@ -25662,61 +25394,8 @@ class Tank {
     this.tank = new Group;
     this.turretPivot = new Group;
     this.barrelPivot = new Group;
-    this.initShellMaterials();
     this.createTank();
     scene.add(this.tank);
-  }
-  initShellMaterials() {
-    this.shellGeometry = new SphereGeometry(0.2, 8, 8);
-    this.shellMaterial = new MeshStandardMaterial({
-      color: 14540253,
-      emissive: 8947848,
-      roughness: 0.4,
-      metalness: 0.8
-    });
-    this.explosionGeometry = new SphereGeometry(5, 16, 16);
-    this.explosionMaterial = new MeshBasicMaterial({
-      color: 16746496,
-      transparent: true,
-      opacity: 0.8
-    });
-    this.scorchGeometry = new CircleGeometry(4, 16);
-    this.scorchMaterial = new MeshBasicMaterial({
-      color: 2236962,
-      transparent: true,
-      opacity: 0.7,
-      depthWrite: false
-    });
-    this.particlesMaterial = new PointsMaterial({
-      color: 11184810,
-      size: 0.5,
-      transparent: true,
-      opacity: 0.6,
-      depthWrite: false,
-      blending: AdditiveBlending
-    });
-    const smokeParticleCount = 50;
-    const smokeParticlePositions = new Float32Array(smokeParticleCount * 3);
-    for (let i = 0;i < smokeParticleCount; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const radius = Math.random() * 3;
-      smokeParticlePositions[i * 3] = Math.cos(angle) * radius;
-      smokeParticlePositions[i * 3 + 1] = Math.random() * 4;
-      smokeParticlePositions[i * 3 + 2] = Math.sin(angle) * radius;
-    }
-    this.smokeGeometry = new BufferGeometry;
-    this.smokeGeometry.setAttribute("position", new BufferAttribute(smokeParticlePositions, 3));
-    const dustParticleCount = 30;
-    const dustParticlePositions = new Float32Array(dustParticleCount * 3);
-    for (let i = 0;i < dustParticleCount; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const radius = Math.random() * 4;
-      dustParticlePositions[i * 3] = Math.cos(angle) * radius;
-      dustParticlePositions[i * 3 + 1] = Math.random() * 0.5;
-      dustParticlePositions[i * 3 + 2] = Math.sin(angle) * radius;
-    }
-    this.dustGeometry = new BufferGeometry;
-    this.dustGeometry.setAttribute("position", new BufferAttribute(dustParticlePositions, 3));
   }
   createTank() {
     const bodyGeometry = new BoxGeometry(2, 0.75, 3);
@@ -25777,247 +25456,6 @@ class Tank {
     this.barrelPivot.rotation.x = 0;
     this.barrel.rotation.x = Math.PI / 2;
   }
-  fireShell() {
-    if (!this.barrel || !this.barrelPivot)
-      return;
-    const now = Date.now();
-    if (now - this.lastShotTime < this.shotCooldown)
-      return;
-    this.lastShotTime = now;
-    if (this.shells.filter((s) => !s.exploded).length >= this.maxActiveShells) {
-      const oldestIndex = this.shells.findIndex((s) => !s.exploded);
-      if (oldestIndex >= 0) {
-        this.explodeShell(oldestIndex);
-      }
-    }
-    const shell = new Mesh(this.shellGeometry, this.shellMaterial);
-    const barrelTip = new Vector3(0, 0, 2);
-    this.barrel.localToWorld(barrelTip);
-    if (barrelTip.y < 0.3) {
-      barrelTip.y = 0.3;
-    }
-    shell.position.copy(barrelTip);
-    console.log("Shell starting position:", shell.position.x, shell.position.y, shell.position.z);
-    const barrelForward = new Vector3(0, 0, 1);
-    const barrelWorldMatrix = new Matrix4;
-    this.barrel.updateMatrixWorld();
-    barrelWorldMatrix.extractRotation(this.barrel.matrixWorld);
-    const barrelDirection = barrelForward.clone().applyMatrix4(barrelWorldMatrix).normalize();
-    const velocity = barrelDirection.multiplyScalar(this.shellSpeed);
-    if (Math.abs(this.barrelPivot.rotation.x) < 0.01) {
-      velocity.y += this.initialY;
-    }
-    const muzzleLight = new PointLight(16750899, 5, 3);
-    muzzleLight.position.copy(barrelTip);
-    this.scene.add(muzzleLight);
-    const smokeParticles = new Points(this.smokeGeometry.clone(), this.particlesMaterial.clone());
-    smokeParticles.position.copy(barrelTip);
-    this.scene.add(smokeParticles);
-    this.scene.add(shell);
-    this.shells.push({
-      mesh: shell,
-      velocity,
-      age: 0,
-      exploded: false,
-      light: muzzleLight,
-      smokeParticles
-    });
-    const recoilAnimation = {
-      step: 0,
-      maxSteps: 10,
-      originalPosition: this.barrel.position.z,
-      animate: () => {
-        if (recoilAnimation.step < recoilAnimation.maxSteps) {
-          if (recoilAnimation.step < recoilAnimation.maxSteps / 2) {
-            this.barrel.position.z -= 0.02;
-          } else {
-            this.barrel.position.z += 0.02;
-          }
-          recoilAnimation.step++;
-          requestAnimationFrame(recoilAnimation.animate);
-        } else {
-          this.barrel.position.z = recoilAnimation.originalPosition;
-        }
-      }
-    };
-    recoilAnimation.animate();
-    setTimeout(() => {
-      if (this.scene) {
-        this.scene.remove(muzzleLight);
-      }
-    }, 100);
-    const tracerGeometry = new CylinderGeometry(0.05, 0.05, 0.8, 8);
-    tracerGeometry.rotateX(Math.PI / 2);
-    const tracerMaterial = new MeshBasicMaterial({
-      color: 16755200,
-      transparent: true,
-      opacity: 0.6
-    });
-    const tracer = new Mesh(tracerGeometry, tracerMaterial);
-    tracer.position.copy(barrelTip);
-    const tracerDirection = barrelDirection.clone();
-    tracer.lookAt(barrelTip.clone().add(tracerDirection));
-    this.scene.add(tracer);
-    const tracerFade = {
-      step: 0,
-      maxSteps: 20,
-      animate: () => {
-        if (tracerFade.step < tracerFade.maxSteps) {
-          tracerMaterial.opacity -= 0.03;
-          tracerFade.step++;
-          requestAnimationFrame(tracerFade.animate);
-        } else {
-          this.scene.remove(tracer);
-          tracerMaterial.dispose();
-          tracerGeometry.dispose();
-        }
-      }
-    };
-    tracerFade.animate();
-  }
-  updateShells() {
-    for (let i = this.shells.length - 1;i >= 0; i--) {
-      const shell = this.shells[i];
-      shell.age++;
-      if (shell.exploded) {
-        if (shell.age > 5 && shell.mesh.material instanceof Material) {
-          if (shell.mesh.material.opacity > 0.05) {
-            shell.mesh.material.opacity -= 0.05;
-          }
-          shell.mesh.scale.multiplyScalar(1.02);
-        }
-        if (shell.smokeParticles) {
-          shell.smokeParticles.position.y += 0.05;
-          if (shell.smokeParticles.material instanceof Material) {
-            if (shell.smokeParticles.material.opacity > 0.01) {
-              shell.smokeParticles.material.opacity -= 0.01;
-            }
-          }
-        }
-        if (shell.dustParticles) {
-          shell.dustParticles.scale.x += 0.02;
-          shell.dustParticles.scale.z += 0.02;
-          if (shell.dustParticles.material instanceof Material) {
-            if (shell.dustParticles.material.opacity > 0.02) {
-              shell.dustParticles.material.opacity -= 0.02;
-            }
-          }
-        }
-        if (shell.scorch && shell.scorch.material instanceof Material) {
-          if (shell.age > 20 && shell.scorch.material.opacity > 0.01) {
-            shell.scorch.material.opacity -= 0.01;
-          }
-        }
-        if (shell.age > 60) {
-          this.scene.remove(shell.mesh);
-          if (shell.smokeParticles) {
-            this.scene.remove(shell.smokeParticles);
-          }
-          if (shell.dustParticles) {
-            this.scene.remove(shell.dustParticles);
-          }
-          if (shell.scorch) {
-            this.scene.remove(shell.scorch);
-          }
-          if (shell.light) {
-            this.scene.remove(shell.light);
-          }
-          this.shells.splice(i, 1);
-        }
-        continue;
-      }
-      shell.mesh.position.add(shell.velocity);
-      shell.velocity.y -= this.gravity;
-      shell.mesh.rotation.x += 0.05;
-      shell.mesh.rotation.z += 0.05;
-      if (shell.age < 10 && shell.smokeParticles) {
-        shell.smokeParticles.position.y += 0.05;
-        if (shell.smokeParticles.material instanceof Material) {
-          shell.smokeParticles.material.opacity -= 0.03;
-          if (shell.smokeParticles.material.opacity <= 0) {
-            this.scene.remove(shell.smokeParticles);
-            shell.smokeParticles = undefined;
-          }
-        }
-      }
-      if (shell.mesh.position.y <= 0.2) {
-        console.log("Shell hit ground at position:", shell.mesh.position.x.toFixed(2), shell.mesh.position.y.toFixed(2), shell.mesh.position.z.toFixed(2), "with velocity:", shell.velocity.x.toFixed(2), shell.velocity.y.toFixed(2), shell.velocity.z.toFixed(2));
-        this.explodeShell(i);
-      }
-      if (shell.age > 600 || shell.mesh.position.distanceTo(this.tank.position) > 1e4) {
-        this.scene.remove(shell.mesh);
-        if (shell.smokeParticles)
-          this.scene.remove(shell.smokeParticles);
-        if (shell.light)
-          this.scene.remove(shell.light);
-      }
-    }
-  }
-  explodeShell(index) {
-    const shell = this.shells[index];
-    if (shell.exploded)
-      return;
-    shell.exploded = true;
-    shell.age = 0;
-    const impactPosition = shell.mesh.position.clone();
-    impactPosition.y = 0.1;
-    shell.impactPosition = impactPosition;
-    shell.mesh.geometry.dispose();
-    shell.mesh.material.dispose();
-    const explosionMaterial = this.explosionMaterial.clone();
-    shell.mesh = new Mesh(this.explosionGeometry, explosionMaterial);
-    shell.mesh.position.copy(impactPosition);
-    shell.mesh.position.y = 2.5;
-    this.scene.add(shell.mesh);
-    const explosionLight = new PointLight(16733440, 8, 20);
-    explosionLight.position.copy(impactPosition);
-    explosionLight.position.y = 3;
-    this.scene.add(explosionLight);
-    shell.light = explosionLight;
-    const smokeParticles = new Points(this.smokeGeometry.clone(), this.particlesMaterial.clone());
-    smokeParticles.position.copy(impactPosition);
-    smokeParticles.position.y = 1;
-    this.scene.add(smokeParticles);
-    shell.smokeParticles = smokeParticles;
-    const dustParticles = new Points(this.dustGeometry.clone(), this.particlesMaterial.clone());
-    dustParticles.position.copy(impactPosition);
-    dustParticles.position.y = 0.1;
-    this.scene.add(dustParticles);
-    shell.dustParticles = dustParticles;
-    const scorchMaterial = this.scorchMaterial.clone();
-    const scorch = new Mesh(this.scorchGeometry, scorchMaterial);
-    scorch.position.copy(impactPosition);
-    scorch.position.y = 0.02;
-    scorch.rotation.x = -Math.PI / 2;
-    this.scene.add(scorch);
-    shell.scorch = scorch;
-    if (this.camera) {
-      const distanceToTank = impactPosition.distanceTo(this.tank.position);
-      if (distanceToTank < 50) {
-        const shakeIntensity = Math.max(0, 0.5 - distanceToTank / 100);
-        const originalCameraPosition = this.camera.position.clone();
-        let shakeStep = 0;
-        const cameraShake = () => {
-          if (shakeStep < 5) {
-            this.camera.position.x += (Math.random() - 0.5) * shakeIntensity;
-            this.camera.position.y += (Math.random() - 0.5) * shakeIntensity;
-            this.camera.position.z += (Math.random() - 0.5) * shakeIntensity;
-            shakeStep++;
-            requestAnimationFrame(cameraShake);
-          } else {
-            this.camera.position.copy(originalCameraPosition);
-          }
-        };
-        cameraShake();
-      }
-    }
-    setTimeout(() => {
-      if (shell.light) {
-        this.scene.remove(shell.light);
-        shell.light = undefined;
-      }
-    }, 200);
-  }
   update(keys) {
     if (keys["w"] || keys["W"]) {
       this.tank.position.x += Math.sin(this.tank.rotation.y) * this.tankSpeed;
@@ -26045,11 +25483,6 @@ class Tank {
     if (keys["arrowdown"] || keys["ArrowDown"]) {
       this.barrelPivot.rotation.x = Math.min(this.maxBarrelElevation, this.barrelPivot.rotation.x + this.barrelElevationSpeed);
     }
-    if (keys[" "] || keys["space"] || keys["Space"]) {
-      console.log("Space key detected - firing shell!");
-      this.fireShell();
-    }
-    this.updateShells();
   }
   updateCamera(camera) {
     const cameraOffset = new Vector3(0, 4, -8);
@@ -26060,26 +25493,188 @@ class Tank {
   }
   dispose() {
     this.scene.remove(this.tank);
-    for (const shell of this.shells) {
-      this.scene.remove(shell.mesh);
-      if (shell.smokeParticles)
-        this.scene.remove(shell.smokeParticles);
-      if (shell.dustParticles)
-        this.scene.remove(shell.dustParticles);
-      if (shell.scorch)
-        this.scene.remove(shell.scorch);
-      if (shell.light)
-        this.scene.remove(shell.light);
+  }
+}
+
+class NPCTank {
+  tank;
+  tankBody;
+  turret;
+  turretPivot;
+  barrel;
+  barrelPivot;
+  tankSpeed = 0.1;
+  tankRotationSpeed = 0.03;
+  turretRotationSpeed = 0.02;
+  barrelElevationSpeed = 0.01;
+  maxBarrelElevation = 0;
+  minBarrelElevation = -Math.PI / 4;
+  movementPattern;
+  movementTimer = 0;
+  changeDirectionInterval;
+  currentDirection = 0;
+  targetPosition = new Vector3;
+  patrolPoints = [];
+  currentPatrolIndex = 0;
+  tankColor;
+  scene;
+  constructor(scene, position, color = 16711680) {
+    this.scene = scene;
+    this.tankColor = color;
+    this.tank = new Group;
+    this.turretPivot = new Group;
+    this.barrelPivot = new Group;
+    this.createTank();
+    this.tank.position.copy(position);
+    const patterns = ["circle", "zigzag", "random", "patrol"];
+    this.movementPattern = patterns[Math.floor(Math.random() * patterns.length)];
+    this.changeDirectionInterval = Math.floor(Math.random() * 180) + 120;
+    if (this.movementPattern === "patrol") {
+      this.setupPatrolPoints();
     }
-    this.shellGeometry.dispose();
-    this.shellMaterial.dispose();
-    this.explosionGeometry.dispose();
-    this.explosionMaterial.dispose();
-    this.scorchGeometry.dispose();
-    this.scorchMaterial.dispose();
-    this.smokeGeometry.dispose();
-    this.dustGeometry.dispose();
-    this.particlesMaterial.dispose();
+    scene.add(this.tank);
+  }
+  createTank() {
+    const bodyGeometry = new BoxGeometry(2, 0.75, 3);
+    const bodyMaterial = new MeshStandardMaterial({
+      color: this.tankColor,
+      roughness: 0.7,
+      metalness: 0.3
+    });
+    this.tankBody = new Mesh(bodyGeometry, bodyMaterial);
+    this.tankBody.position.y = 0.75 / 2;
+    this.tankBody.castShadow = true;
+    this.tankBody.receiveShadow = true;
+    this.tank.add(this.tankBody);
+    const trackGeometry = new BoxGeometry(0.4, 0.5, 3.2);
+    const trackMaterial = new MeshStandardMaterial({
+      color: 3355443,
+      roughness: 0.9,
+      metalness: 0.2
+    });
+    const leftTrack = new Mesh(trackGeometry, trackMaterial);
+    leftTrack.position.set(-1, 0.25, 0);
+    leftTrack.castShadow = true;
+    leftTrack.receiveShadow = true;
+    this.tank.add(leftTrack);
+    const rightTrack = new Mesh(trackGeometry, trackMaterial);
+    rightTrack.position.set(1, 0.25, 0);
+    rightTrack.castShadow = true;
+    rightTrack.receiveShadow = true;
+    this.tank.add(rightTrack);
+    this.turretPivot = new Group;
+    this.turretPivot.position.set(0, 1, 0);
+    this.tank.add(this.turretPivot);
+    const turretGeometry = new CylinderGeometry(0.8, 0.8, 0.5, 16);
+    const turretMaterial = new MeshStandardMaterial({
+      color: this.getTurretColor(),
+      roughness: 0.7,
+      metalness: 0.3
+    });
+    this.turret = new Mesh(turretGeometry, turretMaterial);
+    this.turret.castShadow = true;
+    this.turret.receiveShadow = true;
+    this.turretPivot.add(this.turret);
+    const barrelGroup = new Group;
+    barrelGroup.position.set(0, 0, 0.8);
+    this.turretPivot.add(barrelGroup);
+    const barrelGeometry = new CylinderGeometry(0.2, 0.2, 2, 16);
+    const barrelMaterial = new MeshStandardMaterial({
+      color: 3355443,
+      roughness: 0.7,
+      metalness: 0.5
+    });
+    this.barrel = new Mesh(barrelGeometry, barrelMaterial);
+    this.barrel.rotation.x = Math.PI / 2;
+    this.barrel.position.set(0, 0, 1);
+    this.barrel.castShadow = true;
+    barrelGroup.add(this.barrel);
+    this.barrelPivot = barrelGroup;
+    this.barrelPivot.rotation.x = 0;
+    this.barrel.rotation.x = Math.PI / 2;
+  }
+  getTurretColor() {
+    const color = new Color(this.tankColor);
+    color.multiplyScalar(0.8);
+    return color.getHex();
+  }
+  setupPatrolPoints() {
+    const pointCount = Math.floor(Math.random() * 3) + 4;
+    const radius = Math.random() * 50 + 50;
+    for (let i = 0;i < pointCount; i++) {
+      const angle = i / pointCount * Math.PI * 2;
+      const x = this.tank.position.x + Math.cos(angle) * radius;
+      const z = this.tank.position.z + Math.sin(angle) * radius;
+      this.patrolPoints.push(new Vector3(x, 0, z));
+    }
+    this.targetPosition.copy(this.patrolPoints[0]);
+  }
+  update() {
+    this.movementTimer++;
+    switch (this.movementPattern) {
+      case "circle":
+        this.moveInCircle();
+        break;
+      case "zigzag":
+        this.moveInZigzag();
+        break;
+      case "random":
+        this.moveRandomly();
+        break;
+      case "patrol":
+        this.moveInPatrol();
+        break;
+    }
+    this.turretPivot.rotation.y += Math.sin(this.movementTimer * 0.01) * 0.5 * this.turretRotationSpeed;
+    const barrelTarget = Math.sin(this.movementTimer * 0.005) * (this.maxBarrelElevation - this.minBarrelElevation) / 2;
+    this.barrelPivot.rotation.x += (barrelTarget - this.barrelPivot.rotation.x) * 0.01;
+  }
+  moveInCircle() {
+    this.currentDirection += 0.005;
+    this.tank.position.x += Math.cos(this.currentDirection) * this.tankSpeed;
+    this.tank.position.z += Math.sin(this.currentDirection) * this.tankSpeed;
+    this.tank.rotation.y = this.currentDirection + Math.PI / 2;
+  }
+  moveInZigzag() {
+    if (this.movementTimer % this.changeDirectionInterval === 0) {
+      this.currentDirection = Math.random() * Math.PI * 2;
+    }
+    const zigzagFactor = Math.sin(this.movementTimer * 0.1) * 0.5;
+    const forwardX = Math.cos(this.currentDirection);
+    const forwardZ = Math.sin(this.currentDirection);
+    const sideX = Math.cos(this.currentDirection + Math.PI / 2);
+    const sideZ = Math.sin(this.currentDirection + Math.PI / 2);
+    this.tank.position.x += (forwardX + sideX * zigzagFactor) * this.tankSpeed;
+    this.tank.position.z += (forwardZ + sideZ * zigzagFactor) * this.tankSpeed;
+    const targetRotation = Math.atan2(forwardZ + sideZ * zigzagFactor, forwardX + sideX * zigzagFactor) + Math.PI / 2;
+    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+  }
+  moveRandomly() {
+    if (this.movementTimer % this.changeDirectionInterval === 0) {
+      this.currentDirection = Math.random() * Math.PI * 2;
+    }
+    this.tank.position.x += Math.cos(this.currentDirection) * this.tankSpeed;
+    this.tank.position.z += Math.sin(this.currentDirection) * this.tankSpeed;
+    const targetRotation = this.currentDirection + Math.PI / 2;
+    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+  }
+  moveInPatrol() {
+    if (this.patrolPoints.length === 0)
+      return;
+    const targetPoint = this.patrolPoints[this.currentPatrolIndex];
+    const direction = new Vector2(targetPoint.x - this.tank.position.x, targetPoint.z - this.tank.position.z);
+    if (direction.length() < 5) {
+      this.currentPatrolIndex = (this.currentPatrolIndex + 1) % this.patrolPoints.length;
+      return;
+    }
+    direction.normalize();
+    this.tank.position.x += direction.x * this.tankSpeed;
+    this.tank.position.z += direction.y * this.tankSpeed;
+    const targetRotation = Math.atan2(direction.y, direction.x) + Math.PI / 2;
+    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+  }
+  dispose() {
+    this.scene.remove(this.tank);
   }
 }
 
@@ -26089,7 +25684,9 @@ class GameComponent extends LitElement {
   camera;
   renderer;
   animationFrameId;
-  tankInstance;
+  playerTank;
+  npcTanks = [];
+  NUM_NPC_TANKS = 10;
   keys = {};
   skyColor = new Color(8900331);
   static styles = css`
@@ -26125,7 +25722,6 @@ class GameComponent extends LitElement {
         <div>A: Rotate tank left, D: Rotate tank right</div>
         <div>←/→: Rotate turret left/right</div>
         <div>↑/↓: Raise/lower barrel</div>
-        <div>Space: Fire shell</div>
       </div>
     `;
   }
@@ -26142,7 +25738,10 @@ class GameComponent extends LitElement {
     window.removeEventListener("keydown", this.handleKeyDown);
     window.removeEventListener("keyup", this.handleKeyUp);
     window.removeEventListener("resize", this.handleResize);
-    this.tankInstance?.dispose();
+    this.playerTank?.dispose();
+    for (const tank of this.npcTanks) {
+      tank.dispose();
+    }
     this.renderer?.dispose();
   }
   initThree() {
@@ -26182,7 +25781,8 @@ class GameComponent extends LitElement {
     this.scene.add(ground);
     this.createTrees();
     this.createRocks();
-    this.tankInstance = new Tank(this.scene, this.camera);
+    this.playerTank = new Tank(this.scene, this.camera);
+    this.createNpcTanks();
     this.positionCamera();
     window.addEventListener("resize", this.handleResize.bind(this));
   }
@@ -26204,11 +25804,38 @@ class GameComponent extends LitElement {
     const skyLight = new HemisphereLight(8900331, 9560416, 1);
     this.scene.add(skyLight);
   }
+  createNpcTanks() {
+    if (!this.scene)
+      return;
+    const colors = [
+      3368652,
+      14432530,
+      16750848,
+      1087000,
+      10027161,
+      39366,
+      14500983,
+      6728192,
+      12070446,
+      3236757
+    ];
+    for (const tank of this.npcTanks) {
+      tank.dispose();
+    }
+    this.npcTanks = [];
+    for (let i = 0;i < this.NUM_NPC_TANKS; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 200 + Math.random() * 300;
+      const position = new Vector3(Math.cos(angle) * distance, 0, Math.sin(angle) * distance);
+      const npcTank = new NPCTank(this.scene, position, colors[i % colors.length]);
+      this.npcTanks.push(npcTank);
+    }
+  }
   positionCamera() {
-    if (!this.camera || !this.tankInstance)
+    if (!this.camera || !this.playerTank)
       return;
     this.camera.position.set(0, 6, -8);
-    this.camera.lookAt(this.tankInstance.tank.position);
+    this.camera.lookAt(this.playerTank.tank.position);
   }
   initKeyboardControls() {
     this.handleKeyDown = this.handleKeyDown.bind(this);
@@ -26245,11 +25872,14 @@ class GameComponent extends LitElement {
   }
   animate() {
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
-    if (this.tankInstance) {
-      this.tankInstance.update(this.keys);
+    if (this.playerTank) {
+      this.playerTank.update(this.keys);
       if (this.camera) {
-        this.tankInstance.updateCamera(this.camera);
+        this.playerTank.updateCamera(this.camera);
       }
+    }
+    for (const npcTank of this.npcTanks) {
+      npcTank.update();
     }
     if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);
