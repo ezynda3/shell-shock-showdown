@@ -9462,6 +9462,127 @@ class Frustum {
     return new this.constructor().copy(this);
   }
 }
+class PointsMaterial extends Material {
+  constructor(parameters) {
+    super();
+    this.isPointsMaterial = true;
+    this.type = "PointsMaterial";
+    this.color = new Color(16777215);
+    this.map = null;
+    this.alphaMap = null;
+    this.size = 1;
+    this.sizeAttenuation = true;
+    this.fog = true;
+    this.setValues(parameters);
+  }
+  copy(source) {
+    super.copy(source);
+    this.color.copy(source.color);
+    this.map = source.map;
+    this.alphaMap = source.alphaMap;
+    this.size = source.size;
+    this.sizeAttenuation = source.sizeAttenuation;
+    this.fog = source.fog;
+    return this;
+  }
+}
+var _inverseMatrix = /* @__PURE__ */ new Matrix4;
+var _ray = /* @__PURE__ */ new Ray;
+var _sphere = /* @__PURE__ */ new Sphere;
+var _position$2 = /* @__PURE__ */ new Vector3;
+
+class Points extends Object3D {
+  constructor(geometry = new BufferGeometry, material = new PointsMaterial) {
+    super();
+    this.isPoints = true;
+    this.type = "Points";
+    this.geometry = geometry;
+    this.material = material;
+    this.morphTargetDictionary = undefined;
+    this.morphTargetInfluences = undefined;
+    this.updateMorphTargets();
+  }
+  copy(source, recursive) {
+    super.copy(source, recursive);
+    this.material = Array.isArray(source.material) ? source.material.slice() : source.material;
+    this.geometry = source.geometry;
+    return this;
+  }
+  raycast(raycaster, intersects) {
+    const geometry = this.geometry;
+    const matrixWorld = this.matrixWorld;
+    const threshold = raycaster.params.Points.threshold;
+    const drawRange = geometry.drawRange;
+    if (geometry.boundingSphere === null)
+      geometry.computeBoundingSphere();
+    _sphere.copy(geometry.boundingSphere);
+    _sphere.applyMatrix4(matrixWorld);
+    _sphere.radius += threshold;
+    if (raycaster.ray.intersectsSphere(_sphere) === false)
+      return;
+    _inverseMatrix.copy(matrixWorld).invert();
+    _ray.copy(raycaster.ray).applyMatrix4(_inverseMatrix);
+    const localThreshold = threshold / ((this.scale.x + this.scale.y + this.scale.z) / 3);
+    const localThresholdSq = localThreshold * localThreshold;
+    const index = geometry.index;
+    const attributes = geometry.attributes;
+    const positionAttribute = attributes.position;
+    if (index !== null) {
+      const start = Math.max(0, drawRange.start);
+      const end = Math.min(index.count, drawRange.start + drawRange.count);
+      for (let i = start, il = end;i < il; i++) {
+        const a = index.getX(i);
+        _position$2.fromBufferAttribute(positionAttribute, a);
+        testPoint(_position$2, a, localThresholdSq, matrixWorld, raycaster, intersects, this);
+      }
+    } else {
+      const start = Math.max(0, drawRange.start);
+      const end = Math.min(positionAttribute.count, drawRange.start + drawRange.count);
+      for (let i = start, l = end;i < l; i++) {
+        _position$2.fromBufferAttribute(positionAttribute, i);
+        testPoint(_position$2, i, localThresholdSq, matrixWorld, raycaster, intersects, this);
+      }
+    }
+  }
+  updateMorphTargets() {
+    const geometry = this.geometry;
+    const morphAttributes = geometry.morphAttributes;
+    const keys = Object.keys(morphAttributes);
+    if (keys.length > 0) {
+      const morphAttribute = morphAttributes[keys[0]];
+      if (morphAttribute !== undefined) {
+        this.morphTargetInfluences = [];
+        this.morphTargetDictionary = {};
+        for (let m = 0, ml = morphAttribute.length;m < ml; m++) {
+          const name = morphAttribute[m].name || String(m);
+          this.morphTargetInfluences.push(0);
+          this.morphTargetDictionary[name] = m;
+        }
+      }
+    }
+  }
+}
+function testPoint(point, index, localThresholdSq, matrixWorld, raycaster, intersects, object) {
+  const rayPointDistanceSq = _ray.distanceSqToPoint(point);
+  if (rayPointDistanceSq < localThresholdSq) {
+    const intersectPoint = new Vector3;
+    _ray.closestPointToPoint(point, intersectPoint);
+    intersectPoint.applyMatrix4(matrixWorld);
+    const distance = raycaster.ray.origin.distanceTo(intersectPoint);
+    if (distance < raycaster.near || distance > raycaster.far)
+      return;
+    intersects.push({
+      distance,
+      distanceToRay: Math.sqrt(rayPointDistanceSq),
+      point: intersectPoint,
+      index,
+      face: null,
+      faceIndex: null,
+      barycoord: null,
+      object
+    });
+  }
+}
 class DepthTexture extends Texture {
   constructor(width, height, type, mapping, wrapS, wrapT, magFilter, minFilter, anisotropy, format = DepthFormat) {
     if (format !== DepthFormat && format !== DepthStencilFormat) {
@@ -25283,6 +25404,18 @@ class CollisionSystem {
     if (typeA === "tree" && typeB === "tree" || typeA === "rock" && typeB === "rock" || typeA === "tree" && typeB === "rock" || typeA === "rock" && typeB === "tree") {
       return true;
     }
+    if (typeA === "shell" && typeB === "tank") {
+      const shell = objA;
+      if (shell.getOwner && shell.getOwner() === objB) {
+        return true;
+      }
+    }
+    if (typeA === "tank" && typeB === "shell") {
+      const shell = objB;
+      if (shell.getOwner && shell.getOwner() === objA) {
+        return true;
+      }
+    }
     return false;
   }
   testCollision(objA, objB) {
@@ -25460,47 +25593,55 @@ class MapGenerator {
     }
   }
   createTrees() {
-    this.createCircleOfTrees(30, 12, "pine");
-    this.createCircleOfTrees(45, 16, "round");
-    this.createCircleOfTrees(60, 20, "pine");
-    this.createSacredGrove(200, 200, 40, 16);
-    this.createSacredGrove(-200, -200, 40, 16);
-    this.createSacredGrove(200, -200, 40, 16);
-    this.createSacredGrove(-200, 200, 40, 16);
-    for (let x = -400;x <= 400; x += 25) {
-      for (let z = 400;z <= 800; z += 25) {
+    this.createCircleOfTrees(30, 10, "pine");
+    this.createCircleOfTrees(45, 12, "round");
+    this.createCircleOfTrees(60, 16, "pine");
+    this.createSacredGrove(200, 200, 40, 12);
+    this.createSacredGrove(-200, -200, 40, 12);
+    this.createSacredGrove(200, -200, 40, 12);
+    this.createSacredGrove(-200, 200, 40, 12);
+    for (let x = -400;x <= 400; x += 40) {
+      for (let z = 400;z <= 800; z += 40) {
         if ((x + z) % 75 === 0)
           continue;
         const scale = 1.2 + Math.sin(x * 0.01) * Math.cos(z * 0.01) * 0.5;
-        this.createPineTree(scale, x, z);
+        const offsetX = (Math.random() - 0.5) * 15;
+        const offsetZ = (Math.random() - 0.5) * 15;
+        this.createPineTree(scale, x + offsetX, z + offsetZ);
       }
     }
-    for (let x = -400;x <= 400; x += 25) {
-      for (let z = -800;z <= -400; z += 25) {
+    for (let x = -400;x <= 400; x += 40) {
+      for (let z = -800;z <= -400; z += 40) {
         if ((x - z) % 75 === 0)
           continue;
         const scale = 1 + Math.cos(x * 0.01) * Math.sin(z * 0.01) * 0.4;
-        this.createRoundTree(scale, x, z);
+        const offsetX = (Math.random() - 0.5) * 15;
+        const offsetZ = (Math.random() - 0.5) * 15;
+        this.createRoundTree(scale, x + offsetX, z + offsetZ);
       }
     }
-    for (let x = 400;x <= 800; x += 25) {
-      for (let z = -400;z <= 400; z += 25) {
+    for (let x = 400;x <= 800; x += 50) {
+      for (let z = -400;z <= 400; z += 50) {
         if (x * z % 1200 === 0)
           continue;
+        if (Math.random() < 0.2)
+          continue;
         const scale = 1.1 + Math.sin(x * 0.02) * Math.cos(z * 0.02) * 0.3;
-        if ((Math.floor(x / 25) + Math.floor(z / 25)) % 2 === 0) {
+        if ((Math.floor(x / 50) + Math.floor(z / 50)) % 2 === 0) {
           this.createPineTree(scale, x, z);
         } else {
           this.createRoundTree(scale, x, z);
         }
       }
     }
-    for (let x = -800;x <= -400; x += 25) {
-      for (let z = -400;z <= 400; z += 25) {
+    for (let x = -800;x <= -400; x += 50) {
+      for (let z = -400;z <= 400; z += 50) {
         if (x * z % 1000 === 0)
           continue;
+        if (Math.random() < 0.2)
+          continue;
         const scale = 1.1 + Math.cos(x * 0.015) * Math.sin(z * 0.015) * 0.3;
-        if (Math.floor(z / 25) % 2 === 0) {
+        if (Math.floor(z / 50) % 2 === 0) {
           this.createPineTree(scale, x, z);
         } else {
           this.createRoundTree(scale, x, z);
@@ -25637,6 +25778,123 @@ class MapGenerator {
   }
 }
 
+// assets/ts/game/shell.ts
+class Shell {
+  mesh;
+  velocity;
+  scene;
+  collider;
+  isActive = true;
+  lifeTime = 0;
+  MAX_LIFETIME = 300;
+  GRAVITY = 0.03;
+  COLLISION_RADIUS = 0.2;
+  owner;
+  constructor(scene, position, direction, velocity, owner) {
+    this.scene = scene;
+    this.owner = owner;
+    const geometry = new SphereGeometry(this.COLLISION_RADIUS, 8, 8);
+    const material = new MeshStandardMaterial({
+      color: 3355443,
+      roughness: 0.7,
+      metalness: 0.5
+    });
+    this.mesh = new Mesh(geometry, material);
+    this.mesh.castShadow = false;
+    this.mesh.receiveShadow = false;
+    this.mesh.position.copy(position);
+    this.velocity = direction.clone().normalize().multiplyScalar(velocity);
+    this.collider = new Sphere(position.clone(), this.COLLISION_RADIUS);
+    scene.add(this.mesh);
+  }
+  update() {
+    if (!this.isActive)
+      return false;
+    this.lifeTime++;
+    if (this.lifeTime >= this.MAX_LIFETIME) {
+      this.destroy();
+      return false;
+    }
+    this.velocity.y -= this.GRAVITY;
+    this.mesh.position.add(this.velocity);
+    this.collider.center.copy(this.mesh.position);
+    if (this.mesh.position.y < 0) {
+      this.createExplosion(new Vector3(this.mesh.position.x, 0, this.mesh.position.z));
+      this.destroy();
+      return false;
+    }
+    return true;
+  }
+  getCollider() {
+    return this.collider;
+  }
+  getPosition() {
+    return this.mesh.position.clone();
+  }
+  getType() {
+    return "shell";
+  }
+  onCollision(other) {
+    if (other === this.owner)
+      return;
+    this.createExplosion(this.mesh.position.clone());
+    this.destroy();
+  }
+  isAlive() {
+    return this.isActive;
+  }
+  getOwner() {
+    return this.owner;
+  }
+  destroy() {
+    this.scene.remove(this.mesh);
+    this.isActive = false;
+  }
+  createExplosion(position) {
+    const particleCount = 30;
+    const geometry = new BufferGeometry;
+    const positions = new Float32Array(particleCount * 3);
+    const colors = new Float32Array(particleCount * 3);
+    for (let i = 0;i < particleCount; i++) {
+      const i3 = i * 3;
+      positions[i3] = (Math.random() - 0.5) * 2;
+      positions[i3 + 1] = Math.random() * 2;
+      positions[i3 + 2] = (Math.random() - 0.5) * 2;
+      colors[i3] = Math.random() * 0.5 + 0.5;
+      colors[i3 + 1] = Math.random() * 0.5;
+      colors[i3 + 2] = 0;
+    }
+    geometry.setAttribute("position", new BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new BufferAttribute(colors, 3));
+    const material = new PointsMaterial({
+      size: 0.2,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.8
+    });
+    const particles = new Points(geometry, material);
+    particles.position.copy(position);
+    this.scene.add(particles);
+    let frame = 0;
+    const MAX_FRAMES = 20;
+    const animateExplosion = () => {
+      if (frame >= MAX_FRAMES) {
+        this.scene.remove(particles);
+        return;
+      }
+      const scale = 1 + frame * 0.1;
+      particles.scale.set(scale, scale, scale);
+      const opacity = 1 - frame / MAX_FRAMES;
+      if (material.opacity !== undefined) {
+        material.opacity = opacity;
+      }
+      frame++;
+      requestAnimationFrame(animateExplosion);
+    };
+    animateExplosion();
+  }
+}
+
 // assets/ts/game/tank.ts
 class Tank {
   tank;
@@ -25654,6 +25912,11 @@ class Tank {
   collider;
   collisionRadius = 2;
   lastPosition = new Vector3;
+  canFire = true;
+  RELOAD_TIME = 60;
+  reloadCounter = 0;
+  SHELL_SPEED = 0.7;
+  BARREL_END_OFFSET = 1.5;
   scene;
   camera;
   constructor(scene, camera) {
@@ -25728,6 +25991,13 @@ class Tank {
   }
   update(keys, colliders) {
     this.lastPosition.copy(this.tank.position);
+    if (!this.canFire) {
+      this.reloadCounter++;
+      if (this.reloadCounter >= this.RELOAD_TIME) {
+        this.canFire = true;
+        this.reloadCounter = 0;
+      }
+    }
     if (keys["w"] || keys["W"]) {
       this.tank.position.x += Math.sin(this.tank.rotation.y) * this.tankSpeed;
       this.tank.position.z += Math.cos(this.tank.rotation.y) * this.tankSpeed;
@@ -25766,6 +26036,26 @@ class Tank {
         }
       }
     }
+    if ((keys["space"] || keys[" "] || keys["f"]) && this.canFire) {
+      console.log("Firing shell!");
+      return this.fireShell();
+    }
+    return null;
+  }
+  fireShell() {
+    this.canFire = false;
+    this.reloadCounter = 0;
+    const barrelEndPosition = new Vector3(0, 0, this.BARREL_END_OFFSET);
+    barrelEndPosition.applyEuler(new Euler(this.barrelPivot.rotation.x, 0, 0));
+    barrelEndPosition.applyEuler(new Euler(0, this.turretPivot.rotation.y, 0));
+    barrelEndPosition.applyEuler(new Euler(0, this.tank.rotation.y, 0));
+    barrelEndPosition.add(this.turretPivot.position.clone().add(this.tank.position));
+    const direction = new Vector3;
+    direction.set(0, 0, 1);
+    direction.applyEuler(new Euler(this.barrelPivot.rotation.x, 0, 0));
+    direction.applyEuler(new Euler(0, this.turretPivot.rotation.y, 0));
+    direction.applyEuler(new Euler(0, this.tank.rotation.y, 0));
+    return new Shell(this.scene, barrelEndPosition, direction, this.SHELL_SPEED, this);
   }
   getCollider() {
     return this.collider;
@@ -25841,6 +26131,13 @@ class NPCTank {
   lastPosition = new Vector3;
   collisionResetTimer = 0;
   COLLISION_RESET_DELAY = 60;
+  canFire = true;
+  RELOAD_TIME = 180;
+  reloadCounter = 0;
+  SHELL_SPEED = 0.6;
+  BARREL_END_OFFSET = 1.5;
+  FIRE_PROBABILITY = 0.01;
+  TARGETING_DISTANCE = 100;
   scene;
   constructor(scene, position, color = 16711680) {
     this.scene = scene;
@@ -25938,12 +26235,19 @@ class NPCTank {
   update(keys, colliders) {
     this.movementTimer++;
     this.lastPosition.copy(this.tank.position);
+    if (!this.canFire) {
+      this.reloadCounter++;
+      if (this.reloadCounter >= this.RELOAD_TIME) {
+        this.canFire = true;
+        this.reloadCounter = 0;
+      }
+    }
     if (this.collisionResetTimer > 0) {
       this.collisionResetTimer--;
       if (this.collisionResetTimer === 0) {
         this.currentDirection = Math.random() * Math.PI * 2;
       }
-      return;
+      return null;
     }
     switch (this.movementPattern) {
       case "circle":
@@ -25959,9 +26263,34 @@ class NPCTank {
         this.moveInPatrol();
         break;
     }
-    this.turretPivot.rotation.y += Math.sin(this.movementTimer * 0.01) * 0.5 * this.turretRotationSpeed;
-    const barrelTarget = Math.sin(this.movementTimer * 0.005) * (this.maxBarrelElevation - this.minBarrelElevation) / 2;
-    this.barrelPivot.rotation.x += (barrelTarget - this.barrelPivot.rotation.x) * 0.01;
+    let playerTank = null;
+    if (colliders) {
+      for (const collider of colliders) {
+        if (collider === this || collider.getType() !== "tank")
+          continue;
+        if (!(collider instanceof NPCTank)) {
+          playerTank = collider;
+          break;
+        }
+      }
+    }
+    if (playerTank) {
+      const distanceToPlayer = this.tank.position.distanceTo(playerTank.getPosition());
+      if (distanceToPlayer < this.TARGETING_DISTANCE) {
+        this.aimAtTarget(playerTank.getPosition());
+        if (this.canFire && Math.random() < this.FIRE_PROBABILITY) {
+          return this.fireShell();
+        }
+      } else {
+        this.turretPivot.rotation.y += Math.sin(this.movementTimer * 0.01) * 0.5 * this.turretRotationSpeed;
+        const barrelTarget = Math.sin(this.movementTimer * 0.005) * (this.maxBarrelElevation - this.minBarrelElevation) / 2;
+        this.barrelPivot.rotation.x += (barrelTarget - this.barrelPivot.rotation.x) * 0.01;
+      }
+    } else {
+      this.turretPivot.rotation.y += Math.sin(this.movementTimer * 0.01) * 0.5 * this.turretRotationSpeed;
+      const barrelTarget = Math.sin(this.movementTimer * 0.005) * (this.maxBarrelElevation - this.minBarrelElevation) / 2;
+      this.barrelPivot.rotation.x += (barrelTarget - this.barrelPivot.rotation.x) * 0.01;
+    }
     this.collider.center.copy(this.tank.position);
     if (colliders) {
       for (const collider of colliders) {
@@ -25973,6 +26302,45 @@ class NPCTank {
         }
       }
     }
+    return null;
+  }
+  aimAtTarget(targetPosition) {
+    const direction = new Vector3().subVectors(targetPosition, this.tank.position);
+    let targetTurretAngle = Math.atan2(direction.x, direction.z) - this.tank.rotation.y;
+    while (targetTurretAngle > Math.PI)
+      targetTurretAngle -= Math.PI * 2;
+    while (targetTurretAngle < -Math.PI)
+      targetTurretAngle += Math.PI * 2;
+    const angleDifference = targetTurretAngle - this.turretPivot.rotation.y;
+    let normalizedDifference = angleDifference;
+    while (normalizedDifference > Math.PI)
+      normalizedDifference -= Math.PI * 2;
+    while (normalizedDifference < -Math.PI)
+      normalizedDifference += Math.PI * 2;
+    const rotationAmount = Math.sign(normalizedDifference) * Math.min(Math.abs(normalizedDifference), this.turretRotationSpeed);
+    this.turretPivot.rotation.y += rotationAmount;
+    const horizontalDistance = new Vector2(direction.x, direction.z).length();
+    const heightDifference = targetPosition.y - this.tank.position.y;
+    let targetElevation = -Math.atan2(heightDifference, horizontalDistance);
+    targetElevation = Math.max(this.minBarrelElevation, Math.min(this.maxBarrelElevation, targetElevation));
+    const elevationDifference = targetElevation - this.barrelPivot.rotation.x;
+    const elevationAmount = Math.sign(elevationDifference) * Math.min(Math.abs(elevationDifference), this.barrelElevationSpeed);
+    this.barrelPivot.rotation.x += elevationAmount;
+  }
+  fireShell() {
+    this.canFire = false;
+    this.reloadCounter = 0;
+    const barrelEndPosition = new Vector3(0, 0, this.BARREL_END_OFFSET);
+    barrelEndPosition.applyEuler(new Euler(this.barrelPivot.rotation.x, 0, 0));
+    barrelEndPosition.applyEuler(new Euler(0, this.turretPivot.rotation.y, 0));
+    barrelEndPosition.applyEuler(new Euler(0, this.tank.rotation.y, 0));
+    barrelEndPosition.add(this.turretPivot.position.clone().add(this.tank.position));
+    const direction = new Vector3;
+    direction.set(0, 0, 1);
+    direction.applyEuler(new Euler(this.barrelPivot.rotation.x, 0, 0));
+    direction.applyEuler(new Euler(0, this.turretPivot.rotation.y, 0));
+    direction.applyEuler(new Euler(0, this.tank.rotation.y, 0));
+    return new Shell(this.scene, barrelEndPosition, direction, this.SHELL_SPEED, this);
   }
   getCollider() {
     return this.collider;
@@ -26235,10 +26603,11 @@ class GameComponent extends LitElement {
   playerTank;
   npcTanks = [];
   NUM_NPC_TANKS = 6;
-  enableShadows = true;
+  lowPerformanceMode = false;
   lodDistance = 300;
   collisionSystem = new CollisionSystem;
   mapGenerator;
+  activeShells = [];
   keys = {};
   skyColor = new Color(8900331);
   static styles = css`
@@ -26275,6 +26644,7 @@ class GameComponent extends LitElement {
         <div>A: Rotate tank left, D: Rotate tank right</div>
         <div>←/→: Rotate turret left/right</div>
         <div>↑/↓: Raise/lower barrel</div>
+        <div>Space or F: Fire shell</div>
       </div>
     `;
   }
@@ -26299,6 +26669,10 @@ class GameComponent extends LitElement {
       this.collisionSystem.removeCollider(tank);
       tank.dispose();
     }
+    for (const shell of this.activeShells) {
+      this.collisionSystem.removeCollider(shell);
+    }
+    this.activeShells = [];
     this.renderer?.dispose();
   }
   initThree() {
@@ -26316,26 +26690,20 @@ class GameComponent extends LitElement {
     this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
     const pixelRatio = Math.min(window.devicePixelRatio, 2);
     this.renderer.setPixelRatio(pixelRatio);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = PCFSoftShadowMap;
+    this.renderer.shadowMap.enabled = false;
     this.renderer.sortObjects = true;
     this.renderer.physicallyCorrectLights = false;
-    const directionalLight = new DirectionalLight(16777164, 1.2);
+    const directionalLight = new DirectionalLight(16777164, 0.8);
     directionalLight.position.set(100, 200, 50);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.camera.near = 0.5;
-    directionalLight.shadow.camera.far = 200;
-    directionalLight.shadow.camera.left = -100;
-    directionalLight.shadow.camera.right = 100;
-    directionalLight.shadow.camera.top = 100;
-    directionalLight.shadow.camera.bottom = -100;
-    directionalLight.shadow.mapSize.width = 1024;
-    directionalLight.shadow.mapSize.height = 1024;
-    directionalLight.shadow.bias = -0.001;
-    directionalLight.shadow.normalBias = 0.1;
-    const ambientLight = new AmbientLight(7829367, 0.5);
+    directionalLight.castShadow = false;
+    const secondaryLight = new DirectionalLight(11193599, 0.3);
+    secondaryLight.position.set(-50, 100, -80);
+    const ambientLight = new AmbientLight(10066329, 0.7);
+    const hemisphereLight = new HemisphereLight(8900331, 5263360, 0.6);
     this.scene.add(directionalLight);
+    this.scene.add(secondaryLight);
     this.scene.add(ambientLight);
+    this.scene.add(hemisphereLight);
     const groundSize = 5000;
     const groundGeometry = new PlaneGeometry(groundSize, groundSize);
     const groundMaterial = new MeshLambertMaterial({
@@ -26343,7 +26711,7 @@ class GameComponent extends LitElement {
     });
     const ground = new Mesh(groundGeometry, groundMaterial);
     ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
+    ground.receiveShadow = false;
     this.scene.add(ground);
     this.mapGenerator = new MapGenerator(this.scene);
     this.createTrees();
@@ -26412,13 +26780,17 @@ class GameComponent extends LitElement {
   initKeyboardControls() {
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handleKeyUp = this.handleKeyUp.bind(this);
-    window.addEventListener("keydown", this.handleKeyDown);
-    window.addEventListener("keyup", this.handleKeyUp);
+    window.addEventListener("keydown", this.handleKeyDown, { capture: true });
+    window.addEventListener("keyup", this.handleKeyUp, { capture: true });
+    this.keys["space"] = false;
+    this.keys[" "] = false;
+    this.keys["f"] = false;
   }
   handleKeyDown(event) {
     const key = event.key.toLowerCase();
     this.keys[key] = true;
     if (key === " " || key === "space") {
+      console.log("SPACE KEY PRESSED");
       this.keys["space"] = true;
     }
     console.log("Key down:", key, "KeyCode:", event.keyCode);
@@ -26444,19 +26816,58 @@ class GameComponent extends LitElement {
   }
   animate() {
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
+    if (this.renderer && this.renderer.info && this.renderer.info.render) {
+      const fps = 1000 / (this.renderer.info.render.frame || 16.7);
+      this.lowPerformanceMode = fps < 30;
+    }
     this.collisionSystem.checkCollisions();
     const allColliders = this.collisionSystem.getColliders();
     if (this.playerTank) {
-      this.playerTank.update(this.keys, allColliders);
+      const newShell = this.playerTank.update(this.keys, allColliders);
+      if (newShell) {
+        console.log("New shell created, adding to game");
+        this.addShell(newShell);
+      }
       if (this.camera) {
         this.playerTank.updateCamera(this.camera);
       }
     }
     for (const npcTank of this.npcTanks) {
-      npcTank.update({}, allColliders);
+      const distanceToPlayer = this.playerTank?.tank.position.distanceTo(npcTank.tank.position) || 0;
+      let newShell = null;
+      if (distanceToPlayer < this.lodDistance) {
+        newShell = npcTank.update({}, allColliders);
+      } else if (distanceToPlayer < this.lodDistance * 2) {
+        if (!this.lowPerformanceMode || Math.random() < 0.5) {
+          newShell = npcTank.update({}, allColliders);
+        }
+      } else {
+        const updateChance = this.lowPerformanceMode ? 0.1 : 0.2;
+        if (Math.random() < updateChance) {
+          newShell = npcTank.update({}, allColliders);
+        }
+      }
+      if (newShell) {
+        this.addShell(newShell);
+      }
     }
+    this.updateShells(allColliders);
     if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);
+    }
+  }
+  addShell(shell) {
+    this.activeShells.push(shell);
+    this.collisionSystem.addCollider(shell);
+  }
+  updateShells(colliders) {
+    for (let i = this.activeShells.length - 1;i >= 0; i--) {
+      const shell = this.activeShells[i];
+      const isActive = shell.update();
+      if (!isActive) {
+        this.collisionSystem.removeCollider(shell);
+        this.activeShells.splice(i, 1);
+      }
     }
   }
 }

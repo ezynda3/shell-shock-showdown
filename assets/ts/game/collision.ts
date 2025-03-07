@@ -55,6 +55,23 @@ export class CollisionSystem {
       return true;
     }
     
+    // Special case for shells - check if shell colliding with its owner tank
+    if (typeA === 'shell' && typeB === 'tank') {
+      // Try to get the shell's owner - using type casting and checking for getOwner method
+      const shell = objA as any;
+      if (shell.getOwner && shell.getOwner() === objB) {
+        return true; // Skip collision with owner
+      }
+    }
+    
+    // Same check but reversed
+    if (typeA === 'tank' && typeB === 'shell') {
+      const shell = objB as any;
+      if (shell.getOwner && shell.getOwner() === objA) {
+        return true; // Skip collision with owner
+      }
+    }
+    
     return false;
   }
   

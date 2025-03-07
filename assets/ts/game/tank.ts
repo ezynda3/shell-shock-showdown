@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Shell } from './shell';
 
 // Interface for objects that can be collided with
 export interface ICollidable {
@@ -11,7 +12,7 @@ export interface ICollidable {
 // Interface for common tank properties and methods
 export interface ITank extends ICollidable {
   tank: THREE.Group;
-  update(keys?: { [key: string]: boolean }, colliders?: ICollidable[]): void;
+  update(keys?: { [key: string]: boolean }, colliders?: ICollidable[]): Shell | null;
   dispose(): void;
 }
 
@@ -36,6 +37,13 @@ export class Tank implements ITank {
   private collider: THREE.Sphere;
   private collisionRadius = 2.0; // Size of the tank's collision sphere
   private lastPosition = new THREE.Vector3();
+  
+  // Firing properties
+  private canFire = true;
+  private readonly RELOAD_TIME = 60; // 1 second cooldown at 60fps
+  private reloadCounter = 0;
+  private readonly SHELL_SPEED = 0.7;
+  private readonly BARREL_END_OFFSET = 1.5; // Distance from turret pivot to end of barrel
   
   private scene: THREE.Scene;
   private camera?: THREE.PerspectiveCamera;
@@ -149,9 +157,18 @@ export class Tank implements ITank {
   }
 
 
-  update(keys: { [key: string]: boolean }, colliders?: ICollidable[]) {
+  update(keys: { [key: string]: boolean }, colliders?: ICollidable[]): Shell | null {
     // Store the current position before movement
     this.lastPosition.copy(this.tank.position);
+    
+    // Handle reloading
+    if (!this.canFire) {
+      this.reloadCounter++;
+      if (this.reloadCounter >= this.RELOAD_TIME) {
+        this.canFire = true;
+        this.reloadCounter = 0;
+      }
+    }
     
     // Tank movement
     if (keys['w'] || keys['W']) {
@@ -219,6 +236,81 @@ export class Tank implements ITank {
         }
       }
     }
+    
+    // Handle firing - use both space and 'f' key
+    if ((keys['space'] || keys[' '] || keys['f']) && this.canFire) {
+      console.log('Firing shell!');
+      return this.fireShell();
+    }
+    
+    return null;
+  }
+  
+  private fireShell(): Shell {
+    // Set reload timer
+    this.canFire = false;
+    this.reloadCounter = 0;
+    
+    // Calculate barrel end position
+    const barrelEndPosition = new THREE.Vector3(0, 0, this.BARREL_END_OFFSET);
+    
+    // Apply barrel pivot rotation
+    barrelEndPosition.applyEuler(new THREE.Euler(
+      this.barrelPivot.rotation.x,
+      0,
+      0
+    ));
+    
+    // Apply turret rotation
+    barrelEndPosition.applyEuler(new THREE.Euler(
+      0,
+      this.turretPivot.rotation.y,
+      0
+    ));
+    
+    // Apply tank rotation and position
+    barrelEndPosition.applyEuler(new THREE.Euler(
+      0,
+      this.tank.rotation.y,
+      0
+    ));
+    barrelEndPosition.add(this.turretPivot.position.clone().add(this.tank.position));
+    
+    // Calculate firing direction
+    const direction = new THREE.Vector3();
+    
+    // Start with forward vector
+    direction.set(0, 0, 1);
+    
+    // Apply barrel elevation
+    direction.applyEuler(new THREE.Euler(
+      this.barrelPivot.rotation.x,
+      0,
+      0
+    ));
+    
+    // Apply turret rotation
+    direction.applyEuler(new THREE.Euler(
+      0,
+      this.turretPivot.rotation.y,
+      0
+    ));
+    
+    // Apply tank rotation
+    direction.applyEuler(new THREE.Euler(
+      0,
+      this.tank.rotation.y,
+      0
+    ));
+    
+    // Create and return new shell
+    return new Shell(
+      this.scene,
+      barrelEndPosition,
+      direction,
+      this.SHELL_SPEED,
+      this
+    );
   }
   
   // Implement ICollidable interface
@@ -328,6 +420,15 @@ export class NPCTank implements ITank {
   private lastPosition = new THREE.Vector3();
   private collisionResetTimer = 0;
   private readonly COLLISION_RESET_DELAY = 60; // Frames to wait after collision before trying new direction
+  
+  // Firing properties
+  private canFire = true;
+  private readonly RELOAD_TIME = 180; // 3 second cooldown at 60fps - slower than player for balance
+  private reloadCounter = 0;
+  private readonly SHELL_SPEED = 0.6; // Slightly slower shells than player
+  private readonly BARREL_END_OFFSET = 1.5; // Distance from turret pivot to end of barrel
+  private readonly FIRE_PROBABILITY = 0.01; // 1% chance to fire each frame when canFire is true
+  private readonly TARGETING_DISTANCE = 100; // Will only attempt to target and fire if player is within this range
 
   private scene: THREE.Scene;
 
@@ -476,11 +577,20 @@ export class NPCTank implements ITank {
     this.targetPosition.copy(this.patrolPoints[0]);
   }
 
-  update(keys?: { [key: string]: boolean }, colliders?: ICollidable[]) {
+  update(keys?: { [key: string]: boolean }, colliders?: ICollidable[]): Shell | null {
     this.movementTimer++;
     
     // Store the current position before movement
     this.lastPosition.copy(this.tank.position);
+    
+    // Handle reloading
+    if (!this.canFire) {
+      this.reloadCounter++;
+      if (this.reloadCounter >= this.RELOAD_TIME) {
+        this.canFire = true;
+        this.reloadCounter = 0;
+      }
+    }
     
     // If we're in collision recovery mode, decrement the timer
     if (this.collisionResetTimer > 0) {
@@ -492,7 +602,7 @@ export class NPCTank implements ITank {
       }
       
       // Don't move while in collision recovery
-      return;
+      return null;
     }
     
     // Update movement based on pattern
@@ -511,12 +621,49 @@ export class NPCTank implements ITank {
         break;
     }
     
-    // Randomly rotate the turret for visual interest
-    this.turretPivot.rotation.y += (Math.sin(this.movementTimer * 0.01) * 0.5) * this.turretRotationSpeed;
+    // Look for player tank to target
+    let playerTank: ICollidable | null = null;
+    if (colliders) {
+      for (const collider of colliders) {
+        // Skip self and non-tank objects
+        if (collider === this || collider.getType() !== 'tank') continue;
+        
+        // Find the player tank (assumption: only one tank that's not an NPCTank)
+        if (!(collider instanceof NPCTank)) {
+          playerTank = collider;
+          break;
+        }
+      }
+    }
     
-    // Randomly adjust barrel elevation
-    const barrelTarget = Math.sin(this.movementTimer * 0.005) * (this.maxBarrelElevation - this.minBarrelElevation) / 2;
-    this.barrelPivot.rotation.x += (barrelTarget - this.barrelPivot.rotation.x) * 0.01;
+    // If we found the player tank and it's within targeting distance
+    if (playerTank) {
+      const distanceToPlayer = this.tank.position.distanceTo(playerTank.getPosition());
+      
+      if (distanceToPlayer < this.TARGETING_DISTANCE) {
+        // Adjust turret to point toward player
+        this.aimAtTarget(playerTank.getPosition());
+        
+        // Decide whether to fire
+        if (this.canFire && Math.random() < this.FIRE_PROBABILITY) {
+          return this.fireShell();
+        }
+      } else {
+        // Randomly rotate the turret for visual interest if player not in range
+        this.turretPivot.rotation.y += (Math.sin(this.movementTimer * 0.01) * 0.5) * this.turretRotationSpeed;
+        
+        // Randomly adjust barrel elevation
+        const barrelTarget = Math.sin(this.movementTimer * 0.005) * (this.maxBarrelElevation - this.minBarrelElevation) / 2;
+        this.barrelPivot.rotation.x += (barrelTarget - this.barrelPivot.rotation.x) * 0.01;
+      }
+    } else {
+      // No player found, just rotate turret randomly
+      this.turretPivot.rotation.y += (Math.sin(this.movementTimer * 0.01) * 0.5) * this.turretRotationSpeed;
+      
+      // Randomly adjust barrel elevation
+      const barrelTarget = Math.sin(this.movementTimer * 0.005) * (this.maxBarrelElevation - this.minBarrelElevation) / 2;
+      this.barrelPivot.rotation.x += (barrelTarget - this.barrelPivot.rotation.x) * 0.01;
+    }
     
     // Update collider position
     this.collider.center.copy(this.tank.position);
@@ -534,6 +681,119 @@ export class NPCTank implements ITank {
         }
       }
     }
+    
+    return null;
+  }
+  
+  private aimAtTarget(targetPosition: THREE.Vector3): void {
+    // Calculate direction to target
+    const direction = new THREE.Vector3().subVectors(targetPosition, this.tank.position);
+    
+    // Calculate turret angle (y-axis rotation)
+    let targetTurretAngle = Math.atan2(direction.x, direction.z) - this.tank.rotation.y;
+    
+    // Normalize angle to between -PI and PI
+    while (targetTurretAngle > Math.PI) targetTurretAngle -= Math.PI * 2;
+    while (targetTurretAngle < -Math.PI) targetTurretAngle += Math.PI * 2;
+    
+    // Smooth rotation toward target
+    const angleDifference = targetTurretAngle - this.turretPivot.rotation.y;
+    
+    // Normalize angle difference
+    let normalizedDifference = angleDifference;
+    while (normalizedDifference > Math.PI) normalizedDifference -= Math.PI * 2;
+    while (normalizedDifference < -Math.PI) normalizedDifference += Math.PI * 2;
+    
+    // Apply rotation with speed limit
+    const rotationAmount = Math.sign(normalizedDifference) * 
+                          Math.min(Math.abs(normalizedDifference), this.turretRotationSpeed);
+    this.turretPivot.rotation.y += rotationAmount;
+    
+    // Calculate barrel elevation
+    // Get horizontal distance to target
+    const horizontalDistance = new THREE.Vector2(direction.x, direction.z).length();
+    // Target height difference
+    const heightDifference = targetPosition.y - this.tank.position.y;
+    
+    // Calculate rough elevation angle needed
+    let targetElevation = -Math.atan2(heightDifference, horizontalDistance);
+    
+    // Clamp to min/max elevation
+    targetElevation = Math.max(this.minBarrelElevation, 
+                             Math.min(this.maxBarrelElevation, targetElevation));
+    
+    // Smooth barrel movement
+    const elevationDifference = targetElevation - this.barrelPivot.rotation.x;
+    const elevationAmount = Math.sign(elevationDifference) * 
+                           Math.min(Math.abs(elevationDifference), this.barrelElevationSpeed);
+    this.barrelPivot.rotation.x += elevationAmount;
+  }
+  
+  private fireShell(): Shell {
+    // Set reload timer
+    this.canFire = false;
+    this.reloadCounter = 0;
+    
+    // Calculate barrel end position
+    const barrelEndPosition = new THREE.Vector3(0, 0, this.BARREL_END_OFFSET);
+    
+    // Apply barrel pivot rotation
+    barrelEndPosition.applyEuler(new THREE.Euler(
+      this.barrelPivot.rotation.x,
+      0,
+      0
+    ));
+    
+    // Apply turret rotation
+    barrelEndPosition.applyEuler(new THREE.Euler(
+      0,
+      this.turretPivot.rotation.y,
+      0
+    ));
+    
+    // Apply tank rotation and position
+    barrelEndPosition.applyEuler(new THREE.Euler(
+      0,
+      this.tank.rotation.y,
+      0
+    ));
+    barrelEndPosition.add(this.turretPivot.position.clone().add(this.tank.position));
+    
+    // Calculate firing direction
+    const direction = new THREE.Vector3();
+    
+    // Start with forward vector
+    direction.set(0, 0, 1);
+    
+    // Apply barrel elevation
+    direction.applyEuler(new THREE.Euler(
+      this.barrelPivot.rotation.x,
+      0,
+      0
+    ));
+    
+    // Apply turret rotation
+    direction.applyEuler(new THREE.Euler(
+      0,
+      this.turretPivot.rotation.y,
+      0
+    ));
+    
+    // Apply tank rotation
+    direction.applyEuler(new THREE.Euler(
+      0,
+      this.tank.rotation.y,
+      0
+    ));
+    
+    // Create and return new shell
+    return new Shell(
+      this.scene,
+      barrelEndPosition,
+      direction,
+      this.SHELL_SPEED,
+      this
+    );
   }
   
   // Implement ICollidable interface

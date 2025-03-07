@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { MapGenerator } from './map';
 import { Tank, NPCTank, ITank, ICollidable } from './tank';
 import { CollisionSystem } from './collision';
+import { Shell } from './shell';
 import './stats'; // Import stats component
 
 @customElement('game-component')
@@ -35,6 +36,9 @@ export class GameComponent extends LitElement {
   // Collision system
   private collisionSystem: CollisionSystem = new CollisionSystem();
   private mapGenerator?: MapGenerator;
+  
+  // Shells management
+  private activeShells: Shell[] = [];
   
   // Control state
   private keys: { [key: string]: boolean } = {};
@@ -78,6 +82,7 @@ export class GameComponent extends LitElement {
         <div>A: Rotate tank left, D: Rotate tank right</div>
         <div>←/→: Rotate turret left/right</div>
         <div>↑/↓: Raise/lower barrel</div>
+        <div>Space or F: Fire shell</div>
       </div>
     `;
   }
@@ -110,6 +115,13 @@ export class GameComponent extends LitElement {
       this.collisionSystem.removeCollider(tank);
       tank.dispose();
     }
+    
+    // Clean up shell resources
+    for (const shell of this.activeShells) {
+      this.collisionSystem.removeCollider(shell);
+      // Shells don't have a dispose method since they're removed in the update cycle
+    }
+    this.activeShells = [];
     
     // Clean up Three.js resources
     this.renderer?.dispose();
@@ -313,8 +325,13 @@ export class GameComponent extends LitElement {
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handleKeyUp = this.handleKeyUp.bind(this);
     
-    window.addEventListener('keydown', this.handleKeyDown);
-    window.addEventListener('keyup', this.handleKeyUp);
+    window.addEventListener('keydown', this.handleKeyDown, { capture: true });
+    window.addEventListener('keyup', this.handleKeyUp, { capture: true });
+    
+    // Initialize space key to false explicitly
+    this.keys['space'] = false;
+    this.keys[' '] = false;
+    this.keys['f'] = false;
   }
   
   private handleKeyDown(event: KeyboardEvent) {
@@ -323,6 +340,7 @@ export class GameComponent extends LitElement {
     
     // Special handling for space key
     if (key === ' ' || key === 'space') {
+      console.log('SPACE KEY PRESSED');
       this.keys['space'] = true;
     }
     
@@ -380,7 +398,12 @@ export class GameComponent extends LitElement {
     
     // Update player tank with current key states
     if (this.playerTank) {
-      this.playerTank.update(this.keys, allColliders);
+      // Update tank and check if shell was fired
+      const newShell = this.playerTank.update(this.keys, allColliders);
+      if (newShell) {
+        console.log('New shell created, adding to game');
+        this.addShell(newShell);
+      }
       
       // Update camera position to follow tank
       if (this.camera) {
@@ -394,25 +417,59 @@ export class GameComponent extends LitElement {
       const distanceToPlayer = this.playerTank?.tank.position.distanceTo(npcTank.tank.position) || 0;
       
       // Determine update frequency based on distance and performance mode
+      let newShell: Shell | null = null;
+      
       if (distanceToPlayer < this.lodDistance) {
         // Close tanks always update
-        npcTank.update({}, allColliders);
+        newShell = npcTank.update({}, allColliders);
       } else if (distanceToPlayer < this.lodDistance * 2) {
         // Mid-range tanks
         if (!this.lowPerformanceMode || Math.random() < 0.5) { // 50% chance in low performance mode
-          npcTank.update({}, allColliders);
+          newShell = npcTank.update({}, allColliders);
         }
       } else {
         // Distant tanks update very infrequently
         const updateChance = this.lowPerformanceMode ? 0.1 : 0.2; // 10% or 20% chance based on performance
         if (Math.random() < updateChance) {
-          npcTank.update({}, allColliders);
+          newShell = npcTank.update({}, allColliders);
         }
+      }
+      
+      // Add new shell if one was fired
+      if (newShell) {
+        this.addShell(newShell);
       }
     }
     
+    // Update all active shells and handle collisions
+    this.updateShells(allColliders);
+    
     if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);
+    }
+  }
+  
+  private addShell(shell: Shell): void {
+    // Add shell to active shells array
+    this.activeShells.push(shell);
+    
+    // Add shell to collision system
+    this.collisionSystem.addCollider(shell);
+  }
+  
+  private updateShells(colliders: ICollidable[]): void {
+    // Update each active shell
+    for (let i = this.activeShells.length - 1; i >= 0; i--) {
+      const shell = this.activeShells[i];
+      
+      // Update the shell and check if it's still active
+      const isActive = shell.update();
+      
+      // If shell is no longer active, remove it
+      if (!isActive) {
+        this.collisionSystem.removeCollider(shell);
+        this.activeShells.splice(i, 1);
+      }
     }
   }
 }

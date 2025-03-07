@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "ammo.js": "^0.0.10",
     "lit": "^3.2.1",
     "three": "^0.174.0"
   }

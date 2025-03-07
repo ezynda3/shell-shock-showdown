@@ -242,7 +242,6 @@ export class MapGenerator {
         }
       }
     }
-  }
     
     // 4. Tree lines - roads through the forests
     // North-South Road

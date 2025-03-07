@@ -7,6 +7,7 @@
 - `task live` - Start development with hot-reload
 - `go test ./... -v` - Run all tests
 - `go test ./path/to/package -run TestName` - Run specific test
+- `bun install` - Install dependencies
 
 ## Code Style
 
