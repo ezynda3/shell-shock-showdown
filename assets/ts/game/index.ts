@@ -27,7 +27,7 @@ export class GameComponent extends LitElement {
   // Tank instances
   private playerTank?: Tank;
   private npcTanks: NPCTank[] = [];
-  private readonly NUM_NPC_TANKS = 6; // Reduced from 10 for better performance
+  private readonly NUM_NPC_TANKS = 30; // Increased from 6 for a more exciting battlefield
   
   // Performance settings
   private lowPerformanceMode = false;
@@ -44,6 +44,8 @@ export class GameComponent extends LitElement {
   private playerDestroyed = false;
   private respawnTimer = 0;
   private readonly RESPAWN_TIME = 300; // 5 seconds at 60fps
+  private playerKills = 0;
+  private playerDeaths = 0;
   
   // Control state
   private keys: { [key: string]: boolean } = {};
@@ -139,6 +141,9 @@ export class GameComponent extends LitElement {
     // Listen for tank destroyed events
     this.handleTankDestroyed = this.handleTankDestroyed.bind(this);
     document.addEventListener('tank-destroyed', this.handleTankDestroyed);
+    
+    // Initialize game stats
+    this.updateStats();
   }
 
   disconnectedCallback() {
@@ -327,7 +332,12 @@ export class GameComponent extends LitElement {
       0xdd4477, // Pink
       0x66aa00, // Lime
       0xb82e2e, // Dark red
-      0x316395  // Dark blue
+      0x316395, // Dark blue
+      0x94621a, // Brown
+      0xc45bdd, // Light purple
+      0x5b91dd, // Light blue
+      0xdd5b5b, // Light red
+      0x777777  // Gray
     ];
     
     // Clear any existing NPC tanks
@@ -339,9 +349,9 @@ export class GameComponent extends LitElement {
     
     // Create new NPC tanks at random positions around the map
     for (let i = 0; i < this.NUM_NPC_TANKS; i++) {
-      // Random position in a circle around origin (200-500 units away)
+      // Random position in a wider circle around origin (200-800 units away)
       const angle = Math.random() * Math.PI * 2;
-      const distance = 200 + Math.random() * 300;
+      const distance = 200 + Math.random() * 600;
       const position = new THREE.Vector3(
         Math.cos(angle) * distance,
         0,
@@ -472,6 +482,9 @@ export class GameComponent extends LitElement {
       if (this.camera) {
         this.playerTank.updateCamera(this.camera);
       }
+      
+      // Update stats for health changes
+      this.updateStats();
     }
     
     // Update all NPC tanks, apply LOD (level of detail) based on distance and performance
@@ -538,19 +551,29 @@ export class GameComponent extends LitElement {
   
   // Handle tank destroyed events from shells
   private handleTankDestroyed(event: CustomEvent) {
-    const { tank } = event.detail;
+    const { tank, source } = event.detail;
     
     // Check if this is the player tank
     if (tank === this.playerTank) {
       console.log('Player tank destroyed!');
       this.playerDestroyed = true;
       this.respawnTimer = 0;
+      this.playerDeaths++;
       
       // Force UI refresh to show WASTED screen
       this.requestUpdate();
+      
+      // Update stats
+      this.updateStats();
     } else {
       // It's an NPC tank
       console.log('NPC tank destroyed!');
+      
+      // If destroyed by player, increment kill count
+      if (source === this.playerTank) {
+        this.playerKills++;
+        this.updateStats();
+      }
       
       // Find the NPC tank in our array
       const npcIndex = this.npcTanks.findIndex(npc => npc === tank);
@@ -560,6 +583,15 @@ export class GameComponent extends LitElement {
           this.npcTanks[npcIndex].respawn();
         }, 2000); // 2 second delay before respawn
       }
+    }
+  }
+  
+  private updateStats(): void {
+    // Find stats component and update it
+    const statsComponent = this.shadowRoot?.querySelector('game-stats');
+    if (statsComponent) {
+      const health = this.playerTank ? this.playerTank.getHealth() : 0;
+      (statsComponent as any).updateGameStats(health, this.playerKills, this.playerDeaths);
     }
   }
 }

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 
 /**
  * Stats display component for the game.
- * Shows performance metrics like FPS in a semi-transparent overlay.
+ * Shows performance metrics like FPS and gameplay stats in a semi-transparent overlay.
  */
 @customElement('game-stats')
 export class GameStats extends LitElement {
@@ -13,6 +13,11 @@ export class GameStats extends LitElement {
   @state() private frameTime: number = 0;
   @state() private objectCount: number = 0;
   @state() private triangleCount: number = 0;
+  
+  // Gameplay stats
+  @state() private playerHealth: number = 100;
+  @state() private kills: number = 0;
+  @state() private deaths: number = 0;
   
   // Frame time tracking
   private frameTimeHistory: number[] = [];
@@ -48,6 +53,12 @@ export class GameStats extends LitElement {
       color: #8aff8a;
     }
     
+    .section {
+      margin-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.3);
+      padding-top: 5px;
+    }
+    
     .stat-row {
       display: flex;
       justify-content: space-between;
@@ -73,6 +84,26 @@ export class GameStats extends LitElement {
     .fps-low {
       color: #ff8a8a;
     }
+    
+    .health-high {
+      color: #8aff8a;
+    }
+    
+    .health-medium {
+      color: #ffff8a;
+    }
+    
+    .health-low {
+      color: #ff8a8a;
+    }
+    
+    .kills {
+      color: #8aff8a;
+    }
+    
+    .deaths {
+      color: #ff8a8a;
+    }
   `;
 
   constructor() {
@@ -89,22 +120,38 @@ export class GameStats extends LitElement {
 
   render() {
     return html`
-      <div class="title">Performance Stats</div>
+      <div class="title">Game Stats</div>
       <div class="stat-row">
-        <span class="stat-label">FPS</span>
-        <span class="stat-value ${this.getFpsClass(this.fps)}">${this.fps.toFixed(1)}</span>
+        <span class="stat-label">Health</span>
+        <span class="stat-value ${this.getHealthClass(this.playerHealth)}">${this.playerHealth}%</span>
       </div>
       <div class="stat-row">
-        <span class="stat-label">Frame time</span>
-        <span class="stat-value">${this.frameTime.toFixed(2)} ms</span>
+        <span class="stat-label">Kills</span>
+        <span class="stat-value kills">${this.kills}</span>
       </div>
       <div class="stat-row">
-        <span class="stat-label">Objects</span>
-        <span class="stat-value">${this.objectCount}</span>
+        <span class="stat-label">Deaths</span>
+        <span class="stat-value deaths">${this.deaths}</span>
       </div>
-      <div class="stat-row">
-        <span class="stat-label">Triangles</span>
-        <span class="stat-value">${this.triangleCount.toLocaleString()}</span>
+      
+      <div class="section">
+        <div class="title">Performance</div>
+        <div class="stat-row">
+          <span class="stat-label">FPS</span>
+          <span class="stat-value ${this.getFpsClass(this.fps)}">${this.fps.toFixed(1)}</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Frame time</span>
+          <span class="stat-value">${this.frameTime.toFixed(2)} ms</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Objects</span>
+          <span class="stat-value">${this.objectCount}</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Triangles</span>
+          <span class="stat-value">${this.triangleCount.toLocaleString()}</span>
+        </div>
       </div>
     `;
   }
@@ -214,11 +261,34 @@ export class GameStats extends LitElement {
   }
   
   /**
+   * Get CSS class for health display based on health percentage
+   */
+  private getHealthClass(health: number): string {
+    if (health >= 70) {
+      return 'health-high';
+    } else if (health >= 30) {
+      return 'health-medium';
+    } else {
+      return 'health-low';
+    }
+  }
+  
+  /**
    * Set external scene info (can be called from the main game component)
    */
   setSceneInfo(objectCount: number, triangleCount: number) {
     this.objectCount = objectCount;
     this.triangleCount = triangleCount;
+  }
+  
+  /**
+   * Update gameplay stats from the game component
+   */
+  updateGameStats(health: number, kills: number, deaths: number) {
+    this.playerHealth = health;
+    this.kills = kills;
+    this.deaths = deaths;
+    this.requestUpdate();
   }
 }
 

@@ -634,7 +634,7 @@ export class NPCTank implements ITank {
     const healthBarGroup = new THREE.Group();
     
     // Background bar (black)
-    const bgGeometry = new THREE.PlaneGeometry(2.0, 0.2);
+    const bgGeometry = new THREE.PlaneGeometry(2.0, 0.4);
     const bgMaterial = new THREE.MeshBasicMaterial({
       color: 0x000000,
       transparent: true,
@@ -644,7 +644,7 @@ export class NPCTank implements ITank {
     this.healthBarBackground = new THREE.Mesh(bgGeometry, bgMaterial);
     
     // Actual health bar (green)
-    const barGeometry = new THREE.PlaneGeometry(2.0, 0.2);
+    const barGeometry = new THREE.PlaneGeometry(2.0, 0.4);
     const barMaterial = new THREE.MeshBasicMaterial({
       color: 0x00ff00,
       transparent: true,
@@ -1195,9 +1195,9 @@ export class NPCTank implements ITank {
     if (position) {
       this.tank.position.copy(position);
     } else {
-      // Generate a random position within a certain radius
+      // Generate a random position within a wider radius
       const angle = Math.random() * Math.PI * 2;
-      const distance = 200 + Math.random() * 300;
+      const distance = 200 + Math.random() * 600;
       this.tank.position.set(
         Math.cos(angle) * distance,
         0,

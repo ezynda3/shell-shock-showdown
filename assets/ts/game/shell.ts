@@ -13,6 +13,9 @@ export class Shell implements ICollidable {
   private readonly GRAVITY: number = 0.01; // Reduced gravity for much longer arcs
   private readonly COLLISION_RADIUS: number = 0.2;
   
+  // Reference to the tank that fired this shell
+  private source: ITank;
+  
   // Trail effect properties
   private trail: THREE.Points;
   private trailPositions: Float32Array;
@@ -33,6 +36,7 @@ export class Shell implements ICollidable {
   ) {
     this.scene = scene;
     this.owner = owner;
+    this.source = owner as ITank;
     
     // Create shell geometry - small sphere
     const geometry = new THREE.SphereGeometry(this.COLLISION_RADIUS, 8, 8);
@@ -149,14 +153,16 @@ export class Shell implements ICollidable {
       const tankDestroyed = tank.takeDamage(25);
       console.log(`Hit tank, damaged to ${tank.getHealth()}%, destroyed: ${tankDestroyed}`);
       
-      // Check if this is the player tank
       // Since we don't have a direct reference to the player tank,
       // we'll add a custom event that game-component can listen for
       if (tankDestroyed) {
         const event = new CustomEvent('tank-destroyed', {
           bubbles: true,
           composed: true,
-          detail: { tank }
+          detail: { 
+            tank: tank,
+            source: this.source 
+          }
         });
         document.dispatchEvent(event);
       }

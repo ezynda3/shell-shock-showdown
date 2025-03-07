@@ -25789,6 +25789,7 @@ class Shell {
   MAX_LIFETIME = 600;
   GRAVITY = 0.01;
   COLLISION_RADIUS = 0.2;
+  source;
   trail;
   trailPositions;
   trailColors;
@@ -25799,6 +25800,7 @@ class Shell {
   constructor(scene, position, direction, velocity, owner) {
     this.scene = scene;
     this.owner = owner;
+    this.source = owner;
     const geometry = new SphereGeometry(this.COLLISION_RADIUS, 8, 8);
     const material = new MeshStandardMaterial({
       color: 3355443,
@@ -25867,7 +25869,10 @@ class Shell {
         const event = new CustomEvent("tank-destroyed", {
           bubbles: true,
           composed: true,
-          detail: { tank }
+          detail: {
+            tank,
+            source: this.source
+          }
         });
         document.dispatchEvent(event);
       }
@@ -26334,7 +26339,7 @@ class NPCTank {
   }
   createHealthBar() {
     const healthBarGroup = new Group;
-    const bgGeometry = new PlaneGeometry(2, 0.2);
+    const bgGeometry = new PlaneGeometry(2, 0.4);
     const bgMaterial = new MeshBasicMaterial({
       color: 0,
       transparent: true,
@@ -26342,7 +26347,7 @@ class NPCTank {
       depthWrite: false
     });
     this.healthBarBackground = new Mesh(bgGeometry, bgMaterial);
-    const barGeometry = new PlaneGeometry(2, 0.2);
+    const barGeometry = new PlaneGeometry(2, 0.4);
     const barMaterial = new MeshBasicMaterial({
       color: 65280,
       transparent: true,
@@ -26660,7 +26665,7 @@ class NPCTank {
       this.tank.position.copy(position);
     } else {
       const angle = Math.random() * Math.PI * 2;
-      const distance = 200 + Math.random() * 300;
+      const distance = 200 + Math.random() * 600;
       this.tank.position.set(Math.cos(angle) * distance, 0, Math.sin(angle) * distance);
     }
     this.tank.visible = true;
@@ -26766,6 +26771,12 @@ class GameStats extends LitElement {
       color: #8aff8a;
     }
     
+    .section {
+      margin-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.3);
+      padding-top: 5px;
+    }
+    
     .stat-row {
       display: flex;
       justify-content: space-between;
@@ -26791,6 +26802,26 @@ class GameStats extends LitElement {
     .fps-low {
       color: #ff8a8a;
     }
+    
+    .health-high {
+      color: #8aff8a;
+    }
+    
+    .health-medium {
+      color: #ffff8a;
+    }
+    
+    .health-low {
+      color: #ff8a8a;
+    }
+    
+    .kills {
+      color: #8aff8a;
+    }
+    
+    .deaths {
+      color: #ff8a8a;
+    }
   `;
   constructor() {
     super();
@@ -26798,6 +26829,9 @@ class GameStats extends LitElement {
     this.frameTime = 0;
     this.objectCount = 0;
     this.triangleCount = 0;
+    this.playerHealth = 100;
+    this.kills = 0;
+    this.deaths = 0;
     this.startMonitoring();
   }
   disconnectedCallback() {
@@ -26808,22 +26842,38 @@ class GameStats extends LitElement {
   }
   render() {
     return html`
-      <div class="title">Performance Stats</div>
+      <div class="title">Game Stats</div>
       <div class="stat-row">
-        <span class="stat-label">FPS</span>
-        <span class="stat-value ${this.getFpsClass(this.fps)}">${this.fps.toFixed(1)}</span>
+        <span class="stat-label">Health</span>
+        <span class="stat-value ${this.getHealthClass(this.playerHealth)}">${this.playerHealth}%</span>
       </div>
       <div class="stat-row">
-        <span class="stat-label">Frame time</span>
-        <span class="stat-value">${this.frameTime.toFixed(2)} ms</span>
+        <span class="stat-label">Kills</span>
+        <span class="stat-value kills">${this.kills}</span>
       </div>
       <div class="stat-row">
-        <span class="stat-label">Objects</span>
-        <span class="stat-value">${this.objectCount}</span>
+        <span class="stat-label">Deaths</span>
+        <span class="stat-value deaths">${this.deaths}</span>
       </div>
-      <div class="stat-row">
-        <span class="stat-label">Triangles</span>
-        <span class="stat-value">${this.triangleCount.toLocaleString()}</span>
+      
+      <div class="section">
+        <div class="title">Performance</div>
+        <div class="stat-row">
+          <span class="stat-label">FPS</span>
+          <span class="stat-value ${this.getFpsClass(this.fps)}">${this.fps.toFixed(1)}</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Frame time</span>
+          <span class="stat-value">${this.frameTime.toFixed(2)} ms</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Objects</span>
+          <span class="stat-value">${this.objectCount}</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Triangles</span>
+          <span class="stat-value">${this.triangleCount.toLocaleString()}</span>
+        </div>
       </div>
     `;
   }
@@ -26891,9 +26941,24 @@ class GameStats extends LitElement {
       return "fps-low";
     }
   }
+  getHealthClass(health) {
+    if (health >= 70) {
+      return "health-high";
+    } else if (health >= 30) {
+      return "health-medium";
+    } else {
+      return "health-low";
+    }
+  }
   setSceneInfo(objectCount, triangleCount) {
     this.objectCount = objectCount;
     this.triangleCount = triangleCount;
+  }
+  updateGameStats(health, kills, deaths) {
+    this.playerHealth = health;
+    this.kills = kills;
+    this.deaths = deaths;
+    this.requestUpdate();
   }
 }
 __legacyDecorateClassTS([
@@ -26908,6 +26973,15 @@ __legacyDecorateClassTS([
 __legacyDecorateClassTS([
   state()
 ], GameStats.prototype, "triangleCount", undefined);
+__legacyDecorateClassTS([
+  state()
+], GameStats.prototype, "playerHealth", undefined);
+__legacyDecorateClassTS([
+  state()
+], GameStats.prototype, "kills", undefined);
+__legacyDecorateClassTS([
+  state()
+], GameStats.prototype, "deaths", undefined);
 GameStats = __legacyDecorateClassTS([
   customElement("game-stats")
 ], GameStats);
@@ -26917,7 +26991,7 @@ class GameComponent extends LitElement {
   animationFrameId;
   playerTank;
   npcTanks = [];
-  NUM_NPC_TANKS = 6;
+  NUM_NPC_TANKS = 30;
   lowPerformanceMode = false;
   lodDistance = 300;
   collisionSystem = new CollisionSystem;
@@ -26926,6 +27000,8 @@ class GameComponent extends LitElement {
   playerDestroyed = false;
   respawnTimer = 0;
   RESPAWN_TIME = 300;
+  playerKills = 0;
+  playerDeaths = 0;
   keys = {};
   skyColor = new Color(8900331);
   static styles = css`
@@ -27011,6 +27087,7 @@ class GameComponent extends LitElement {
     this.animate();
     this.handleTankDestroyed = this.handleTankDestroyed.bind(this);
     document.addEventListener("tank-destroyed", this.handleTankDestroyed);
+    this.updateStats();
   }
   disconnectedCallback() {
     super.disconnectedCallback();
@@ -27115,7 +27192,12 @@ class GameComponent extends LitElement {
       14500983,
       6728192,
       12070446,
-      3236757
+      3236757,
+      9724442,
+      12868573,
+      6001117,
+      14506843,
+      7829367
     ];
     for (const tank of this.npcTanks) {
       this.collisionSystem.removeCollider(tank);
@@ -27124,7 +27206,7 @@ class GameComponent extends LitElement {
     this.npcTanks = [];
     for (let i = 0;i < this.NUM_NPC_TANKS; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const distance = 200 + Math.random() * 300;
+      const distance = 200 + Math.random() * 600;
       const position = new Vector3(Math.cos(angle) * distance, 0, Math.sin(angle) * distance);
       const npcTank = new NPCTank(this.scene, position, colors[i % colors.length]);
       this.collisionSystem.addCollider(npcTank);
@@ -27201,6 +27283,7 @@ class GameComponent extends LitElement {
       if (this.camera) {
         this.playerTank.updateCamera(this.camera);
       }
+      this.updateStats();
     }
     for (const npcTank of this.npcTanks) {
       const distanceToPlayer = this.playerTank?.tank.position.distanceTo(npcTank.tank.position) || 0;
@@ -27241,20 +27324,33 @@ class GameComponent extends LitElement {
     }
   }
   handleTankDestroyed(event) {
-    const { tank } = event.detail;
+    const { tank, source } = event.detail;
     if (tank === this.playerTank) {
       console.log("Player tank destroyed!");
       this.playerDestroyed = true;
       this.respawnTimer = 0;
+      this.playerDeaths++;
       this.requestUpdate();
+      this.updateStats();
     } else {
       console.log("NPC tank destroyed!");
+      if (source === this.playerTank) {
+        this.playerKills++;
+        this.updateStats();
+      }
       const npcIndex = this.npcTanks.findIndex((npc) => npc === tank);
       if (npcIndex !== -1) {
         setTimeout(() => {
           this.npcTanks[npcIndex].respawn();
         }, 2000);
       }
+    }
+  }
+  updateStats() {
+    const statsComponent = this.shadowRoot?.querySelector("game-stats");
+    if (statsComponent) {
+      const health = this.playerTank ? this.playerTank.getHealth() : 0;
+      statsComponent.updateGameStats(health, this.playerKills, this.playerDeaths);
     }
   }
 }
