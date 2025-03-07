@@ -1,7 +1,12 @@
 import * as THREE from 'three';
+import { ICollidable, StaticCollider } from './collision';
 
 export class MapGenerator {
   private scene: THREE.Scene;
+  
+  // Collider arrays for environment objects
+  private treeColliders: StaticCollider[] = [];
+  private rockColliders: StaticCollider[] = [];
   
   // Materials
   private trunkMaterial: THREE.MeshStandardMaterial;
@@ -75,6 +80,14 @@ export class MapGenerator {
     
     // Add to scene
     this.scene.add(tree);
+    
+    // Create a collider for the tree
+    const collisionRadius = 1.0 * scale; // Size based on tree scale
+    const position = new THREE.Vector3(x, collisionRadius, z);
+    const treeCollider = new StaticCollider(position, 'tree', collisionRadius);
+    this.treeColliders.push(treeCollider);
+    
+    return treeCollider;
   }
   
   createRoundTree(scale: number, x: number, z: number) {
@@ -100,6 +113,14 @@ export class MapGenerator {
     
     // Add to scene
     this.scene.add(tree);
+    
+    // Create a collider for the tree
+    const collisionRadius = 1.2 * scale; // Size based on tree scale
+    const position = new THREE.Vector3(x, collisionRadius, z);
+    const treeCollider = new StaticCollider(position, 'tree', collisionRadius);
+    this.treeColliders.push(treeCollider);
+    
+    return treeCollider;
   }
   
   createCircleOfTrees(radius: number, count: number, treeType: 'pine' | 'round') {
@@ -278,6 +299,14 @@ export class MapGenerator {
     rock.castShadow = true;
     rock.receiveShadow = true;
     
+    // Create a collider for the rock
+    // Use the largest scale dimension to determine collision radius
+    const maxScale = Math.max(scale.x, scale.y, scale.z);
+    const collisionRadius = size * maxScale * 1.2; // Slightly larger than the visual size
+    const position = new THREE.Vector3(x, y, z);
+    const rockCollider = new StaticCollider(position, 'rock', collisionRadius);
+    this.rockColliders.push(rockCollider);
+    
     return rock;
   }
   
@@ -416,5 +445,10 @@ export class MapGenerator {
     for (let i = -10; i <= 10; i++) {
       this.createRockCluster(500 - i * 50, -500 + i * 50, i * 5 + 1000);
     }
+  }
+  
+  // Method to get all colliders for collision detection
+  getAllColliders(): ICollidable[] {
+    return [...this.treeColliders, ...this.rockColliders];
   }
 }

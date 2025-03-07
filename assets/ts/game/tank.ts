@@ -1,9 +1,17 @@
 import * as THREE from 'three';
 
+// Interface for objects that can be collided with
+export interface ICollidable {
+  getCollider(): THREE.Sphere | THREE.Box3;
+  getPosition(): THREE.Vector3;
+  getType(): string;
+  onCollision?(other: ICollidable): void;
+}
+
 // Interface for common tank properties and methods
-export interface ITank {
+export interface ITank extends ICollidable {
   tank: THREE.Group;
-  update(keys?: { [key: string]: boolean }): void;
+  update(keys?: { [key: string]: boolean }, colliders?: ICollidable[]): void;
   dispose(): void;
 }
 
@@ -23,7 +31,12 @@ export class Tank implements ITank {
   private barrelElevationSpeed = 0.03;
   private maxBarrelElevation = 0;           // Barrel can't go lower than starting position
   private minBarrelElevation = -Math.PI / 4; // Barrel pointing up limit
-
+  
+  // Collision properties
+  private collider: THREE.Sphere;
+  private collisionRadius = 2.0; // Size of the tank's collision sphere
+  private lastPosition = new THREE.Vector3();
+  
   private scene: THREE.Scene;
   private camera?: THREE.PerspectiveCamera;
 
@@ -38,6 +51,10 @@ export class Tank implements ITank {
     
     // Create tank model
     this.createTank();
+    
+    // Initialize collision sphere
+    this.collider = new THREE.Sphere(this.tank.position.clone(), this.collisionRadius);
+    this.lastPosition = this.tank.position.clone();
     
     // Add to scene
     scene.add(this.tank);
@@ -132,7 +149,10 @@ export class Tank implements ITank {
   }
 
 
-  update(keys: { [key: string]: boolean }) {
+  update(keys: { [key: string]: boolean }, colliders?: ICollidable[]) {
+    // Store the current position before movement
+    this.lastPosition.copy(this.tank.position);
+    
     // Tank movement
     if (keys['w'] || keys['W']) {
       // Move forward in the direction the tank is facing
@@ -180,6 +200,59 @@ export class Tank implements ITank {
         this.barrelPivot.rotation.x + this.barrelElevationSpeed
       );
     }
+    
+    // Update collider position
+    this.collider.center.copy(this.tank.position);
+    
+    // Handle collisions
+    if (colliders) {
+      for (const collider of colliders) {
+        // Skip self-collision
+        if (collider === this) continue;
+        
+        // Check for collision
+        if (this.checkCollision(collider)) {
+          // If collision occurred, move back to last position
+          this.tank.position.copy(this.lastPosition);
+          this.collider.center.copy(this.lastPosition);
+          break;
+        }
+      }
+    }
+  }
+  
+  // Implement ICollidable interface
+  getCollider(): THREE.Sphere {
+    return this.collider;
+  }
+  
+  getPosition(): THREE.Vector3 {
+    return this.tank.position.clone();
+  }
+  
+  getType(): string {
+    return 'tank';
+  }
+  
+  onCollision(other: ICollidable): void {
+    // Move back to last position
+    this.tank.position.copy(this.lastPosition);
+    this.collider.center.copy(this.lastPosition);
+  }
+  
+  private checkCollision(other: ICollidable): boolean {
+    const otherCollider = other.getCollider();
+    
+    if (otherCollider instanceof THREE.Sphere) {
+      // Sphere-Sphere collision
+      const distance = this.tank.position.distanceTo(other.getPosition());
+      return distance < (this.collider.radius + otherCollider.radius);
+    } else if (otherCollider instanceof THREE.Box3) {
+      // Sphere-Box collision
+      return otherCollider.intersectsSphere(this.collider);
+    }
+    
+    return false;
   }
 
   updateCamera(camera: THREE.PerspectiveCamera) {
@@ -204,6 +277,21 @@ export class Tank implements ITank {
   dispose() {
     // Clean up resources
     this.scene.remove(this.tank);
+  }
+  
+  // Debug helper to visualize the collision sphere (for development)
+  visualizeCollider(): THREE.Mesh {
+    const geometry = new THREE.SphereGeometry(this.collisionRadius, 16, 16);
+    const material = new THREE.MeshBasicMaterial({ 
+      color: 0xff0000,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.3
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.copy(this.tank.position);
+    this.scene.add(mesh);
+    return mesh;
   }
 }
 
@@ -233,6 +321,13 @@ export class NPCTank implements ITank {
   private patrolPoints: THREE.Vector3[] = [];
   private currentPatrolIndex = 0;
   private tankColor: number;
+  
+  // Collision properties
+  private collider: THREE.Sphere;
+  private collisionRadius = 2.0; // Size of the tank's collision sphere
+  private lastPosition = new THREE.Vector3();
+  private collisionResetTimer = 0;
+  private readonly COLLISION_RESET_DELAY = 60; // Frames to wait after collision before trying new direction
 
   private scene: THREE.Scene;
 
@@ -250,6 +345,10 @@ export class NPCTank implements ITank {
     
     // Set initial position
     this.tank.position.copy(position);
+    this.lastPosition = this.tank.position.clone();
+    
+    // Initialize collision sphere
+    this.collider = new THREE.Sphere(this.tank.position.clone(), this.collisionRadius);
     
     // Pick a random movement pattern
     const patterns: ('circle' | 'zigzag' | 'random' | 'patrol')[] = ['circle', 'zigzag', 'random', 'patrol'];
@@ -377,8 +476,24 @@ export class NPCTank implements ITank {
     this.targetPosition.copy(this.patrolPoints[0]);
   }
 
-  update() {
+  update(keys?: { [key: string]: boolean }, colliders?: ICollidable[]) {
     this.movementTimer++;
+    
+    // Store the current position before movement
+    this.lastPosition.copy(this.tank.position);
+    
+    // If we're in collision recovery mode, decrement the timer
+    if (this.collisionResetTimer > 0) {
+      this.collisionResetTimer--;
+      
+      // If timer expired, pick a new direction
+      if (this.collisionResetTimer === 0) {
+        this.currentDirection = Math.random() * Math.PI * 2;
+      }
+      
+      // Don't move while in collision recovery
+      return;
+    }
     
     // Update movement based on pattern
     switch (this.movementPattern) {
@@ -402,6 +517,67 @@ export class NPCTank implements ITank {
     // Randomly adjust barrel elevation
     const barrelTarget = Math.sin(this.movementTimer * 0.005) * (this.maxBarrelElevation - this.minBarrelElevation) / 2;
     this.barrelPivot.rotation.x += (barrelTarget - this.barrelPivot.rotation.x) * 0.01;
+    
+    // Update collider position
+    this.collider.center.copy(this.tank.position);
+    
+    // Handle collisions
+    if (colliders) {
+      for (const collider of colliders) {
+        // Skip self-collision
+        if (collider === this) continue;
+        
+        // Check for collision
+        if (this.checkCollision(collider)) {
+          this.handleCollision();
+          break;
+        }
+      }
+    }
+  }
+  
+  // Implement ICollidable interface
+  getCollider(): THREE.Sphere {
+    return this.collider;
+  }
+  
+  getPosition(): THREE.Vector3 {
+    return this.tank.position.clone();
+  }
+  
+  getType(): string {
+    return 'tank';
+  }
+  
+  onCollision(other: ICollidable): void {
+    this.handleCollision();
+  }
+  
+  private handleCollision(): void {
+    // Move back to last position
+    this.tank.position.copy(this.lastPosition);
+    this.collider.center.copy(this.lastPosition);
+    
+    // Start collision recovery timer
+    this.collisionResetTimer = this.COLLISION_RESET_DELAY;
+    
+    // Pick a new random direction (approximately opposite to current direction)
+    this.currentDirection = this.currentDirection + Math.PI + (Math.random() - 0.5);
+  }
+  
+  private checkCollision(other: ICollidable): boolean {
+    const otherCollider = other.getCollider();
+    
+    if (otherCollider instanceof THREE.Sphere) {
+      // Sphere-Sphere collision
+      const distance = this.tank.position.distanceTo(other.getPosition());
+      return distance < (this.collider.radius + otherCollider.radius);
+    } else if (otherCollider instanceof THREE.Box3) {
+      // Sphere-Box collision
+      return otherCollider.intersectsSphere(this.collider);
+    }
+    
+    return false;
   }
 
   private moveInCircle() {

@@ -25104,9 +25104,117 @@ class WebGLRenderer {
   }
 }
 
+// assets/ts/game/collision.ts
+class CollisionSystem {
+  colliders = [];
+  constructor() {
+  }
+  addCollider(collider) {
+    this.colliders.push(collider);
+  }
+  removeCollider(collider) {
+    const index = this.colliders.indexOf(collider);
+    if (index !== -1) {
+      this.colliders.splice(index, 1);
+    }
+  }
+  getColliders() {
+    return this.colliders;
+  }
+  checkCollisions() {
+    for (let i = 0;i < this.colliders.length; i++) {
+      for (let j = i + 1;j < this.colliders.length; j++) {
+        const objA = this.colliders[i];
+        const objB = this.colliders[j];
+        if (this.shouldSkipCollision(objA, objB)) {
+          continue;
+        }
+        if (this.testCollision(objA, objB)) {
+          if (objA.onCollision)
+            objA.onCollision(objB);
+          if (objB.onCollision)
+            objB.onCollision(objA);
+        }
+      }
+    }
+  }
+  shouldSkipCollision(objA, objB) {
+    const typeA = objA.getType();
+    const typeB = objB.getType();
+    if (typeA === "tree" && typeB === "tree" || typeA === "rock" && typeB === "rock" || typeA === "tree" && typeB === "rock" || typeA === "rock" && typeB === "tree") {
+      return true;
+    }
+    return false;
+  }
+  testCollision(objA, objB) {
+    const colliderA = objA.getCollider();
+    const colliderB = objB.getCollider();
+    if (colliderA instanceof Sphere && colliderB instanceof Sphere) {
+      const distance = objA.getPosition().distanceTo(objB.getPosition());
+      return distance < colliderA.radius + colliderB.radius;
+    }
+    if (colliderA instanceof Box3 && colliderB instanceof Box3) {
+      return colliderA.intersectsBox(colliderB);
+    }
+    if (colliderA instanceof Sphere && colliderB instanceof Box3) {
+      return colliderB.intersectsSphere(colliderA);
+    }
+    if (colliderA instanceof Box3 && colliderB instanceof Sphere) {
+      return colliderA.intersectsSphere(colliderB);
+    }
+    return false;
+  }
+  checkPointCollision(point, excludeCollider) {
+    for (const collider of this.colliders) {
+      if (collider === excludeCollider)
+        continue;
+      const shape = collider.getCollider();
+      if (shape instanceof Sphere) {
+        const distance = point.distanceTo(collider.getPosition());
+        if (distance < shape.radius) {
+          return collider;
+        }
+      } else if (shape instanceof Box3) {
+        if (shape.containsPoint(point)) {
+          return collider;
+        }
+      }
+    }
+    return null;
+  }
+}
+
+class StaticCollider {
+  collider;
+  position;
+  type;
+  constructor(position, type, radius, size) {
+    this.position = position.clone();
+    this.type = type;
+    if (radius !== undefined) {
+      this.collider = new Sphere(this.position.clone(), radius);
+    } else if (size !== undefined) {
+      this.collider = new Box3().setFromCenterAndSize(this.position.clone(), size.clone());
+    } else {
+      this.collider = new Sphere(this.position.clone(), 1);
+    }
+  }
+  getCollider() {
+    return this.collider;
+  }
+  getPosition() {
+    return this.position.clone();
+  }
+  getType() {
+    return this.type;
+  }
+}
+
 // assets/ts/game/map.ts
 class MapGenerator {
   scene;
+  treeColliders = [];
+  rockColliders = [];
   trunkMaterial;
   leafMaterial;
   rockMaterial;
@@ -25159,6 +25267,11 @@ class MapGenerator {
     tree.add(foliage3);
     tree.position.set(x, 0, z);
     this.scene.add(tree);
+    const collisionRadius = 1 * scale;
+    const position = new Vector3(x, collisionRadius, z);
+    const treeCollider = new StaticCollider(position, "tree", collisionRadius);
+    this.treeColliders.push(treeCollider);
+    return treeCollider;
   }
   createRoundTree(scale, x, z) {
     const tree = new Group;
@@ -25175,6 +25288,11 @@ class MapGenerator {
     tree.add(foliage);
     tree.position.set(x, 0, z);
     this.scene.add(tree);
+    const collisionRadius = 1.2 * scale;
+    const position = new Vector3(x, collisionRadius, z);
+    const treeCollider = new StaticCollider(position, "tree", collisionRadius);
+    this.treeColliders.push(treeCollider);
+    return treeCollider;
   }
   createCircleOfTrees(radius, count, treeType) {
     for (let i = 0;i < count; i++) {
@@ -25289,6 +25407,11 @@ class MapGenerator {
     rock.scale.set(scale.x, scale.y, scale.z);
     rock.castShadow = true;
     rock.receiveShadow = true;
+    const maxScale = Math.max(scale.x, scale.y, scale.z);
+    const collisionRadius = size * maxScale * 1.2;
+    const position = new Vector3(x, y, z);
+    const rockCollider = new StaticCollider(position, "rock", collisionRadius);
+    this.rockColliders.push(rockCollider);
     return rock;
   }
   createRockCluster(centerX, centerZ, seed) {
@@ -25370,6 +25493,9 @@ class MapGenerator {
       this.createRockCluster(500 - i * 50, -500 + i * 50, i * 5 + 1000);
     }
   }
+  getAllColliders() {
+    return [...this.treeColliders, ...this.rockColliders];
+  }
 }
 
 // assets/ts/game/tank.ts
@@ -25386,6 +25512,9 @@ class Tank {
   barrelElevationSpeed = 0.03;
   maxBarrelElevation = 0;
   minBarrelElevation = -Math.PI / 4;
+  collider;
+  collisionRadius = 2;
+  lastPosition = new Vector3;
   scene;
   camera;
   constructor(scene, camera) {
@@ -25395,6 +25524,8 @@ class Tank {
     this.turretPivot = new Group;
     this.barrelPivot = new Group;
     this.createTank();
+    this.collider = new Sphere(this.tank.position.clone(), this.collisionRadius);
+    this.lastPosition = this.tank.position.clone();
     scene.add(this.tank);
   }
   createTank() {
@@ -25456,7 +25587,8 @@ class Tank {
     this.barrelPivot.rotation.x = 0;
     this.barrel.rotation.x = Math.PI / 2;
   }
-  update(keys) {
+  update(keys, colliders) {
+    this.lastPosition.copy(this.tank.position);
     if (keys["w"] || keys["W"]) {
       this.tank.position.x += Math.sin(this.tank.rotation.y) * this.tankSpeed;
       this.tank.position.z += Math.cos(this.tank.rotation.y) * this.tankSpeed;
@@ -25483,6 +25615,41 @@ class Tank {
     if (keys["arrowdown"] || keys["ArrowDown"]) {
       this.barrelPivot.rotation.x = Math.min(this.maxBarrelElevation, this.barrelPivot.rotation.x + this.barrelElevationSpeed);
     }
+    this.collider.center.copy(this.tank.position);
+    if (colliders) {
+      for (const collider of colliders) {
+        if (collider === this)
+          continue;
+        if (this.checkCollision(collider)) {
+          this.tank.position.copy(this.lastPosition);
+          this.collider.center.copy(this.lastPosition);
+          break;
+        }
+      }
+    }
+  }
+  getCollider() {
+    return this.collider;
+  }
+  getPosition() {
+    return this.tank.position.clone();
+  }
+  getType() {
+    return "tank";
+  }
+  onCollision(other) {
+    this.tank.position.copy(this.lastPosition);
+    this.collider.center.copy(this.lastPosition);
+  }
+  checkCollision(other) {
+    const otherCollider = other.getCollider();
+    if (otherCollider instanceof Sphere) {
+      const distance = this.tank.position.distanceTo(other.getPosition());
+      return distance < this.collider.radius + otherCollider.radius;
+    } else if (otherCollider instanceof Box3) {
+      return otherCollider.intersectsSphere(this.collider);
+    }
+    return false;
   }
   updateCamera(camera) {
     const cameraOffset = new Vector3(0, 4, -8);
@@ -25493,6 +25660,19 @@ class Tank {
   }
   dispose() {
     this.scene.remove(this.tank);
+  }
+  visualizeCollider() {
+    const geometry = new SphereGeometry(this.collisionRadius, 16, 16);
+    const material = new MeshBasicMaterial({
+      color: 16711680,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.3
+    });
+    const mesh = new Mesh(geometry, material);
+    mesh.position.copy(this.tank.position);
+    this.scene.add(mesh);
+    return mesh;
   }
 }
 
@@ -25517,6 +25697,11 @@ class NPCTank {
   patrolPoints = [];
   currentPatrolIndex = 0;
   tankColor;
+  collider;
+  collisionRadius = 2;
+  lastPosition = new Vector3;
+  collisionResetTimer = 0;
+  COLLISION_RESET_DELAY = 60;
   scene;
   constructor(scene, position, color = 16711680) {
     this.scene = scene;
@@ -25526,6 +25711,8 @@ class NPCTank {
     this.barrelPivot = new Group;
     this.createTank();
     this.tank.position.copy(position);
+    this.lastPosition = this.tank.position.clone();
+    this.collider = new Sphere(this.tank.position.clone(), this.collisionRadius);
     const patterns = ["circle", "zigzag", "random", "patrol"];
     this.movementPattern = patterns[Math.floor(Math.random() * patterns.length)];
     this.changeDirectionInterval = Math.floor(Math.random() * 180) + 120;
@@ -25609,8 +25796,16 @@ class NPCTank {
     }
     this.targetPosition.copy(this.patrolPoints[0]);
   }
-  update() {
+  update(keys, colliders) {
     this.movementTimer++;
+    this.lastPosition.copy(this.tank.position);
+    if (this.collisionResetTimer > 0) {
+      this.collisionResetTimer--;
+      if (this.collisionResetTimer === 0) {
+        this.currentDirection = Math.random() * Math.PI * 2;
+      }
+      return;
+    }
     switch (this.movementPattern) {
       case "circle":
         this.moveInCircle();
@@ -25628,6 +25823,45 @@ class NPCTank {
     this.turretPivot.rotation.y += Math.sin(this.movementTimer * 0.01) * 0.5 * this.turretRotationSpeed;
     const barrelTarget = Math.sin(this.movementTimer * 0.005) * (this.maxBarrelElevation - this.minBarrelElevation) / 2;
     this.barrelPivot.rotation.x += (barrelTarget - this.barrelPivot.rotation.x) * 0.01;
+    this.collider.center.copy(this.tank.position);
+    if (colliders) {
+      for (const collider of colliders) {
+        if (collider === this)
+          continue;
+        if (this.checkCollision(collider)) {
+          this.handleCollision();
+          break;
+        }
+      }
+    }
+  }
+  getCollider() {
+    return this.collider;
+  }
+  getPosition() {
+    return this.tank.position.clone();
+  }
+  getType() {
+    return "tank";
+  }
+  onCollision(other) {
+    this.handleCollision();
+  }
+  handleCollision() {
+    this.tank.position.copy(this.lastPosition);
+    this.collider.center.copy(this.lastPosition);
+    this.collisionResetTimer = this.COLLISION_RESET_DELAY;
+    this.currentDirection = this.currentDirection + Math.PI + (Math.random() - 0.5);
+  }
+  checkCollision(other) {
+    const otherCollider = other.getCollider();
+    if (otherCollider instanceof Sphere) {
+      const distance = this.tank.position.distanceTo(other.getPosition());
+      return distance < this.collider.radius + otherCollider.radius;
+    } else if (otherCollider instanceof Box3) {
+      return otherCollider.intersectsSphere(this.collider);
+    }
+    return false;
   }
   moveInCircle() {
     this.currentDirection += 0.005;
@@ -25687,6 +25921,8 @@ class GameComponent extends LitElement {
   playerTank;
   npcTanks = [];
   NUM_NPC_TANKS = 10;
+  collisionSystem = new CollisionSystem;
+  mapGenerator;
   keys = {};
   skyColor = new Color(8900331);
   static styles = css`
@@ -25738,8 +25974,12 @@ class GameComponent extends LitElement {
     window.removeEventListener("keydown", this.handleKeyDown);
     window.removeEventListener("keyup", this.handleKeyUp);
     window.removeEventListener("resize", this.handleResize);
-    this.playerTank?.dispose();
+    if (this.playerTank) {
+      this.collisionSystem.removeCollider(this.playerTank);
+      this.playerTank.dispose();
+    }
     for (const tank of this.npcTanks) {
+      this.collisionSystem.removeCollider(tank);
       tank.dispose();
     }
     this.renderer?.dispose();
@@ -25779,24 +26019,28 @@ class GameComponent extends LitElement {
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     this.scene.add(ground);
+    this.mapGenerator = new MapGenerator(this.scene);
     this.createTrees();
     this.createRocks();
     this.playerTank = new Tank(this.scene, this.camera);
+    this.collisionSystem.addCollider(this.playerTank);
     this.createNpcTanks();
     this.positionCamera();
     window.addEventListener("resize", this.handleResize.bind(this));
   }
   createTrees() {
-    if (!this.scene)
+    if (!this.scene || !this.mapGenerator)
       return;
-    const mapGenerator = new MapGenerator(this.scene);
-    mapGenerator.createTrees();
+    this.mapGenerator.createTrees();
+    const treeColliders = this.mapGenerator.getAllColliders();
+    for (const collider of treeColliders) {
+      this.collisionSystem.addCollider(collider);
+    }
   }
   createRocks() {
-    if (!this.scene)
+    if (!this.scene || !this.mapGenerator)
       return;
-    const mapGenerator = new MapGenerator(this.scene);
-    mapGenerator.createRocks();
+    this.mapGenerator.createRocks();
   }
   createSkybox() {
     if (!this.scene)
@@ -25820,6 +26064,7 @@ class GameComponent extends LitElement {
       3236757
     ];
     for (const tank of this.npcTanks) {
+      this.collisionSystem.removeCollider(tank);
       tank.dispose();
     }
     this.npcTanks = [];
@@ -25828,6 +26073,7 @@ class GameComponent extends LitElement {
       const distance = 200 + Math.random() * 300;
       const position = new Vector3(Math.cos(angle) * distance, 0, Math.sin(angle) * distance);
       const npcTank = new NPCTank(this.scene, position, colors[i % colors.length]);
+      this.collisionSystem.addCollider(npcTank);
       this.npcTanks.push(npcTank);
     }
   }
@@ -25872,14 +26118,16 @@ class GameComponent extends LitElement {
   }
   animate() {
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
+    this.collisionSystem.checkCollisions();
+    const allColliders = this.collisionSystem.getColliders();
     if (this.playerTank) {
-      this.playerTank.update(this.keys);
+      this.playerTank.update(this.keys, allColliders);
       if (this.camera) {
         this.playerTank.updateCamera(this.camera);
       }
     }
     for (const npcTank of this.npcTanks) {
-      npcTank.update();
+      npcTank.update({}, allColliders);
     }
     if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);

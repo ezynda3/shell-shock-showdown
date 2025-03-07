@@ -2,7 +2,8 @@ import { LitElement, html, css } from 'lit';
 import { customElement, query } from 'lit/decorators.js';
 import * as THREE from 'three';
 import { MapGenerator } from './map';
-import { Tank, NPCTank, ITank } from './tank';
+import { Tank, NPCTank, ITank, ICollidable } from './tank';
+import { CollisionSystem } from './collision';
 
 @customElement('game-component')
 export class GameComponent extends LitElement {
@@ -18,6 +19,10 @@ export class GameComponent extends LitElement {
   private playerTank?: Tank;
   private npcTanks: NPCTank[] = [];
   private readonly NUM_NPC_TANKS = 10;
+  
+  // Collision system
+  private collisionSystem: CollisionSystem = new CollisionSystem();
+  private mapGenerator?: MapGenerator;
   
   // Control state
   private keys: { [key: string]: boolean } = {};
@@ -82,10 +87,14 @@ export class GameComponent extends LitElement {
     window.removeEventListener('resize', this.handleResize);
     
     // Clean up Tank resources
-    this.playerTank?.dispose();
+    if (this.playerTank) {
+      this.collisionSystem.removeCollider(this.playerTank);
+      this.playerTank.dispose();
+    }
     
     // Clean up NPC tank resources
     for (const tank of this.npcTanks) {
+      this.collisionSystem.removeCollider(tank);
       tank.dispose();
     }
     
@@ -145,12 +154,16 @@ export class GameComponent extends LitElement {
     ground.receiveShadow = true;
     this.scene.add(ground);
     
+    // Create map generator
+    this.mapGenerator = new MapGenerator(this.scene);
+    
     // Create environment objects
     this.createTrees();
     this.createRocks();
     
     // Create player tank
     this.playerTank = new Tank(this.scene, this.camera);
+    this.collisionSystem.addCollider(this.playerTank);
     
     // Create NPC tanks
     this.createNpcTanks();
@@ -163,19 +176,25 @@ export class GameComponent extends LitElement {
   }
   
   private createTrees() {
-    if (!this.scene) return;
+    if (!this.scene || !this.mapGenerator) return;
     
-    // Create a map generator and build the tree layout
-    const mapGenerator = new MapGenerator(this.scene);
-    mapGenerator.createTrees();
+    // Build the tree layout
+    this.mapGenerator.createTrees();
+    
+    // Add tree colliders to the collision system
+    const treeColliders = this.mapGenerator.getAllColliders();
+    for (const collider of treeColliders) {
+      this.collisionSystem.addCollider(collider);
+    }
   }
   
   private createRocks() {
-    if (!this.scene) return;
+    if (!this.scene || !this.mapGenerator) return;
     
-    // Create a map generator and build the rock layout
-    const mapGenerator = new MapGenerator(this.scene);
-    mapGenerator.createRocks();
+    // Build the rock layout
+    this.mapGenerator.createRocks();
+    
+    // Add rock colliders to the collision system - already done via getAllColliders in createTrees
   }
   
   private createSkybox() {
@@ -210,6 +229,7 @@ export class GameComponent extends LitElement {
     
     // Clear any existing NPC tanks
     for (const tank of this.npcTanks) {
+      this.collisionSystem.removeCollider(tank);
       tank.dispose();
     }
     this.npcTanks = [];
@@ -231,6 +251,9 @@ export class GameComponent extends LitElement {
         position,
         colors[i % colors.length]
       );
+      
+      // Add tank to the collision system
+      this.collisionSystem.addCollider(npcTank);
       
       this.npcTanks.push(npcTank);
     }
@@ -298,9 +321,15 @@ export class GameComponent extends LitElement {
   private animate() {
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
     
+    // Run the collision system check
+    this.collisionSystem.checkCollisions();
+    
+    // Get all colliders for movement updates
+    const allColliders = this.collisionSystem.getColliders();
+    
     // Update player tank with current key states
     if (this.playerTank) {
-      this.playerTank.update(this.keys);
+      this.playerTank.update(this.keys, allColliders);
       
       // Update camera position to follow tank
       if (this.camera) {
@@ -310,7 +339,7 @@ export class GameComponent extends LitElement {
     
     // Update all NPC tanks
     for (const npcTank of this.npcTanks) {
-      npcTank.update();
+      npcTank.update({}, allColliders);
     }
     
     if (this.renderer && this.scene && this.camera) {
