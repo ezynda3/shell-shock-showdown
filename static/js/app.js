@@ -26498,10 +26498,12 @@ class Shell {
   TRAIL_LENGTH = 40;
   TRAIL_FADE_RATE = 0.96;
   owner;
+  direction;
   constructor(scene, position, direction, velocity, owner) {
     this.scene = scene;
     this.owner = owner;
     this.source = owner;
+    this.direction = direction.clone().normalize();
     const geometry = new SphereGeometry(this.COLLISION_RADIUS, 8, 8);
     const material = new MeshStandardMaterial({
       color: 3355443,
@@ -26512,10 +26514,13 @@ class Shell {
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
     this.mesh.position.copy(position);
-    this.velocity = direction.clone().normalize().multiplyScalar(velocity);
+    this.velocity = this.direction.clone().multiplyScalar(velocity);
     this.collider = new Sphere(position.clone(), this.COLLISION_RADIUS);
     this.initializeTrail(position.clone());
     scene.add(this.mesh);
+  }
+  getDirection() {
+    return this.direction.clone();
   }
   update() {
     if (!this.isActive)
@@ -26861,8 +26866,39 @@ class Tank {
       }
     }
     if ((keys["space"] || keys[" "] || keys["f"] || keys["mousefire"]) && this.canFire) {
-      console.log("Firing shell!");
-      return this.fireShell();
+      const newShell = this.fireShell();
+      const fireEventId = `fire_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      if (!window._processedFireEvents) {
+        window._processedFireEvents = new Set;
+      }
+      if (!window._processedFireEvents.has(fireEventId)) {
+        window._processedFireEvents.add(fireEventId);
+        const shellFiredEvent = new CustomEvent("shell-fired", {
+          bubbles: true,
+          composed: true,
+          detail: {
+            position: {
+              x: newShell.mesh.position.x,
+              y: newShell.mesh.position.y,
+              z: newShell.mesh.position.z
+            },
+            direction: {
+              x: newShell.getDirection().x,
+              y: newShell.getDirection().y,
+              z: newShell.getDirection().z
+            },
+            speed: this.SHELL_SPEED
+          }
+        });
+        document.dispatchEvent(shellFiredEvent);
+        if (window._processedFireEvents.size > 100) {
+          const oldEvents = Array.from(window._processedFireEvents).slice(0, 50);
+          for (const oldEvent of oldEvents) {
+            window._processedFireEvents.delete(oldEvent);
+          }
+        }
+      }
+      return newShell;
     }
     return null;
   }
@@ -28871,11 +28907,26 @@ class GameComponent extends LitElement {
     this.updateStats();
   }
   handleShellFired(event) {
+    const position = event.detail.position;
+    const direction = event.detail.direction;
+    const speed = event.detail.speed;
+    if (!position || !direction || !speed) {
+      console.error("Invalid shell data:", event.detail);
+      return;
+    }
     const shellFiredEvent = new CustomEvent("shell-fired", {
       detail: {
-        position: event.detail.position,
-        direction: event.detail.direction,
-        speed: event.detail.speed
+        position: {
+          x: position.x,
+          y: position.y,
+          z: position.z
+        },
+        direction: {
+          x: direction.x,
+          y: direction.y,
+          z: direction.z
+        },
+        speed
       },
       bubbles: true,
       composed: true
@@ -29032,12 +29083,24 @@ class GameComponent extends LitElement {
       diff += Math.PI * 2;
     return start + diff * t;
   }
+  static processedShellIds = new Map;
+  lastShellProcessTime = 0;
   processRemoteShells() {
     if (!this.scene || !this.multiplayerState?.shells)
       return;
-    const processedShellIds = new Set;
+    const currentTime = Date.now();
+    if (currentTime - this.lastShellProcessTime < 100) {
+      return;
+    }
+    this.lastShellProcessTime = currentTime;
+    for (const [shellId, timestamp] of GameComponent.processedShellIds.entries()) {
+      if (currentTime - timestamp > 1e4) {
+        GameComponent.processedShellIds.delete(shellId);
+      }
+    }
+    const currentShellIds = new Set(this.multiplayerState.shells.map((shell) => shell.id));
     for (const shellState of this.multiplayerState.shells) {
-      if (processedShellIds.has(shellState.id) || shellState.playerId === this.playerId) {
+      if (shellState.playerId === this.playerId || GameComponent.processedShellIds.has(shellState.id)) {
         continue;
       }
       let sourceTank = null;
@@ -29051,7 +29114,7 @@ class GameComponent extends LitElement {
       const direction = new Vector3(shellState.direction.x, shellState.direction.y, shellState.direction.z).normalize();
       const shell = new Shell(this.scene, position, direction, shellState.speed, sourceTank);
       this.addShell(shell);
-      processedShellIds.add(shellState.id);
+      GameComponent.processedShellIds.set(shellState.id, currentTime);
     }
   }
   disconnectedCallback() {

@@ -294,8 +294,53 @@ export class Tank implements ITank {
     
     // Handle firing - use space, 'f', or left mouse button
     if ((keys['space'] || keys[' '] || keys['f'] || keys['mousefire']) && this.canFire) {
-      console.log('Firing shell!');
-      return this.fireShell();
+      const newShell = this.fireShell();
+      
+      // Create a unique ID for this firing event to prevent duplicates
+      const fireEventId = `fire_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Only dispatch the event if we haven't seen this fire action before
+      if (!window._processedFireEvents) {
+        window._processedFireEvents = new Set();
+      }
+      
+      if (!window._processedFireEvents.has(fireEventId)) {
+        // Mark this fire event as processed
+        window._processedFireEvents.add(fireEventId);
+        
+        // Create an event for this shell being fired
+        const shellFiredEvent = new CustomEvent('shell-fired', {
+          bubbles: true,
+          composed: true,
+          detail: {
+            position: {
+              x: newShell.mesh.position.x,
+              y: newShell.mesh.position.y,
+              z: newShell.mesh.position.z
+            },
+            direction: {
+              x: newShell.getDirection().x,
+              y: newShell.getDirection().y,
+              z: newShell.getDirection().z
+            },
+            speed: this.SHELL_SPEED
+          }
+        });
+        
+        // Dispatch the event
+        document.dispatchEvent(shellFiredEvent);
+        
+        // Clean up old fire event IDs to prevent memory leaks
+        if (window._processedFireEvents.size > 100) {
+          // Keep only the most recent 50 events
+          const oldEvents = Array.from(window._processedFireEvents).slice(0, 50);
+          for (const oldEvent of oldEvents) {
+            window._processedFireEvents.delete(oldEvent);
+          }
+        }
+      }
+      
+      return newShell;
     }
     
     return null;

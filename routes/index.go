@@ -95,12 +95,14 @@ func getPlayerColor(id string) string {
 	return playerColors[index]
 }
 
-// Cleanup inactive players
-func cleanupInactivePlayers() {
+// Cleanup inactive players and expired shells
+func cleanupGameState() {
 	gameStateMutex.Lock()
 	defer gameStateMutex.Unlock()
 
 	now := time.Now().UnixMilli()
+
+	// Clean up inactive players
 	for id, player := range gameState.Players {
 		// If player hasn't updated in 10 seconds, remove them
 		if now-player.Timestamp > 10000 {
@@ -108,6 +110,25 @@ func cleanupInactivePlayers() {
 			delete(gameState.Players, id)
 		}
 	}
+
+	// Clean up expired shells (older than 3 seconds)
+	var activeShells []ShellState
+	for _, shell := range gameState.Shells {
+		if now-shell.Timestamp < 3000 {
+			activeShells = append(activeShells, shell)
+		} else {
+			log.Printf("Removing expired shell: %s", shell.ID)
+		}
+	}
+
+	// Limit total number of shells to avoid excessive processing
+	if len(activeShells) > 50 {
+		// Keep only the most recent 50 shells
+		activeShells = activeShells[len(activeShells)-50:]
+	}
+
+	// Update shells in game state
+	gameState.Shells = activeShells
 }
 
 func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
@@ -118,11 +139,11 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 	protected := router.Group("")
 	protected.BindFunc(middleware.AuthGuard)
 
-	// Start a goroutine to clean up inactive players
+	// Start a goroutine to clean up inactive players and expired shells
 	go func() {
 		for {
-			cleanupInactivePlayers()
-			time.Sleep(5 * time.Second)
+			cleanupGameState()
+			time.Sleep(2 * time.Second)
 		}
 	}()
 
@@ -133,6 +154,8 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 			log.Println("Error reading signals:", err)
 			return e.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
+
+		sse := datastar.NewSSE(e.Response, e.Request)
 
 		// Handle shell firing events
 		if signals.ShellFired != "" {
@@ -176,6 +199,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 			gameStateMutex.Unlock()
 
 			log.Printf("Added new shell %s from player %s", newShell.ID, playerID)
+			sse.MergeSignals([]byte("{shellFired:''}"))
 		}
 
 		// Parse the player update from the update signal
@@ -265,18 +289,10 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 				}
 
 				// Log game state for debugging
-				log.Printf("Broadcasting game state with %d players", len(gameState.Players))
-				for id, player := range gameState.Players {
-					log.Printf("Player %s at position (%f, %f, %f)",
-						id,
-						player.Position.X,
-						player.Position.Y,
-						player.Position.Z)
-				}
+				log.Printf("Broadcasting game state with %d players and %d shells",
+					len(gameState.Players),
+					len(gameState.Shells))
 
-				// Debug game state before sending
-				log.Printf("About to send game state JSON: %s", string(stateJSON))
-				
 				// Send the game state directly as a string with proper escaping
 				err = sse.MergeSignals([]byte(fmt.Sprintf(`{"gameState": %q}`, string(stateJSON))))
 				if err != nil {

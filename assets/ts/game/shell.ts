@@ -26,6 +26,9 @@ export class Shell implements ICollidable {
   
   // Tank that fired this shell - used to prevent self-collision
   private owner: ICollidable;
+  
+  // Direction the shell is traveling - needed for network sync
+  private direction: THREE.Vector3;
 
   constructor(
     scene: THREE.Scene,
@@ -37,6 +40,9 @@ export class Shell implements ICollidable {
     this.scene = scene;
     this.owner = owner;
     this.source = owner as ITank;
+    
+    // Store initial direction (normalized)
+    this.direction = direction.clone().normalize();
     
     // Create shell geometry - small sphere
     const geometry = new THREE.SphereGeometry(this.COLLISION_RADIUS, 8, 8);
@@ -52,7 +58,7 @@ export class Shell implements ICollidable {
     this.mesh.position.copy(position);
     
     // Initialize velocity vector based on direction and initial speed
-    this.velocity = direction.clone().normalize().multiplyScalar(velocity);
+    this.velocity = this.direction.clone().multiplyScalar(velocity);
     
     // Create collision sphere
     this.collider = new THREE.Sphere(position.clone(), this.COLLISION_RADIUS);
@@ -62,6 +68,11 @@ export class Shell implements ICollidable {
     
     // Add to scene
     scene.add(this.mesh);
+  }
+  
+  // Get the direction of the shell (for network sync)
+  getDirection(): THREE.Vector3 {
+    return this.direction.clone();
   }
   
   update(): boolean {

@@ -494,17 +494,37 @@ export class GameComponent extends LitElement {
   
   // Handle shell fired events from player tank
   private handleShellFired(event: CustomEvent) {
+    // Get shell data from event
+    const position = event.detail.position;
+    const direction = event.detail.direction;
+    const speed = event.detail.speed;
+    
+    // Make sure we have all required data
+    if (!position || !direction || !speed) {
+      console.error('Invalid shell data:', event.detail);
+      return;
+    }
+    
     // Create a custom event for DataStar to send to server
     const shellFiredEvent = new CustomEvent('shell-fired', { 
       detail: {
-        position: event.detail.position,
-        direction: event.detail.direction,
-        speed: event.detail.speed
+        position: {
+          x: position.x,
+          y: position.y,
+          z: position.z
+        },
+        direction: {
+          x: direction.x,
+          y: direction.y,
+          z: direction.z
+        },
+        speed: speed
       },
       bubbles: true,
       composed: true // Allows the event to cross shadow DOM boundaries
     });
     
+    // Dispatch the event to be sent to the server
     this.dispatchEvent(shellFiredEvent);
   }
   
@@ -747,29 +767,50 @@ export class GameComponent extends LitElement {
     return start + diff * t;
   }
   
+  // Maps to track shells across frames
+  private static readonly processedShellIds = new Map<string, number>(); // Maps shellId to creation timestamp
+  private lastShellProcessTime = 0; // Timestamp of last shell processing
+  
   // Process shells from the game state
   private processRemoteShells(): void {
     if (!this.scene || !this.multiplayerState?.shells) return;
     
-    // Keep track of shells we've already created
-    const processedShellIds = new Set<string>();
+    const currentTime = Date.now();
+    
+    // Only process shells once every 100ms to avoid creating duplicates
+    // This acts as a rate limiter for shell processing
+    if (currentTime - this.lastShellProcessTime < 100) {
+      return;
+    }
+    
+    this.lastShellProcessTime = currentTime;
+    
+    // Clean up old shell records (older than 10 seconds)
+    for (const [shellId, timestamp] of GameComponent.processedShellIds.entries()) {
+      if (currentTime - timestamp > 10000) {
+        GameComponent.processedShellIds.delete(shellId);
+      }
+    }
+    
+    // Create a set of current shell IDs in this game state update
+    const currentShellIds = new Set(this.multiplayerState.shells.map(shell => shell.id));
     
     // Process each shell in the game state
     for (const shellState of this.multiplayerState.shells) {
-      // Skip shells we've already processed or our own shells
-      if (processedShellIds.has(shellState.id) || shellState.playerId === this.playerId) {
+      // Skip shells from this player and shells we've already processed
+      if (shellState.playerId === this.playerId || GameComponent.processedShellIds.has(shellState.id)) {
         continue;
       }
       
       // Find the source tank (the one that fired the shell)
       let sourceTank: ITank | null = null;
       
-      // Check if the shell is from a player we know about (remote player)
+      // Use remote tank if available
       if (this.remoteTanks.has(shellState.playerId)) {
         sourceTank = this.remoteTanks.get(shellState.playerId) || null;
       }
       
-      // If we couldn't find the source tank, skip it
+      // Skip if we can't find a valid source tank
       if (!sourceTank) {
         continue;
       }
@@ -800,8 +841,8 @@ export class GameComponent extends LitElement {
       // Add the shell to active shells
       this.addShell(shell);
       
-      // Mark this shell as processed
-      processedShellIds.add(shellState.id);
+      // Mark this shell as processed with current timestamp
+      GameComponent.processedShellIds.set(shellState.id, currentTime);
     }
   }
 
@@ -1401,12 +1442,13 @@ export class GameComponent extends LitElement {
     if (this.multiplayerState && this.scene && this.gameStateInitialized) {
       // Check for remote players periodically in the animation loop
       const frameCount = this.renderer?.info.render.frame || 0;
+      
       if (frameCount % 60 === 0) { // Process once per second (at 60fps)
         // Periodic checks are helpful but don't need to log every time
         this.updateRemotePlayers();
       }
       
-      // Process remote shells
+      // Process remote shells - this is now rate-limited internally
       if (this.multiplayerState.shells && this.multiplayerState.shells.length > 0) {
         this.processRemoteShells();
       }
@@ -1870,6 +1912,11 @@ export class GameComponent extends LitElement {
 
 // Define the player movement event type for TypeScript
 declare global {
+  interface Window {
+    _processedFireEvents?: Set<string>;
+    cameraPosition?: THREE.Vector3;
+  }
+  
   interface HTMLElementTagNameMap {
     'game-component': GameComponent;
   }
