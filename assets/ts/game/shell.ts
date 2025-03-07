@@ -139,8 +139,11 @@ export class Shell implements ICollidable {
   }
   
   onCollision(other: ICollidable): void {
-    // Don't collide with the tank that fired it
-    if (other === this.owner) return;
+    // Don't collide with the tank that fired it, or if already inactive
+    if (other === this.owner || !this.isActive) return;
+    
+    // Immediately mark shell as inactive to prevent multiple collisions
+    this.isActive = false;
     
     // Create explosion effect
     this.createExplosion(this.mesh.position.clone());
@@ -174,9 +177,21 @@ export class Shell implements ICollidable {
         });
         document.dispatchEvent(event);
       }
+      
+      // Fire tank-hit event to notify of damage (even if not destroyed)
+      const hitEvent = new CustomEvent('tank-hit', {
+        bubbles: true,
+        composed: true,
+        detail: {
+          tank: tank,
+          source: this.source,
+          damageAmount: damageAmount
+        }
+      });
+      document.dispatchEvent(hitEvent);
     }
     
-    // Deactivate the shell
+    // Complete shell deactivation
     this.destroy();
   }
   

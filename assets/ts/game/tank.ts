@@ -400,7 +400,7 @@ export class Tank implements ITank {
     if (this.isDestroyed) return true;
     
     // Apply damage to tank
-    this.health -= amount;
+    this.health = Math.max(0, this.health - amount);
     
     // Debug
     console.log(`Tank taking damage: ${amount}, remaining health: ${this.health}`);
@@ -1205,7 +1205,11 @@ export class NPCTank implements ITank {
   takeDamage(amount: number): boolean {
     if (this.isDestroyed) return true;
     
-    this.health -= amount;
+    // Apply damage with safety check
+    this.health = Math.max(0, this.health - amount);
+    
+    console.log(`NPC Tank taking damage: ${amount}, remaining health: ${this.health}`);
+    
     if (this.health <= 0) {
       this.health = 0;
       this.isDestroyed = true;
@@ -1263,8 +1267,10 @@ export class NPCTank implements ITank {
     // Hide the tank
     this.tank.visible = false;
     
-    // Hide the health bar by setting it to zero width
-    this.healthBar.scale.x = 0;
+    // Hide the health bar sprite
+    if (this.healthBarSprite) {
+      this.healthBarSprite.visible = false;
+    }
     
     // Create black smoke particle system
     const particleCount = 40;

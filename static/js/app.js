@@ -25811,18 +25811,31 @@ class CollisionSystem {
     return this.colliders;
   }
   checkCollisions() {
-    for (let i = 0;i < this.colliders.length; i++) {
-      for (let j = i + 1;j < this.colliders.length; j++) {
-        const objA = this.colliders[i];
-        const objB = this.colliders[j];
+    const currentColliders = [...this.colliders];
+    for (let i = 0;i < currentColliders.length; i++) {
+      const objA = currentColliders[i];
+      if (objA.getType() === "shell" && objA.isAlive && !objA.isAlive()) {
+        continue;
+      }
+      for (let j = i + 1;j < currentColliders.length; j++) {
+        const objB = currentColliders[j];
+        if (objB.getType() === "shell" && objB.isAlive && !objB.isAlive()) {
+          continue;
+        }
         if (this.shouldSkipCollision(objA, objB)) {
           continue;
         }
         if (this.testCollision(objA, objB)) {
-          if (objA.onCollision)
+          if (objA.getType() === "shell" && objA.onCollision) {
             objA.onCollision(objB);
-          if (objB.onCollision)
+          } else if (objB.getType() === "shell" && objB.onCollision) {
             objB.onCollision(objA);
+          } else {
+            if (objA.onCollision)
+              objA.onCollision(objB);
+            if (objB.onCollision)
+              objB.onCollision(objA);
+          }
         }
       }
     }
@@ -26287,8 +26300,9 @@ class Shell {
     return "shell";
   }
   onCollision(other) {
-    if (other === this.owner)
+    if (other === this.owner || !this.isActive)
       return;
+    this.isActive = false;
     this.createExplosion(this.mesh.position.clone());
     if (other.getType() === "tank") {
       const tank = other;
@@ -26308,6 +26322,16 @@ class Shell {
         });
         document.dispatchEvent(event);
       }
+      const hitEvent = new CustomEvent("tank-hit", {
+        bubbles: true,
+        composed: true,
+        detail: {
+          tank,
+          source: this.source,
+          damageAmount
+        }
+      });
+      document.dispatchEvent(hitEvent);
     }
     this.destroy();
   }
@@ -26609,7 +26633,7 @@ class Tank {
   takeDamage(amount) {
     if (this.isDestroyed)
       return true;
-    this.health -= amount;
+    this.health = Math.max(0, this.health - amount);
     console.log(`Tank taking damage: ${amount}, remaining health: ${this.health}`);
     if (this.health <= 0) {
       this.health = 0;
@@ -27091,7 +27115,8 @@ class NPCTank {
   takeDamage(amount) {
     if (this.isDestroyed)
       return true;
-    this.health -= amount;
+    this.health = Math.max(0, this.health - amount);
+    console.log(`NPC Tank taking damage: ${amount}, remaining health: ${this.health}`);
     if (this.health <= 0) {
       this.health = 0;
       this.isDestroyed = true;
@@ -27125,7 +27150,9 @@ class NPCTank {
   }
   createDestroyedEffect() {
     this.tank.visible = false;
-    this.healthBar.scale.x = 0;
+    if (this.healthBarSprite) {
+      this.healthBarSprite.visible = false;
+    }
     const particleCount = 40;
     const smokeGeometry = new BufferGeometry;
     const smokePositions = new Float32Array(particleCount * 3);
@@ -27580,6 +27607,8 @@ class GameComponent extends LitElement {
     this.animate();
     this.handleTankDestroyed = this.handleTankDestroyed.bind(this);
     document.addEventListener("tank-destroyed", this.handleTankDestroyed);
+    this.handleTankHit = this.handleTankHit.bind(this);
+    document.addEventListener("tank-hit", this.handleTankHit);
     this.updateStats();
   }
   disconnectedCallback() {
@@ -27591,6 +27620,7 @@ class GameComponent extends LitElement {
     window.removeEventListener("keyup", this.handleKeyUp);
     window.removeEventListener("resize", this.handleResize);
     document.removeEventListener("tank-destroyed", this.handleTankDestroyed);
+    document.removeEventListener("tank-hit", this.handleTankHit);
     if (this.playerTank) {
       this.collisionSystem.removeCollider(this.playerTank);
       this.playerTank.dispose();
@@ -27782,11 +27812,7 @@ class GameComponent extends LitElement {
       this.updateStats();
     }
     if (this.playerTank) {
-      const currentHealth = this.playerTank.getHealth();
-      if (currentHealth < this.lastPlayerHealth && !this.playerDestroyed) {
-        this.showDamageEffect();
-      }
-      this.lastPlayerHealth = currentHealth;
+      this.lastPlayerHealth = this.playerTank.getHealth();
     }
     for (const npcTank of this.npcTanks) {
       const distanceToPlayer = this.playerTank?.tank.position.distanceTo(npcTank.tank.position) || 0;
@@ -27819,6 +27845,11 @@ class GameComponent extends LitElement {
   updateShells(colliders) {
     for (let i = this.activeShells.length - 1;i >= 0; i--) {
       const shell = this.activeShells[i];
+      if (!shell.isAlive()) {
+        this.collisionSystem.removeCollider(shell);
+        this.activeShells.splice(i, 1);
+        continue;
+      }
       const isActive = shell.update();
       if (!isActive) {
         this.collisionSystem.removeCollider(shell);
@@ -27839,6 +27870,14 @@ class GameComponent extends LitElement {
       this.cameraShaking = false;
       this.requestUpdate();
     }, 250);
+  }
+  handleTankHit(event) {
+    const { tank, source, damageAmount } = event.detail;
+    if (tank === this.playerTank) {
+      console.log(`Player tank hit for ${damageAmount} damage!`);
+      this.showDamageEffect();
+      this.updateStats();
+    }
   }
   handleTankDestroyed(event) {
     const { tank, source } = event.detail;

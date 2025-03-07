@@ -22,11 +22,25 @@ export class CollisionSystem {
   }
   
   checkCollisions(): void {
+    // Get a copy of the array to avoid issues if colliders are removed during iteration
+    const currentColliders = [...this.colliders];
+    
     // For each pair of objects, check for collisions
-    for (let i = 0; i < this.colliders.length; i++) {
-      for (let j = i + 1; j < this.colliders.length; j++) {
-        const objA = this.colliders[i];
-        const objB = this.colliders[j];
+    for (let i = 0; i < currentColliders.length; i++) {
+      const objA = currentColliders[i];
+      
+      // Skip inactive shells
+      if (objA.getType() === 'shell' && (objA as any).isAlive && !(objA as any).isAlive()) {
+        continue;
+      }
+      
+      for (let j = i + 1; j < currentColliders.length; j++) {
+        const objB = currentColliders[j];
+        
+        // Skip inactive shells
+        if (objB.getType() === 'shell' && (objB as any).isAlive && !(objB as any).isAlive()) {
+          continue;
+        }
         
         // Skip collision detection between certain object types
         // For example, tree-tree or rock-rock collisions
@@ -35,9 +49,18 @@ export class CollisionSystem {
         }
         
         if (this.testCollision(objA, objB)) {
-          // Handle collision
-          if (objA.onCollision) objA.onCollision(objB);
-          if (objB.onCollision) objB.onCollision(objA);
+          // Handle collision - do shell collisions first to ensure proper deactivation
+          if (objA.getType() === 'shell' && objA.onCollision) {
+            objA.onCollision(objB);
+          }
+          else if (objB.getType() === 'shell' && objB.onCollision) {
+            objB.onCollision(objA);
+          } 
+          else {
+            // Handle non-shell collisions
+            if (objA.onCollision) objA.onCollision(objB);
+            if (objB.onCollision) objB.onCollision(objA);
+          }
         }
       }
     }

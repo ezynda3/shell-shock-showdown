@@ -191,6 +191,10 @@ export class GameComponent extends LitElement {
     this.handleTankDestroyed = this.handleTankDestroyed.bind(this);
     document.addEventListener('tank-destroyed', this.handleTankDestroyed);
     
+    // Listen for tank hit events
+    this.handleTankHit = this.handleTankHit.bind(this);
+    document.addEventListener('tank-hit', this.handleTankHit);
+    
     // Initialize game stats
     this.updateStats();
   }
@@ -206,6 +210,7 @@ export class GameComponent extends LitElement {
     window.removeEventListener('keyup', this.handleKeyUp);
     window.removeEventListener('resize', this.handleResize);
     document.removeEventListener('tank-destroyed', this.handleTankDestroyed);
+    document.removeEventListener('tank-hit', this.handleTankHit);
     
     // Clean up Tank resources
     if (this.playerTank) {
@@ -541,14 +546,10 @@ export class GameComponent extends LitElement {
       this.updateStats();
     }
     
-    // Check if player's health changed (took damage)
+    // Update player health tracking (but don't trigger effects here)
+    // The effects should come from handleTankHit event
     if (this.playerTank) {
-      const currentHealth = this.playerTank.getHealth();
-      // If health decreased, show damage effects
-      if (currentHealth < this.lastPlayerHealth && !this.playerDestroyed) {
-        this.showDamageEffect();
-      }
-      this.lastPlayerHealth = currentHealth;
+      this.lastPlayerHealth = this.playerTank.getHealth();
     }
     
     // Update all NPC tanks, apply LOD (level of detail) based on distance and performance
@@ -602,6 +603,13 @@ export class GameComponent extends LitElement {
     for (let i = this.activeShells.length - 1; i >= 0; i--) {
       const shell = this.activeShells[i];
       
+      // Check if shell is already inactive
+      if (!shell.isAlive()) {
+        this.collisionSystem.removeCollider(shell);
+        this.activeShells.splice(i, 1);
+        continue;
+      }
+      
       // Update the shell and check if it's still active
       const isActive = shell.update();
       
@@ -639,6 +647,22 @@ export class GameComponent extends LitElement {
     }, 250);
   }
   
+  // Handle damage events for all tanks
+  private handleTankHit(event: CustomEvent) {
+    const { tank, source, damageAmount } = event.detail;
+    
+    // Check if this is the player tank
+    if (tank === this.playerTank) {
+      console.log(`Player tank hit for ${damageAmount} damage!`);
+      
+      // Show damage effect - red overlay and camera shake
+      this.showDamageEffect();
+      
+      // Update stats
+      this.updateStats();
+    }
+  }
+
   private handleTankDestroyed(event: CustomEvent) {
     const { tank, source } = event.detail;
     
