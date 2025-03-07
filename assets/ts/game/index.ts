@@ -191,7 +191,8 @@ export class GameComponent extends LitElement {
             <div>W: Forward, S: Backward</div>
             <div>A: Rotate tank left, D: Rotate tank right</div>
             <div>Mouse: Aim turret and barrel</div>
-            <div>Left Click or Space: Fire shell</div>
+            <div>Arrow keys: Alternative turret control</div>
+            <div>Left Click, Space, or F: Fire shell</div>
             <div>Click canvas to lock pointer</div>
           </div>
           <div class="game-over ${this.playerDestroyed ? 'visible' : ''}">
