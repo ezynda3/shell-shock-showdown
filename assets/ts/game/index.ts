@@ -29,7 +29,7 @@ export class GameComponent extends LitElement {
   private readonly NUM_NPC_TANKS = 6; // Reduced from 10 for better performance
   
   // Performance settings
-  private enableShadows = true;
+  private lowPerformanceMode = false;
   private lodDistance = 300; // Distance at which to switch to lower detail
   
   // Collision system
@@ -147,40 +147,40 @@ export class GameComponent extends LitElement {
     const pixelRatio = Math.min(window.devicePixelRatio, 2);
     this.renderer.setPixelRatio(pixelRatio);
     
-    // Use more efficient shadow maps
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Better performance
+    // Completely disable shadows for maximum performance
+    this.renderer.shadowMap.enabled = false;
     
     // Enable renderer optimizations
     this.renderer.sortObjects = true;
     this.renderer.physicallyCorrectLights = false;
     
-    // Add optimized directional sunlight
-    const directionalLight = new THREE.DirectionalLight(0xffffcc, 1.2);
+    // Simplified lighting setup for better performance
+    
+    // Main directional light (sun) - no shadows
+    const directionalLight = new THREE.DirectionalLight(0xffffcc, 0.8);
     directionalLight.position.set(100, 200, 50);
-    directionalLight.castShadow = true;
     
-    // Set up shadow properties more efficiently
-    directionalLight.shadow.camera.near = 0.5;
-    directionalLight.shadow.camera.far = 200; // Increased to cover gameplay area
-    directionalLight.shadow.camera.left = -100;
-    directionalLight.shadow.camera.right = 100;
-    directionalLight.shadow.camera.top = 100;
-    directionalLight.shadow.camera.bottom = -100;
+    // Disable shadow casting for this light (major performance boost)
+    directionalLight.castShadow = false;
     
-    // Smaller shadow map for better performance
-    directionalLight.shadow.mapSize.width = 1024;  // Reduced from 2048
-    directionalLight.shadow.mapSize.height = 1024; // Reduced from 2048
+    // Secondary directional light for more even lighting from opposite side
+    const secondaryLight = new THREE.DirectionalLight(0xaaccff, 0.3);
+    secondaryLight.position.set(-50, 100, -80);
     
-    // Shadow optimizations
-    directionalLight.shadow.bias = -0.001; // Prevents shadow acne
-    directionalLight.shadow.normalBias = 0.1;
+    // Stronger ambient light since we're not using shadows
+    const ambientLight = new THREE.AmbientLight(0x999999, 0.7);
     
-    // Add helper ambient light to reduce need for shadows
-    const ambientLight = new THREE.AmbientLight(0x777777, 0.5);
+    // Hemisphere light for more natural sky/ground lighting
+    const hemisphereLight = new THREE.HemisphereLight(
+      0x87ceeb, // Sky color - light blue
+      0x505000,  // Ground color - olive
+      0.6        // Intensity
+    );
     
     this.scene.add(directionalLight);
+    this.scene.add(secondaryLight);
     this.scene.add(ambientLight);
+    this.scene.add(hemisphereLight);
     
     // Create ground with optimized geometry and material
     const groundSize = 5000; // Reduced from 10000
@@ -193,7 +193,7 @@ export class GameComponent extends LitElement {
     
     const ground = new THREE.Mesh(groundGeometry, groundMaterial);
     ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
+    ground.receiveShadow = false; // No shadows
     this.scene.add(ground);
     
     // Create map generator
@@ -363,21 +363,13 @@ export class GameComponent extends LitElement {
   private animate() {
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
     
-    // Check if we need to toggle shadows based on performance
+    // Performance monitoring (shadows completely disabled now)
     if (this.renderer && this.renderer.info && this.renderer.info.render) {
-      // If FPS is too low, disable shadows temporarily
+      // Calculate current FPS for the stats display
       const fps = 1000 / (this.renderer.info.render.frame || 16.7);
-      if (fps < 30 && this.enableShadows) {
-        this.enableShadows = false;
-        if (this.renderer) {
-          this.renderer.shadowMap.enabled = false;
-        }
-      } else if (fps > 40 && !this.enableShadows) {
-        this.enableShadows = true;
-        if (this.renderer) {
-          this.renderer.shadowMap.enabled = true;
-        }
-      }
+      
+      // Check if we're getting low FPS and should reduce update frequency of distant objects
+      this.lowPerformanceMode = fps < 30;
     }
     
     // Run the collision system check
@@ -396,17 +388,24 @@ export class GameComponent extends LitElement {
       }
     }
     
-    // Update all NPC tanks, apply LOD (level of detail) based on distance
+    // Update all NPC tanks, apply LOD (level of detail) based on distance and performance
     for (const npcTank of this.npcTanks) {
       // Get distance to player
       const distanceToPlayer = this.playerTank?.tank.position.distanceTo(npcTank.tank.position) || 0;
       
-      // Only update NPCs within a certain range
-      if (distanceToPlayer < this.lodDistance * 1.5) {
+      // Determine update frequency based on distance and performance mode
+      if (distanceToPlayer < this.lodDistance) {
+        // Close tanks always update
         npcTank.update({}, allColliders);
+      } else if (distanceToPlayer < this.lodDistance * 2) {
+        // Mid-range tanks
+        if (!this.lowPerformanceMode || Math.random() < 0.5) { // 50% chance in low performance mode
+          npcTank.update({}, allColliders);
+        }
       } else {
-        // Simplified update for distant tanks - update less frequently
-        if (Math.random() < 0.2) { // Only update 20% of the time
+        // Distant tanks update very infrequently
+        const updateChance = this.lowPerformanceMode ? 0.1 : 0.2; // 10% or 20% chance based on performance
+        if (Math.random() < updateChance) {
           npcTank.update({}, allColliders);
         }
       }
