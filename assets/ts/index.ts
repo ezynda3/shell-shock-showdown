@@ -1,2 +1,3 @@
-// Import our game component
+// Import our game components
 import './game';
+import './game/stats';

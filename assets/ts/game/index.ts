@@ -1,18 +1,26 @@
 import { LitElement, html, css } from 'lit';
-import { customElement, query } from 'lit/decorators.js';
+import { customElement, query, property } from 'lit/decorators.js';
 import * as THREE from 'three';
 import { MapGenerator } from './map';
 import { Tank, NPCTank, ITank, ICollidable } from './tank';
 import { CollisionSystem } from './collision';
+import './stats'; // Import stats component
 
 @customElement('game-component')
 export class GameComponent extends LitElement {
   @query('#canvas')
   private canvas!: HTMLCanvasElement;
   
-  private scene?: THREE.Scene;
-  private camera?: THREE.PerspectiveCamera;
-  private renderer?: THREE.WebGLRenderer;
+  // Camera variables - exposed as properties to allow stats component to access
+  @property({ attribute: false })
+  public scene?: THREE.Scene;
+  
+  @property({ attribute: false })
+  public camera?: THREE.PerspectiveCamera;
+  
+  @property({ attribute: false })
+  public renderer?: THREE.WebGLRenderer;
+  
   private animationFrameId?: number;
   
   // Tank instances
@@ -60,6 +68,7 @@ export class GameComponent extends LitElement {
   render() {
     return html`
       <canvas id="canvas"></canvas>
+      <game-stats></game-stats>
       <div class="controls">
         <div>W: Forward, S: Backward</div>
         <div>A: Rotate tank left, D: Rotate tank right</div>
