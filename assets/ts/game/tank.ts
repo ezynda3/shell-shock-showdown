@@ -399,13 +399,23 @@ export class Tank implements ITank {
   takeDamage(amount: number): boolean {
     if (this.isDestroyed) return true;
     
+    // Apply damage to tank
     this.health -= amount;
+    
+    // Debug
+    console.log(`Tank taking damage: ${amount}, remaining health: ${this.health}`);
+    
+    // Check if destroyed
     if (this.health <= 0) {
       this.health = 0;
       this.isDestroyed = true;
       this.createDestroyedEffect();
       return true;
     }
+    
+    // Update health bar
+    this.updateHealthBar();
+    
     return false;
   }
   

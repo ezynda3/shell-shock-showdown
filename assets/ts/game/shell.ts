@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ICollidable, ITank } from './tank';
+import { ICollidable, ITank, NPCTank } from './tank';
 
 export class Shell implements ICollidable {
   // Shell instance properties
@@ -145,13 +145,21 @@ export class Shell implements ICollidable {
     // Create explosion effect
     this.createExplosion(this.mesh.position.clone());
     
-    // If hit a tank, apply damage (25%)
+    // If hit a tank, apply damage
     if (other.getType() === 'tank') {
       const tank = other as ITank;
       
+      // Check if this is a player-tank hit or an NPC-tank hit
+      const isPlayerTank = !(tank instanceof NPCTank);
+      
+      // Calculate damage - 25% regardless, ensuring 4 hits to destroy
+      const damageAmount = 25;
+      
+      console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit with ${damageAmount} damage. Current health: ${tank.getHealth()}`);
+      
       // Try to damage the tank
-      const tankDestroyed = tank.takeDamage(25);
-      console.log(`Hit tank, damaged to ${tank.getHealth()}%, destroyed: ${tankDestroyed}`);
+      const tankDestroyed = tank.takeDamage(damageAmount);
+      console.log(`After hit: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank health: ${tank.getHealth()}%, destroyed: ${tankDestroyed}`);
       
       // Since we don't have a direct reference to the player tank,
       // we'll add a custom event that game-component can listen for

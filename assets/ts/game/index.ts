@@ -47,6 +47,11 @@ export class GameComponent extends LitElement {
   private playerKills = 0;
   private playerDeaths = 0;
   
+  // Visual effect states
+  private showDamageOverlay = false;
+  private cameraShaking = false;
+  private lastPlayerHealth = 100;
+  
   // Control state
   private keys: { [key: string]: boolean } = {};
   
@@ -59,6 +64,7 @@ export class GameComponent extends LitElement {
       display: block;
       width: 100%;
       height: 100%;
+      position: relative;
     }
     
     canvas {
@@ -114,21 +120,64 @@ export class GameComponent extends LitElement {
       50% { opacity: 1; transform: scale(1.05) skewY(-5deg); }
       100% { opacity: 0.8; transform: scale(1) skewY(-5deg); }
     }
+    
+    .damage-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      background-color: rgba(255, 0, 0, 0);
+      transition: background-color 0.2s ease-in-out;
+      z-index: 1000;
+    }
+    
+    .damage-overlay.active {
+      background-color: rgba(255, 0, 0, 0.3);
+      animation: fade-out 0.5s ease-in-out forwards;
+    }
+    
+    @keyframes fade-out {
+      0% { background-color: rgba(255, 0, 0, 0.3); }
+      100% { background-color: rgba(255, 0, 0, 0); }
+    }
+    
+    .camera-shake {
+      animation: shake 0.25s ease-in-out;
+    }
+    
+    @keyframes shake {
+      0% { transform: translate(0, 0); }
+      10% { transform: translate(-5px, -5px); }
+      20% { transform: translate(5px, 5px); }
+      30% { transform: translate(-5px, 5px); }
+      40% { transform: translate(5px, -5px); }
+      50% { transform: translate(-5px, 0); }
+      60% { transform: translate(5px, 5px); }
+      70% { transform: translate(-5px, -5px); }
+      80% { transform: translate(0, 5px); }
+      90% { transform: translate(-5px, 0); }
+      100% { transform: translate(0, 0); }
+    }
   `;
 
   render() {
     return html`
-      <canvas id="canvas"></canvas>
-      <game-stats></game-stats>
-      <div class="controls">
-        <div>W: Forward, S: Backward</div>
-        <div>A: Rotate tank left, D: Rotate tank right</div>
-        <div>←/→: Rotate turret left/right</div>
-        <div>↑/↓: Raise/lower barrel</div>
-        <div>Space or F: Fire shell</div>
-      </div>
-      <div class="game-over ${this.playerDestroyed ? 'visible' : ''}">
-        <div class="wasted-text">Wasted</div>
+      <div class="${this.cameraShaking ? 'camera-shake' : ''}">
+        <canvas id="canvas"></canvas>
+        <div class="damage-overlay ${this.showDamageOverlay ? 'active' : ''}"></div>
+        <game-stats></game-stats>
+        <div class="controls">
+          <div>W: Forward, S: Backward</div>
+          <div>A: Rotate tank left, D: Rotate tank right</div>
+          <div>←/→: Rotate turret left/right</div>
+          <div>↑/↓: Raise/lower barrel</div>
+          <div>Space or F: Fire shell</div>
+        </div>
+        <div class="game-over ${this.playerDestroyed ? 'visible' : ''}">
+          <div class="wasted-text">Wasted</div>
+        </div>
       </div>
     `;
   }
@@ -492,6 +541,16 @@ export class GameComponent extends LitElement {
       this.updateStats();
     }
     
+    // Check if player's health changed (took damage)
+    if (this.playerTank) {
+      const currentHealth = this.playerTank.getHealth();
+      // If health decreased, show damage effects
+      if (currentHealth < this.lastPlayerHealth && !this.playerDestroyed) {
+        this.showDamageEffect();
+      }
+      this.lastPlayerHealth = currentHealth;
+    }
+    
     // Update all NPC tanks, apply LOD (level of detail) based on distance and performance
     for (const npcTank of this.npcTanks) {
       // Get distance to player
@@ -555,6 +614,31 @@ export class GameComponent extends LitElement {
   }
   
   // Handle tank destroyed events from shells
+  // Show damage effect - red overlay and camera shake
+  private showDamageEffect(): void {
+    console.log("Showing damage effect");
+    
+    // Show red overlay
+    this.showDamageOverlay = true;
+    
+    // Start camera shake
+    this.cameraShaking = true;
+    
+    // Force render cycle with effects
+    this.requestUpdate();
+    
+    // Reset effects after a short delay
+    setTimeout(() => {
+      this.showDamageOverlay = false;
+      this.requestUpdate();
+    }, 500);
+    
+    setTimeout(() => {
+      this.cameraShaking = false;
+      this.requestUpdate();
+    }, 250);
+  }
+  
   private handleTankDestroyed(event: CustomEvent) {
     const { tank, source } = event.detail;
     
@@ -565,8 +649,18 @@ export class GameComponent extends LitElement {
       this.respawnTimer = 0;
       this.playerDeaths++;
       
+      // Show longer, more intense damage effect on death
+      this.showDamageOverlay = true;
+      this.cameraShaking = true;
+      
       // Force UI refresh to show WASTED screen
       this.requestUpdate();
+      
+      // Reset shake after a bit, but leave overlay for WASTED screen
+      setTimeout(() => {
+        this.cameraShaking = false;
+        this.requestUpdate();
+      }, 500);
       
       // Update stats
       this.updateStats();

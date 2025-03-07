@@ -26292,8 +26292,11 @@ class Shell {
     this.createExplosion(this.mesh.position.clone());
     if (other.getType() === "tank") {
       const tank = other;
-      const tankDestroyed = tank.takeDamage(25);
-      console.log(`Hit tank, damaged to ${tank.getHealth()}%, destroyed: ${tankDestroyed}`);
+      const isPlayerTank = !(tank instanceof NPCTank);
+      const damageAmount = 25;
+      console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit with ${damageAmount} damage. Current health: ${tank.getHealth()}`);
+      const tankDestroyed = tank.takeDamage(damageAmount);
+      console.log(`After hit: ${isPlayerTank ? "PLAYER" : "NPC"} tank health: ${tank.getHealth()}%, destroyed: ${tankDestroyed}`);
       if (tankDestroyed) {
         const event = new CustomEvent("tank-destroyed", {
           bubbles: true,
@@ -26607,12 +26610,14 @@ class Tank {
     if (this.isDestroyed)
       return true;
     this.health -= amount;
+    console.log(`Tank taking damage: ${amount}, remaining health: ${this.health}`);
     if (this.health <= 0) {
       this.health = 0;
       this.isDestroyed = true;
       this.createDestroyedEffect();
       return true;
     }
+    this.updateHealthBar();
     return false;
   }
   getHealth() {
@@ -27443,6 +27448,9 @@ class GameComponent extends LitElement {
   RESPAWN_TIME = 300;
   playerKills = 0;
   playerDeaths = 0;
+  showDamageOverlay = false;
+  cameraShaking = false;
+  lastPlayerHealth = 100;
   keys = {};
   skyColor = new Color(8900331);
   static styles = css`
@@ -27450,6 +27458,7 @@ class GameComponent extends LitElement {
       display: block;
       width: 100%;
       height: 100%;
+      position: relative;
     }
     
     canvas {
@@ -27505,20 +27514,63 @@ class GameComponent extends LitElement {
       50% { opacity: 1; transform: scale(1.05) skewY(-5deg); }
       100% { opacity: 0.8; transform: scale(1) skewY(-5deg); }
     }
+    
+    .damage-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      background-color: rgba(255, 0, 0, 0);
+      transition: background-color 0.2s ease-in-out;
+      z-index: 1000;
+    }
+    
+    .damage-overlay.active {
+      background-color: rgba(255, 0, 0, 0.3);
+      animation: fade-out 0.5s ease-in-out forwards;
+    }
+    
+    @keyframes fade-out {
+      0% { background-color: rgba(255, 0, 0, 0.3); }
+      100% { background-color: rgba(255, 0, 0, 0); }
+    }
+    
+    .camera-shake {
+      animation: shake 0.25s ease-in-out;
+    }
+    
+    @keyframes shake {
+      0% { transform: translate(0, 0); }
+      10% { transform: translate(-5px, -5px); }
+      20% { transform: translate(5px, 5px); }
+      30% { transform: translate(-5px, 5px); }
+      40% { transform: translate(5px, -5px); }
+      50% { transform: translate(-5px, 0); }
+      60% { transform: translate(5px, 5px); }
+      70% { transform: translate(-5px, -5px); }
+      80% { transform: translate(0, 5px); }
+      90% { transform: translate(-5px, 0); }
+      100% { transform: translate(0, 0); }
+    }
   `;
   render() {
     return html`
-      <canvas id="canvas"></canvas>
-      <game-stats></game-stats>
-      <div class="controls">
-        <div>W: Forward, S: Backward</div>
-        <div>A: Rotate tank left, D: Rotate tank right</div>
-        <div>←/→: Rotate turret left/right</div>
-        <div>↑/↓: Raise/lower barrel</div>
-        <div>Space or F: Fire shell</div>
-      </div>
-      <div class="game-over ${this.playerDestroyed ? "visible" : ""}">
-        <div class="wasted-text">Wasted</div>
+      <div class="${this.cameraShaking ? "camera-shake" : ""}">
+        <canvas id="canvas"></canvas>
+        <div class="damage-overlay ${this.showDamageOverlay ? "active" : ""}"></div>
+        <game-stats></game-stats>
+        <div class="controls">
+          <div>W: Forward, S: Backward</div>
+          <div>A: Rotate tank left, D: Rotate tank right</div>
+          <div>←/→: Rotate turret left/right</div>
+          <div>↑/↓: Raise/lower barrel</div>
+          <div>Space or F: Fire shell</div>
+        </div>
+        <div class="game-over ${this.playerDestroyed ? "visible" : ""}">
+          <div class="wasted-text">Wasted</div>
+        </div>
       </div>
     `;
   }
@@ -27729,6 +27781,13 @@ class GameComponent extends LitElement {
       }
       this.updateStats();
     }
+    if (this.playerTank) {
+      const currentHealth = this.playerTank.getHealth();
+      if (currentHealth < this.lastPlayerHealth && !this.playerDestroyed) {
+        this.showDamageEffect();
+      }
+      this.lastPlayerHealth = currentHealth;
+    }
     for (const npcTank of this.npcTanks) {
       const distanceToPlayer = this.playerTank?.tank.position.distanceTo(npcTank.tank.position) || 0;
       let newShell = null;
@@ -27767,6 +27826,20 @@ class GameComponent extends LitElement {
       }
     }
   }
+  showDamageEffect() {
+    console.log("Showing damage effect");
+    this.showDamageOverlay = true;
+    this.cameraShaking = true;
+    this.requestUpdate();
+    setTimeout(() => {
+      this.showDamageOverlay = false;
+      this.requestUpdate();
+    }, 500);
+    setTimeout(() => {
+      this.cameraShaking = false;
+      this.requestUpdate();
+    }, 250);
+  }
   handleTankDestroyed(event) {
     const { tank, source } = event.detail;
     if (tank === this.playerTank) {
@@ -27774,7 +27847,13 @@ class GameComponent extends LitElement {
       this.playerDestroyed = true;
       this.respawnTimer = 0;
       this.playerDeaths++;
+      this.showDamageOverlay = true;
+      this.cameraShaking = true;
       this.requestUpdate();
+      setTimeout(() => {
+        this.cameraShaking = false;
+        this.requestUpdate();
+      }, 500);
       this.updateStats();
     } else {
       console.log("NPC tank destroyed!");
