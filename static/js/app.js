@@ -10789,6 +10789,68 @@ class PlaneGeometry extends BufferGeometry {
     return new PlaneGeometry(data.width, data.height, data.widthSegments, data.heightSegments);
   }
 }
+
+class RingGeometry extends BufferGeometry {
+  constructor(innerRadius = 0.5, outerRadius = 1, thetaSegments = 32, phiSegments = 1, thetaStart = 0, thetaLength = Math.PI * 2) {
+    super();
+    this.type = "RingGeometry";
+    this.parameters = {
+      innerRadius,
+      outerRadius,
+      thetaSegments,
+      phiSegments,
+      thetaStart,
+      thetaLength
+    };
+    thetaSegments = Math.max(3, thetaSegments);
+    phiSegments = Math.max(1, phiSegments);
+    const indices = [];
+    const vertices = [];
+    const normals = [];
+    const uvs = [];
+    let radius = innerRadius;
+    const radiusStep = (outerRadius - innerRadius) / phiSegments;
+    const vertex = new Vector3;
+    const uv = new Vector2;
+    for (let j = 0;j <= phiSegments; j++) {
+      for (let i = 0;i <= thetaSegments; i++) {
+        const segment = thetaStart + i / thetaSegments * thetaLength;
+        vertex.x = radius * Math.cos(segment);
+        vertex.y = radius * Math.sin(segment);
+        vertices.push(vertex.x, vertex.y, vertex.z);
+        normals.push(0, 0, 1);
+        uv.x = (vertex.x / outerRadius + 1) / 2;
+        uv.y = (vertex.y / outerRadius + 1) / 2;
+        uvs.push(uv.x, uv.y);
+      }
+      radius += radiusStep;
+    }
+    for (let j = 0;j < phiSegments; j++) {
+      const thetaSegmentLevel = j * (thetaSegments + 1);
+      for (let i = 0;i < thetaSegments; i++) {
+        const segment = i + thetaSegmentLevel;
+        const a = segment;
+        const b = segment + thetaSegments + 1;
+        const c = segment + thetaSegments + 2;
+        const d2 = segment + 1;
+        indices.push(a, b, d2);
+        indices.push(b, c, d2);
+      }
+    }
+    this.setIndex(indices);
+    this.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+    this.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+    this.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+  }
+  copy(source) {
+    super.copy(source);
+    this.parameters = Object.assign({}, source.parameters);
+    return this;
+  }
+  static fromJSON(data) {
+    return new RingGeometry(data.innerRadius, data.outerRadius, data.thetaSegments, data.phiSegments, data.thetaStart, data.thetaLength);
+  }
+}
 class SphereGeometry extends BufferGeometry {
   constructor(radius = 1, widthSegments = 32, heightSegments = 16, phiStart = 0, phiLength = Math.PI * 2, thetaStart = 0, thetaLength = Math.PI) {
     super();
@@ -26884,62 +26946,360 @@ class Tank {
     if (this.healthBarSprite) {
       this.healthBarSprite.visible = false;
     }
-    const particleCount = 50;
+    this.createExplosionFlash();
+    this.createDebrisParticles();
+    this.createSmokeEffect();
+    this.createFireEffect();
+    this.createShockwaveEffect();
+    this.createSparksEffect();
+    if (typeof Audio !== "undefined") {
+      try {
+        const explosion = new Audio;
+        explosion.src = "/static/js/assets/explosion.mp3";
+        explosion.volume = 0.7;
+        explosion.play().catch((e) => console.log("Audio play failed:", e));
+      } catch (e) {
+        console.log("Audio not supported");
+      }
+    }
+  }
+  createExplosionFlash() {
+    const flashGeometry = new SphereGeometry(3.5, 32, 32);
+    const flashMaterial = new MeshBasicMaterial({
+      color: 16777113,
+      transparent: true,
+      opacity: 0.9,
+      blending: AdditiveBlending
+    });
+    const flash = new Mesh(flashGeometry, flashMaterial);
+    flash.position.copy(this.tank.position);
+    flash.position.y += 1;
+    this.scene.add(flash);
+    this.destroyedEffects.push(flash);
+    const fadeOut = () => {
+      if (!flash.material)
+        return;
+      const material = flash.material;
+      material.opacity -= 0.05;
+      if (material.opacity <= 0) {
+        this.scene.remove(flash);
+        return;
+      }
+      requestAnimationFrame(fadeOut);
+    };
+    requestAnimationFrame(fadeOut);
+  }
+  createDebrisParticles() {
+    const debrisCount = 20;
+    const debrisGeometry = new BufferGeometry;
+    const debrisPositions = new Float32Array(debrisCount * 3);
+    const debrisSizes = new Float32Array(debrisCount);
+    const debrisColors = new Float32Array(debrisCount * 3);
+    const debrisVelocities = [];
+    for (let i = 0;i < debrisCount; i++) {
+      const i3 = i * 3;
+      debrisPositions[i3] = this.tank.position.x + (Math.random() - 0.5) * 1.5;
+      debrisPositions[i3 + 1] = this.tank.position.y + Math.random() * 1.5;
+      debrisPositions[i3 + 2] = this.tank.position.z + (Math.random() - 0.5) * 1.5;
+      debrisSizes[i] = 0.2 + Math.random() * 0.5;
+      if (Math.random() > 0.7) {
+        const tankColor = new Color(this.tankColor || 4881497);
+        debrisColors[i3] = tankColor.r;
+        debrisColors[i3 + 1] = tankColor.g;
+        debrisColors[i3 + 2] = tankColor.b;
+      } else {
+        const darkness = 0.2 + Math.random() * 0.3;
+        debrisColors[i3] = darkness;
+        debrisColors[i3 + 1] = darkness;
+        debrisColors[i3 + 2] = darkness;
+      }
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 0.1 + Math.random() * 0.3;
+      const velocity = new Vector3(Math.cos(angle) * speed, 0.1 + Math.random() * 0.4, Math.sin(angle) * speed);
+      debrisVelocities.push(velocity);
+    }
+    debrisGeometry.setAttribute("position", new BufferAttribute(debrisPositions, 3));
+    debrisGeometry.setAttribute("size", new BufferAttribute(debrisSizes, 1));
+    debrisGeometry.setAttribute("color", new BufferAttribute(debrisColors, 3));
+    const debrisMaterial = new PointsMaterial({
+      size: 1,
+      vertexColors: true,
+      transparent: true,
+      opacity: 1,
+      sizeAttenuation: true
+    });
+    const debrisParticles = new Points(debrisGeometry, debrisMaterial);
+    this.scene.add(debrisParticles);
+    this.destroyedEffects.push(debrisParticles);
+    const updateDebris = () => {
+      const positions = debrisGeometry.attributes.position.array;
+      for (let i = 0;i < debrisCount; i++) {
+        const i3 = i * 3;
+        const velocity = debrisVelocities[i];
+        positions[i3] += velocity.x;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z;
+        velocity.y -= 0.01;
+        velocity.x *= 0.99;
+        velocity.z *= 0.99;
+        if (positions[i3 + 1] < 0.1) {
+          positions[i3 + 1] = 0.1;
+          velocity.y = 0;
+          velocity.x *= 0.7;
+          velocity.z *= 0.7;
+        }
+      }
+      debrisGeometry.attributes.position.needsUpdate = true;
+      requestAnimationFrame(updateDebris);
+    };
+    requestAnimationFrame(updateDebris);
+  }
+  createSmokeEffect() {
+    const particleCount = 80;
     const smokeGeometry = new BufferGeometry;
     const smokePositions = new Float32Array(particleCount * 3);
+    const smokeSizes = new Float32Array(particleCount);
     const smokeColors = new Float32Array(particleCount * 3);
+    const smokeVelocities = [];
+    const smokeCreationTimes = [];
+    const currentTime = Date.now();
     for (let i = 0;i < particleCount; i++) {
       const i3 = i * 3;
-      const radius = 1.5;
+      const radius = 1.8;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.random() * Math.PI;
       smokePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
-      smokePositions[i3 + 1] = this.tank.position.y + radius * Math.cos(phi) + 1;
+      smokePositions[i3 + 1] = this.tank.position.y + radius * Math.cos(phi) + 1.2;
       smokePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
-      const darkness = 0.1 + Math.random() * 0.2;
+      smokeSizes[i] = 0.7 + Math.random() * 1.2;
+      const darkness = 0.1 + Math.random() * 0.25;
       smokeColors[i3] = darkness;
       smokeColors[i3 + 1] = darkness;
       smokeColors[i3 + 2] = darkness;
+      const upwardVelocity = 0.03 + Math.random() * 0.05;
+      const horizontalVelocity = 0.01 + Math.random() * 0.02;
+      const angle = Math.random() * Math.PI * 2;
+      smokeVelocities.push(new Vector3(Math.cos(angle) * horizontalVelocity, upwardVelocity, Math.sin(angle) * horizontalVelocity));
+      smokeCreationTimes.push(currentTime + Math.random() * 1000);
     }
     smokeGeometry.setAttribute("position", new BufferAttribute(smokePositions, 3));
+    smokeGeometry.setAttribute("size", new BufferAttribute(smokeSizes, 1));
     smokeGeometry.setAttribute("color", new BufferAttribute(smokeColors, 3));
     const smokeMaterial = new PointsMaterial({
-      size: 0.7,
       vertexColors: true,
       transparent: true,
-      opacity: 0.8
+      opacity: 0.8,
+      sizeAttenuation: true
     });
     const smokeParticles = new Points(smokeGeometry, smokeMaterial);
     this.scene.add(smokeParticles);
     this.destroyedEffects.push(smokeParticles);
-    const fireCount = 30;
+    const smokeDuration = 8000;
+    const updateSmoke = () => {
+      const currentTime2 = Date.now();
+      const positions = smokeGeometry.attributes.position.array;
+      const sizes = smokeGeometry.attributes.size.array;
+      for (let i = 0;i < particleCount; i++) {
+        if (currentTime2 < smokeCreationTimes[i])
+          continue;
+        const i3 = i * 3;
+        const velocity = smokeVelocities[i];
+        const age = currentTime2 - smokeCreationTimes[i];
+        positions[i3] += velocity.x + Math.sin(age * 0.001) * 0.01;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z + Math.cos(age * 0.001) * 0.01;
+        if (age < 2000) {
+          sizes[i] = Math.min(3, sizes[i] * 1.01);
+        }
+        if (age > smokeDuration * 0.6) {
+          smokeMaterial.opacity = Math.max(0, 0.8 - (age - smokeDuration * 0.6) / (smokeDuration * 0.4) * 0.8);
+        }
+      }
+      smokeGeometry.attributes.position.needsUpdate = true;
+      smokeGeometry.attributes.size.needsUpdate = true;
+      if (smokeMaterial.opacity > 0) {
+        requestAnimationFrame(updateSmoke);
+      } else {
+        this.scene.remove(smokeParticles);
+      }
+    };
+    requestAnimationFrame(updateSmoke);
+  }
+  createFireEffect() {
+    const fireCount = 60;
     const fireGeometry = new BufferGeometry;
     const firePositions = new Float32Array(fireCount * 3);
+    const fireSizes = new Float32Array(fireCount);
     const fireColors = new Float32Array(fireCount * 3);
+    const fireVelocities = [];
+    const fireCreationTimes = [];
+    const currentTime = Date.now();
     for (let i = 0;i < fireCount; i++) {
       const i3 = i * 3;
-      const radius = 1;
+      const radius = 1.2;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.random() * Math.PI / 2;
       firePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
       firePositions[i3 + 1] = this.tank.position.y + 0.5;
       firePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
-      fireColors[i3] = 0.9 + Math.random() * 0.1;
-      fireColors[i3 + 1] = 0.3 + Math.random() * 0.3;
-      fireColors[i3 + 2] = 0;
+      fireSizes[i] = 0.5 + Math.random() * 1;
+      if (Math.random() > 0.7) {
+        fireColors[i3] = 1;
+        fireColors[i3 + 1] = 0.8 + Math.random() * 0.2;
+        fireColors[i3 + 2] = 0.1 + Math.random() * 0.2;
+      } else {
+        fireColors[i3] = 0.9 + Math.random() * 0.1;
+        fireColors[i3 + 1] = 0.3 + Math.random() * 0.3;
+        fireColors[i3 + 2] = 0;
+      }
+      const upwardVelocity = 0.05 + Math.random() * 0.08;
+      const horizontalVelocity = 0.01 + Math.random() * 0.03;
+      const angle = Math.random() * Math.PI * 2;
+      fireVelocities.push(new Vector3(Math.cos(angle) * horizontalVelocity, upwardVelocity, Math.sin(angle) * horizontalVelocity));
+      fireCreationTimes.push(currentTime + Math.random() * 1500);
     }
     fireGeometry.setAttribute("position", new BufferAttribute(firePositions, 3));
+    fireGeometry.setAttribute("size", new BufferAttribute(fireSizes, 1));
     fireGeometry.setAttribute("color", new BufferAttribute(fireColors, 3));
     const fireMaterial = new PointsMaterial({
-      size: 0.5,
       vertexColors: true,
       transparent: true,
       opacity: 0.9,
-      blending: AdditiveBlending
+      blending: AdditiveBlending,
+      sizeAttenuation: true
     });
     const fireParticles = new Points(fireGeometry, fireMaterial);
     this.scene.add(fireParticles);
     this.destroyedEffects.push(fireParticles);
+    const fireDuration = 4000;
+    const updateFire = () => {
+      const currentTime2 = Date.now();
+      const positions = fireGeometry.attributes.position.array;
+      const sizes = fireGeometry.attributes.size.array;
+      for (let i = 0;i < fireCount; i++) {
+        if (currentTime2 < fireCreationTimes[i])
+          continue;
+        const i3 = i * 3;
+        const velocity = fireVelocities[i];
+        const age = currentTime2 - fireCreationTimes[i];
+        positions[i3] += velocity.x + (Math.random() - 0.5) * 0.05;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z + (Math.random() - 0.5) * 0.05;
+        if (age > 500) {
+          sizes[i] = Math.max(0.1, sizes[i] * 0.98);
+        }
+        if (age > fireDuration * 0.5) {
+          fireMaterial.opacity = Math.max(0, 0.9 - (age - fireDuration * 0.5) / (fireDuration * 0.5) * 0.9);
+        }
+      }
+      fireGeometry.attributes.position.needsUpdate = true;
+      fireGeometry.attributes.size.needsUpdate = true;
+      if (fireMaterial.opacity > 0) {
+        requestAnimationFrame(updateFire);
+      } else {
+        this.scene.remove(fireParticles);
+      }
+    };
+    requestAnimationFrame(updateFire);
+  }
+  createShockwaveEffect() {
+    const shockwaveGeometry = new RingGeometry(0.1, 0.5, 32);
+    const shockwaveMaterial = new MeshBasicMaterial({
+      color: 16764006,
+      transparent: true,
+      opacity: 0.7,
+      blending: AdditiveBlending,
+      side: DoubleSide
+    });
+    const shockwave = new Mesh(shockwaveGeometry, shockwaveMaterial);
+    shockwave.rotation.x = -Math.PI / 2;
+    shockwave.position.copy(this.tank.position);
+    shockwave.position.y = 0.1;
+    this.scene.add(shockwave);
+    this.destroyedEffects.push(shockwave);
+    const shockwaveDuration = 1000;
+    const startTime = Date.now();
+    const maxRadius = 10;
+    const updateShockwave = () => {
+      const currentTime = Date.now();
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(1, elapsed / shockwaveDuration);
+      const innerRadius = progress * maxRadius;
+      const outerRadius = innerRadius + 0.5 + progress * 2;
+      shockwave.scale.set(innerRadius, innerRadius, 1);
+      shockwaveMaterial.opacity = 0.7 * (1 - progress);
+      if (progress < 1) {
+        requestAnimationFrame(updateShockwave);
+      } else {
+        this.scene.remove(shockwave);
+      }
+    };
+    requestAnimationFrame(updateShockwave);
+  }
+  createSparksEffect() {
+    const sparkCount = 30;
+    const sparkGeometry = new BufferGeometry;
+    const sparkPositions = new Float32Array(sparkCount * 3);
+    const sparkSizes = new Float32Array(sparkCount);
+    const sparkColors = new Float32Array(sparkCount * 3);
+    const sparkVelocities = [];
+    for (let i = 0;i < sparkCount; i++) {
+      const i3 = i * 3;
+      sparkPositions[i3] = this.tank.position.x;
+      sparkPositions[i3 + 1] = this.tank.position.y + 1;
+      sparkPositions[i3 + 2] = this.tank.position.z;
+      sparkSizes[i] = 0.2 + Math.random() * 0.3;
+      sparkColors[i3] = 1;
+      sparkColors[i3 + 1] = 0.9 + Math.random() * 0.1;
+      sparkColors[i3 + 2] = 0.6 + Math.random() * 0.4;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      const speed = 0.2 + Math.random() * 0.4;
+      const velocity = new Vector3(Math.sin(phi) * Math.cos(theta) * speed, Math.cos(phi) * speed, Math.sin(phi) * Math.sin(theta) * speed);
+      sparkVelocities.push(velocity);
+    }
+    sparkGeometry.setAttribute("position", new BufferAttribute(sparkPositions, 3));
+    sparkGeometry.setAttribute("size", new BufferAttribute(sparkSizes, 1));
+    sparkGeometry.setAttribute("color", new BufferAttribute(sparkColors, 3));
+    const sparkMaterial = new PointsMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 1,
+      blending: AdditiveBlending,
+      sizeAttenuation: true
+    });
+    const sparkParticles = new Points(sparkGeometry, sparkMaterial);
+    this.scene.add(sparkParticles);
+    this.destroyedEffects.push(sparkParticles);
+    const sparkDuration = 1500;
+    const startTime = Date.now();
+    const updateSparks = () => {
+      const currentTime = Date.now();
+      const elapsed = currentTime - startTime;
+      const progress = elapsed / sparkDuration;
+      const positions = sparkGeometry.attributes.position.array;
+      const sizes = sparkGeometry.attributes.size.array;
+      for (let i = 0;i < sparkCount; i++) {
+        const i3 = i * 3;
+        const velocity = sparkVelocities[i];
+        positions[i3] += velocity.x;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z;
+        velocity.y -= 0.015;
+        sizes[i] *= 0.98;
+      }
+      if (progress > 0.7) {
+        sparkMaterial.opacity = 1 - (progress - 0.7) / 0.3;
+      }
+      sparkGeometry.attributes.position.needsUpdate = true;
+      sparkGeometry.attributes.size.needsUpdate = true;
+      if (progress < 1) {
+        requestAnimationFrame(updateSparks);
+      } else {
+        this.scene.remove(sparkParticles);
+      }
+    };
+    requestAnimationFrame(updateSparks);
   }
   visualizeCollider() {
     const geometry = new SphereGeometry(this.collisionRadius, 16, 16);
@@ -27373,62 +27733,350 @@ class NPCTank {
     if (this.healthBarSprite) {
       this.healthBarSprite.visible = false;
     }
-    const particleCount = 40;
+    this.createExplosionFlash();
+    this.createDebrisParticles();
+    this.createSmokeEffect();
+    this.createFireEffect();
+    this.createShockwaveEffect();
+    this.createSparksEffect();
+  }
+  createExplosionFlash() {
+    const flashGeometry = new SphereGeometry(3.5, 32, 32);
+    const flashMaterial = new MeshBasicMaterial({
+      color: 16777113,
+      transparent: true,
+      opacity: 0.9,
+      blending: AdditiveBlending
+    });
+    const flash = new Mesh(flashGeometry, flashMaterial);
+    flash.position.copy(this.tank.position);
+    flash.position.y += 1;
+    this.scene.add(flash);
+    this.destroyedEffects.push(flash);
+    const fadeOut = () => {
+      if (!flash.material)
+        return;
+      const material = flash.material;
+      material.opacity -= 0.05;
+      if (material.opacity <= 0) {
+        this.scene.remove(flash);
+        return;
+      }
+      requestAnimationFrame(fadeOut);
+    };
+    requestAnimationFrame(fadeOut);
+  }
+  createDebrisParticles() {
+    const debrisCount = 20;
+    const debrisGeometry = new BufferGeometry;
+    const debrisPositions = new Float32Array(debrisCount * 3);
+    const debrisSizes = new Float32Array(debrisCount);
+    const debrisColors = new Float32Array(debrisCount * 3);
+    const debrisVelocities = [];
+    for (let i = 0;i < debrisCount; i++) {
+      const i3 = i * 3;
+      debrisPositions[i3] = this.tank.position.x + (Math.random() - 0.5) * 1.5;
+      debrisPositions[i3 + 1] = this.tank.position.y + Math.random() * 1.5;
+      debrisPositions[i3 + 2] = this.tank.position.z + (Math.random() - 0.5) * 1.5;
+      debrisSizes[i] = 0.2 + Math.random() * 0.5;
+      if (Math.random() > 0.7) {
+        const tankColor = new Color(this.tankColor || 4881497);
+        debrisColors[i3] = tankColor.r;
+        debrisColors[i3 + 1] = tankColor.g;
+        debrisColors[i3 + 2] = tankColor.b;
+      } else {
+        const darkness = 0.2 + Math.random() * 0.3;
+        debrisColors[i3] = darkness;
+        debrisColors[i3 + 1] = darkness;
+        debrisColors[i3 + 2] = darkness;
+      }
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 0.1 + Math.random() * 0.3;
+      const velocity = new Vector3(Math.cos(angle) * speed, 0.1 + Math.random() * 0.4, Math.sin(angle) * speed);
+      debrisVelocities.push(velocity);
+    }
+    debrisGeometry.setAttribute("position", new BufferAttribute(debrisPositions, 3));
+    debrisGeometry.setAttribute("size", new BufferAttribute(debrisSizes, 1));
+    debrisGeometry.setAttribute("color", new BufferAttribute(debrisColors, 3));
+    const debrisMaterial = new PointsMaterial({
+      size: 1,
+      vertexColors: true,
+      transparent: true,
+      opacity: 1,
+      sizeAttenuation: true
+    });
+    const debrisParticles = new Points(debrisGeometry, debrisMaterial);
+    this.scene.add(debrisParticles);
+    this.destroyedEffects.push(debrisParticles);
+    const updateDebris = () => {
+      const positions = debrisGeometry.attributes.position.array;
+      for (let i = 0;i < debrisCount; i++) {
+        const i3 = i * 3;
+        const velocity = debrisVelocities[i];
+        positions[i3] += velocity.x;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z;
+        velocity.y -= 0.01;
+        velocity.x *= 0.99;
+        velocity.z *= 0.99;
+        if (positions[i3 + 1] < 0.1) {
+          positions[i3 + 1] = 0.1;
+          velocity.y = 0;
+          velocity.x *= 0.7;
+          velocity.z *= 0.7;
+        }
+      }
+      debrisGeometry.attributes.position.needsUpdate = true;
+      requestAnimationFrame(updateDebris);
+    };
+    requestAnimationFrame(updateDebris);
+  }
+  createSmokeEffect() {
+    const particleCount = 80;
     const smokeGeometry = new BufferGeometry;
     const smokePositions = new Float32Array(particleCount * 3);
+    const smokeSizes = new Float32Array(particleCount);
     const smokeColors = new Float32Array(particleCount * 3);
+    const smokeVelocities = [];
+    const smokeCreationTimes = [];
+    const currentTime = Date.now();
     for (let i = 0;i < particleCount; i++) {
       const i3 = i * 3;
-      const radius = 1.5;
+      const radius = 1.8;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.random() * Math.PI;
       smokePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
-      smokePositions[i3 + 1] = this.tank.position.y + radius * Math.cos(phi) + 1;
+      smokePositions[i3 + 1] = this.tank.position.y + radius * Math.cos(phi) + 1.2;
       smokePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
-      const darkness = 0.1 + Math.random() * 0.2;
+      smokeSizes[i] = 0.7 + Math.random() * 1.2;
+      const darkness = 0.1 + Math.random() * 0.25;
       smokeColors[i3] = darkness;
       smokeColors[i3 + 1] = darkness;
       smokeColors[i3 + 2] = darkness;
+      const upwardVelocity = 0.03 + Math.random() * 0.05;
+      const horizontalVelocity = 0.01 + Math.random() * 0.02;
+      const angle = Math.random() * Math.PI * 2;
+      smokeVelocities.push(new Vector3(Math.cos(angle) * horizontalVelocity, upwardVelocity, Math.sin(angle) * horizontalVelocity));
+      smokeCreationTimes.push(currentTime + Math.random() * 1000);
     }
     smokeGeometry.setAttribute("position", new BufferAttribute(smokePositions, 3));
+    smokeGeometry.setAttribute("size", new BufferAttribute(smokeSizes, 1));
     smokeGeometry.setAttribute("color", new BufferAttribute(smokeColors, 3));
     const smokeMaterial = new PointsMaterial({
-      size: 0.7,
       vertexColors: true,
       transparent: true,
-      opacity: 0.8
+      opacity: 0.8,
+      sizeAttenuation: true
     });
     const smokeParticles = new Points(smokeGeometry, smokeMaterial);
     this.scene.add(smokeParticles);
     this.destroyedEffects.push(smokeParticles);
-    const fireCount = 25;
+    const smokeDuration = 8000;
+    const updateSmoke = () => {
+      const currentTime2 = Date.now();
+      const positions = smokeGeometry.attributes.position.array;
+      const sizes = smokeGeometry.attributes.size.array;
+      for (let i = 0;i < particleCount; i++) {
+        if (currentTime2 < smokeCreationTimes[i])
+          continue;
+        const i3 = i * 3;
+        const velocity = smokeVelocities[i];
+        const age = currentTime2 - smokeCreationTimes[i];
+        positions[i3] += velocity.x + Math.sin(age * 0.001) * 0.01;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z + Math.cos(age * 0.001) * 0.01;
+        if (age < 2000) {
+          sizes[i] = Math.min(3, sizes[i] * 1.01);
+        }
+        if (age > smokeDuration * 0.6) {
+          smokeMaterial.opacity = Math.max(0, 0.8 - (age - smokeDuration * 0.6) / (smokeDuration * 0.4) * 0.8);
+        }
+      }
+      smokeGeometry.attributes.position.needsUpdate = true;
+      smokeGeometry.attributes.size.needsUpdate = true;
+      if (smokeMaterial.opacity > 0) {
+        requestAnimationFrame(updateSmoke);
+      } else {
+        this.scene.remove(smokeParticles);
+      }
+    };
+    requestAnimationFrame(updateSmoke);
+  }
+  createFireEffect() {
+    const fireCount = 60;
     const fireGeometry = new BufferGeometry;
     const firePositions = new Float32Array(fireCount * 3);
+    const fireSizes = new Float32Array(fireCount);
     const fireColors = new Float32Array(fireCount * 3);
+    const fireVelocities = [];
+    const fireCreationTimes = [];
+    const currentTime = Date.now();
     for (let i = 0;i < fireCount; i++) {
       const i3 = i * 3;
-      const radius = 1;
+      const radius = 1.2;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.random() * Math.PI / 2;
       firePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
       firePositions[i3 + 1] = this.tank.position.y + 0.5;
       firePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
-      fireColors[i3] = 0.9 + Math.random() * 0.1;
-      fireColors[i3 + 1] = 0.3 + Math.random() * 0.3;
-      fireColors[i3 + 2] = 0;
+      fireSizes[i] = 0.5 + Math.random() * 1;
+      if (Math.random() > 0.7) {
+        fireColors[i3] = 1;
+        fireColors[i3 + 1] = 0.8 + Math.random() * 0.2;
+        fireColors[i3 + 2] = 0.1 + Math.random() * 0.2;
+      } else {
+        fireColors[i3] = 0.9 + Math.random() * 0.1;
+        fireColors[i3 + 1] = 0.3 + Math.random() * 0.3;
+        fireColors[i3 + 2] = 0;
+      }
+      const upwardVelocity = 0.05 + Math.random() * 0.08;
+      const horizontalVelocity = 0.01 + Math.random() * 0.03;
+      const angle = Math.random() * Math.PI * 2;
+      fireVelocities.push(new Vector3(Math.cos(angle) * horizontalVelocity, upwardVelocity, Math.sin(angle) * horizontalVelocity));
+      fireCreationTimes.push(currentTime + Math.random() * 1500);
     }
     fireGeometry.setAttribute("position", new BufferAttribute(firePositions, 3));
+    fireGeometry.setAttribute("size", new BufferAttribute(fireSizes, 1));
     fireGeometry.setAttribute("color", new BufferAttribute(fireColors, 3));
     const fireMaterial = new PointsMaterial({
-      size: 0.5,
       vertexColors: true,
       transparent: true,
       opacity: 0.9,
-      blending: AdditiveBlending
+      blending: AdditiveBlending,
+      sizeAttenuation: true
     });
     const fireParticles = new Points(fireGeometry, fireMaterial);
     this.scene.add(fireParticles);
     this.destroyedEffects.push(fireParticles);
+    const fireDuration = 4000;
+    const updateFire = () => {
+      const currentTime2 = Date.now();
+      const positions = fireGeometry.attributes.position.array;
+      const sizes = fireGeometry.attributes.size.array;
+      for (let i = 0;i < fireCount; i++) {
+        if (currentTime2 < fireCreationTimes[i])
+          continue;
+        const i3 = i * 3;
+        const velocity = fireVelocities[i];
+        const age = currentTime2 - fireCreationTimes[i];
+        positions[i3] += velocity.x + (Math.random() - 0.5) * 0.05;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z + (Math.random() - 0.5) * 0.05;
+        if (age > 500) {
+          sizes[i] = Math.max(0.1, sizes[i] * 0.98);
+        }
+        if (age > fireDuration * 0.5) {
+          fireMaterial.opacity = Math.max(0, 0.9 - (age - fireDuration * 0.5) / (fireDuration * 0.5) * 0.9);
+        }
+      }
+      fireGeometry.attributes.position.needsUpdate = true;
+      fireGeometry.attributes.size.needsUpdate = true;
+      if (fireMaterial.opacity > 0) {
+        requestAnimationFrame(updateFire);
+      } else {
+        this.scene.remove(fireParticles);
+      }
+    };
+    requestAnimationFrame(updateFire);
+  }
+  createShockwaveEffect() {
+    const shockwaveGeometry = new RingGeometry(0.1, 0.5, 32);
+    const shockwaveMaterial = new MeshBasicMaterial({
+      color: 16764006,
+      transparent: true,
+      opacity: 0.7,
+      blending: AdditiveBlending,
+      side: DoubleSide
+    });
+    const shockwave = new Mesh(shockwaveGeometry, shockwaveMaterial);
+    shockwave.rotation.x = -Math.PI / 2;
+    shockwave.position.copy(this.tank.position);
+    shockwave.position.y = 0.1;
+    this.scene.add(shockwave);
+    this.destroyedEffects.push(shockwave);
+    const shockwaveDuration = 1000;
+    const startTime = Date.now();
+    const maxRadius = 10;
+    const updateShockwave = () => {
+      const currentTime = Date.now();
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(1, elapsed / shockwaveDuration);
+      const innerRadius = progress * maxRadius;
+      const outerRadius = innerRadius + 0.5 + progress * 2;
+      shockwave.scale.set(innerRadius, innerRadius, 1);
+      shockwaveMaterial.opacity = 0.7 * (1 - progress);
+      if (progress < 1) {
+        requestAnimationFrame(updateShockwave);
+      } else {
+        this.scene.remove(shockwave);
+      }
+    };
+    requestAnimationFrame(updateShockwave);
+  }
+  createSparksEffect() {
+    const sparkCount = 30;
+    const sparkGeometry = new BufferGeometry;
+    const sparkPositions = new Float32Array(sparkCount * 3);
+    const sparkSizes = new Float32Array(sparkCount);
+    const sparkColors = new Float32Array(sparkCount * 3);
+    const sparkVelocities = [];
+    for (let i = 0;i < sparkCount; i++) {
+      const i3 = i * 3;
+      sparkPositions[i3] = this.tank.position.x;
+      sparkPositions[i3 + 1] = this.tank.position.y + 1;
+      sparkPositions[i3 + 2] = this.tank.position.z;
+      sparkSizes[i] = 0.2 + Math.random() * 0.3;
+      sparkColors[i3] = 1;
+      sparkColors[i3 + 1] = 0.9 + Math.random() * 0.1;
+      sparkColors[i3 + 2] = 0.6 + Math.random() * 0.4;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      const speed = 0.2 + Math.random() * 0.4;
+      const velocity = new Vector3(Math.sin(phi) * Math.cos(theta) * speed, Math.cos(phi) * speed, Math.sin(phi) * Math.sin(theta) * speed);
+      sparkVelocities.push(velocity);
+    }
+    sparkGeometry.setAttribute("position", new BufferAttribute(sparkPositions, 3));
+    sparkGeometry.setAttribute("size", new BufferAttribute(sparkSizes, 1));
+    sparkGeometry.setAttribute("color", new BufferAttribute(sparkColors, 3));
+    const sparkMaterial = new PointsMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 1,
+      blending: AdditiveBlending,
+      sizeAttenuation: true
+    });
+    const sparkParticles = new Points(sparkGeometry, sparkMaterial);
+    this.scene.add(sparkParticles);
+    this.destroyedEffects.push(sparkParticles);
+    const sparkDuration = 1500;
+    const startTime = Date.now();
+    const updateSparks = () => {
+      const currentTime = Date.now();
+      const elapsed = currentTime - startTime;
+      const progress = elapsed / sparkDuration;
+      const positions = sparkGeometry.attributes.position.array;
+      const sizes = sparkGeometry.attributes.size.array;
+      for (let i = 0;i < sparkCount; i++) {
+        const i3 = i * 3;
+        const velocity = sparkVelocities[i];
+        positions[i3] += velocity.x;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z;
+        velocity.y -= 0.015;
+        sizes[i] *= 0.98;
+      }
+      if (progress > 0.7) {
+        sparkMaterial.opacity = 1 - (progress - 0.7) / 0.3;
+      }
+      sparkGeometry.attributes.position.needsUpdate = true;
+      sparkGeometry.attributes.size.needsUpdate = true;
+      if (progress < 1) {
+        requestAnimationFrame(updateSparks);
+      } else {
+        this.scene.remove(sparkParticles);
+      }
+    };
+    requestAnimationFrame(updateSparks);
   }
 }
 
