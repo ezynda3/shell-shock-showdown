@@ -381,8 +381,10 @@ export class GameComponent extends LitElement {
     this.createTrees();
     this.createRocks();
     
-    // Create player tank
+    // Create player tank at a random valid position
+    const spawnPoint = this.findRandomSpawnPoint();
     this.playerTank = new Tank(this.scene, this.camera);
+    this.playerTank.respawn(spawnPoint); // Set initial position
     this.collisionSystem.addCollider(this.playerTank);
     
     // Create NPC tanks
@@ -402,7 +404,7 @@ export class GameComponent extends LitElement {
     this.mapGenerator.createTrees();
     
     // Add tree colliders to the collision system
-    const treeColliders = this.mapGenerator.getAllColliders();
+    const treeColliders = this.mapGenerator.getTreeColliders();
     for (const collider of treeColliders) {
       this.collisionSystem.addCollider(collider);
     }
@@ -414,7 +416,11 @@ export class GameComponent extends LitElement {
     // Build the rock layout
     this.mapGenerator.createRocks();
     
-    // Add rock colliders to the collision system - already done via getAllColliders in createTrees
+    // Add rock colliders to the collision system
+    const rockColliders = this.mapGenerator.getRockColliders();
+    for (const collider of rockColliders) {
+      this.collisionSystem.addCollider(collider);
+    }
   }
   
   private createSkybox() {
@@ -834,8 +840,9 @@ export class GameComponent extends LitElement {
         // If player is destroyed, handle respawn timer
         this.respawnTimer++;
         if (this.respawnTimer >= this.RESPAWN_TIME) {
-          // Time to respawn
-          this.playerTank.respawn();
+          // Time to respawn at a random valid position
+          const spawnPoint = this.findRandomSpawnPoint();
+          this.playerTank.respawn(spawnPoint);
           this.playerDestroyed = false;
           this.respawnTimer = 0;
           
@@ -1022,6 +1029,68 @@ export class GameComponent extends LitElement {
         }, 2000); // 2 second delay before respawn
       }
     }
+  }
+  
+  /**
+   * Find a random spawn point on the map that doesn't collide with other objects
+   */
+  private findRandomSpawnPoint(): THREE.Vector3 {
+    const MAX_ATTEMPTS = 50; // Maximum number of attempts to find a valid spawn point
+    const MAP_RADIUS = 800;  // Consider the playable area to be within this radius
+    const MIN_DISTANCE_FROM_CENTER = 50; // Minimum distance from center to avoid starting too close
+    
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      // Generate random position within the map radius
+      const angle = Math.random() * Math.PI * 2;
+      const distance = MIN_DISTANCE_FROM_CENTER + Math.random() * (MAP_RADIUS - MIN_DISTANCE_FROM_CENTER);
+      
+      const spawnPoint = new THREE.Vector3(
+        Math.cos(angle) * distance,
+        0, // Y is always 0 (ground level)
+        Math.sin(angle) * distance
+      );
+      
+      // Check if this position collides with any objects
+      if (this.isValidSpawnPosition(spawnPoint)) {
+        console.log(`Found valid spawn point at (${spawnPoint.x.toFixed(2)}, ${spawnPoint.z.toFixed(2)}) on attempt ${attempt + 1}`);
+        return spawnPoint;
+      }
+    }
+    
+    // If we couldn't find a valid spawn point after MAX_ATTEMPTS, use a safe default
+    console.warn(`Could not find valid spawn point after ${MAX_ATTEMPTS} attempts, using fallback position`);
+    return new THREE.Vector3(0, 0, 0);
+  }
+  
+  /**
+   * Check if a position is valid for spawning (no collisions with other objects)
+   */
+  private isValidSpawnPosition(position: THREE.Vector3): boolean {
+    // Create a temporary sphere collider to check for collisions
+    const tempCollider = new THREE.Sphere(position.clone(), 3.0); // Larger than tank radius to ensure clearance
+    
+    // Check against all colliders in the system
+    for (const collider of this.collisionSystem.getColliders()) {
+      // Skip checking against player tank
+      if (collider === this.playerTank) continue;
+      
+      const otherColliderObj = collider.getCollider();
+      
+      if (otherColliderObj instanceof THREE.Sphere) {
+        // Sphere-Sphere collision
+        const distance = position.distanceTo(collider.getPosition());
+        if (distance < (tempCollider.radius + otherColliderObj.radius)) {
+          return false; // Collision detected
+        }
+      } else if (otherColliderObj instanceof THREE.Box3) {
+        // Sphere-Box collision
+        if (otherColliderObj.intersectsSphere(tempCollider)) {
+          return false; // Collision detected
+        }
+      }
+    }
+    
+    return true; // No collisions found
   }
   
   /**

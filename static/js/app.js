@@ -26406,6 +26406,12 @@ class MapGenerator {
   getAllColliders() {
     return [...this.treeColliders, ...this.rockColliders];
   }
+  getTreeColliders() {
+    return [...this.treeColliders];
+  }
+  getRockColliders() {
+    return [...this.rockColliders];
+  }
 }
 
 // assets/ts/game/shell.ts
@@ -27929,7 +27935,9 @@ class GameComponent extends LitElement {
     this.mapGenerator = new MapGenerator(this.scene);
     this.createTrees();
     this.createRocks();
+    const spawnPoint = this.findRandomSpawnPoint();
     this.playerTank = new Tank(this.scene, this.camera);
+    this.playerTank.respawn(spawnPoint);
     this.collisionSystem.addCollider(this.playerTank);
     this.createNpcTanks();
     this.positionCamera();
@@ -27939,7 +27947,7 @@ class GameComponent extends LitElement {
     if (!this.scene || !this.mapGenerator)
       return;
     this.mapGenerator.createTrees();
-    const treeColliders = this.mapGenerator.getAllColliders();
+    const treeColliders = this.mapGenerator.getTreeColliders();
     for (const collider of treeColliders) {
       this.collisionSystem.addCollider(collider);
     }
@@ -27948,6 +27956,10 @@ class GameComponent extends LitElement {
     if (!this.scene || !this.mapGenerator)
       return;
     this.mapGenerator.createRocks();
+    const rockColliders = this.mapGenerator.getRockColliders();
+    for (const collider of rockColliders) {
+      this.collisionSystem.addCollider(collider);
+    }
   }
   createSkybox() {
     if (!this.scene)
@@ -28182,7 +28194,8 @@ class GameComponent extends LitElement {
       if (this.playerDestroyed) {
         this.respawnTimer++;
         if (this.respawnTimer >= this.RESPAWN_TIME) {
-          this.playerTank.respawn();
+          const spawnPoint = this.findRandomSpawnPoint();
+          this.playerTank.respawn(spawnPoint);
           this.playerDestroyed = false;
           this.respawnTimer = 0;
           this.requestUpdate();
@@ -28293,6 +28306,41 @@ class GameComponent extends LitElement {
         }, 2000);
       }
     }
+  }
+  findRandomSpawnPoint() {
+    const MAX_ATTEMPTS = 50;
+    const MAP_RADIUS = 800;
+    const MIN_DISTANCE_FROM_CENTER = 50;
+    for (let attempt = 0;attempt < MAX_ATTEMPTS; attempt++) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = MIN_DISTANCE_FROM_CENTER + Math.random() * (MAP_RADIUS - MIN_DISTANCE_FROM_CENTER);
+      const spawnPoint = new Vector3(Math.cos(angle) * distance, 0, Math.sin(angle) * distance);
+      if (this.isValidSpawnPosition(spawnPoint)) {
+        console.log(`Found valid spawn point at (${spawnPoint.x.toFixed(2)}, ${spawnPoint.z.toFixed(2)}) on attempt ${attempt + 1}`);
+        return spawnPoint;
+      }
+    }
+    console.warn(`Could not find valid spawn point after ${MAX_ATTEMPTS} attempts, using fallback position`);
+    return new Vector3(0, 0, 0);
+  }
+  isValidSpawnPosition(position) {
+    const tempCollider = new Sphere(position.clone(), 3);
+    for (const collider of this.collisionSystem.getColliders()) {
+      if (collider === this.playerTank)
+        continue;
+      const otherColliderObj = collider.getCollider();
+      if (otherColliderObj instanceof Sphere) {
+        const distance = position.distanceTo(collider.getPosition());
+        if (distance < tempCollider.radius + otherColliderObj.radius) {
+          return false;
+        }
+      } else if (otherColliderObj instanceof Box3) {
+        if (otherColliderObj.intersectsSphere(tempCollider)) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
   showPlayerDeathEffects() {
     this.showDamageOverlay = true;

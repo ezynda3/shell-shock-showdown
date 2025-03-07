@@ -457,8 +457,16 @@ export class MapGenerator {
     }
   }
   
-  // Method to get all colliders for collision detection
+  // Methods to get colliders for collision detection
   getAllColliders(): ICollidable[] {
     return [...this.treeColliders, ...this.rockColliders];
+  }
+  
+  getTreeColliders(): ICollidable[] {
+    return [...this.treeColliders];
+  }
+  
+  getRockColliders(): ICollidable[] {
+    return [...this.rockColliders];
   }
 }
