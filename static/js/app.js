@@ -26263,6 +26263,7 @@ class Shell {
       return false;
     this.lifeTime++;
     if (this.lifeTime >= this.MAX_LIFETIME) {
+      this.createExplosion(this.mesh.position.clone(), 0.5);
       this.destroy();
       return false;
     }
@@ -26272,6 +26273,10 @@ class Shell {
     this.updateTrail();
     if (this.mesh.position.y < 0) {
       this.createExplosion(new Vector3(this.mesh.position.x, 0, this.mesh.position.z));
+      this.scene.remove(this.mesh);
+      if (this.trail) {
+        this.scene.remove(this.trail);
+      }
       this.destroy();
       return false;
     }
@@ -26303,6 +26308,10 @@ class Shell {
     if (other === this.owner || !this.isActive)
       return;
     this.isActive = false;
+    this.scene.remove(this.mesh);
+    if (this.trail) {
+      this.scene.remove(this.trail);
+    }
     this.createExplosion(this.mesh.position.clone());
     if (other.getType() === "tank") {
       const tank = other;
@@ -26333,7 +26342,6 @@ class Shell {
       });
       document.dispatchEvent(hitEvent);
     }
-    this.destroy();
   }
   isAlive() {
     return this.isActive;
@@ -26342,11 +26350,13 @@ class Shell {
     return this.owner;
   }
   destroy() {
-    this.scene.remove(this.mesh);
-    if (this.trail) {
+    this.isActive = false;
+    if (this.mesh.parent) {
+      this.scene.remove(this.mesh);
+    }
+    if (this.trail && this.trail.parent) {
       this.scene.remove(this.trail);
     }
-    this.isActive = false;
   }
   initializeTrail(initialPosition) {
     this.trailPositions = new Float32Array(this.TRAIL_LENGTH * 3);
@@ -26375,7 +26385,7 @@ class Shell {
     this.trail = new Points(this.trailGeometry, trailMaterial);
     this.scene.add(this.trail);
   }
-  createExplosion(position) {
+  createExplosion(position, sizeScale = 1) {
     const particleCount = 30;
     const geometry = new BufferGeometry;
     const positions = new Float32Array(particleCount * 3);
@@ -26392,13 +26402,14 @@ class Shell {
     geometry.setAttribute("position", new BufferAttribute(positions, 3));
     geometry.setAttribute("color", new BufferAttribute(colors, 3));
     const material = new PointsMaterial({
-      size: 0.2,
+      size: 0.2 * sizeScale,
       vertexColors: true,
       transparent: true,
       opacity: 0.8
     });
     const particles = new Points(geometry, material);
     particles.position.copy(position);
+    particles.scale.set(sizeScale, sizeScale, sizeScale);
     this.scene.add(particles);
     let frame = 0;
     const MAX_FRAMES = 20;
@@ -26407,7 +26418,7 @@ class Shell {
         this.scene.remove(particles);
         return;
       }
-      const scale = 1 + frame * 0.1;
+      const scale = sizeScale * (1 + frame * 0.1);
       particles.scale.set(scale, scale, scale);
       const opacity = 1 - frame / MAX_FRAMES;
       if (material.opacity !== undefined) {
@@ -27568,6 +27579,10 @@ class GameComponent extends LitElement {
       animation: shake 0.25s ease-in-out;
     }
     
+    .camera-shake-death {
+      animation: shake-death 1.0s ease-in-out;
+    }
+    
     @keyframes shake {
       0% { transform: translate(0, 0); }
       10% { transform: translate(-5px, -5px); }
@@ -27581,22 +27596,38 @@ class GameComponent extends LitElement {
       90% { transform: translate(-5px, 0); }
       100% { transform: translate(0, 0); }
     }
+    
+    @keyframes shake-death {
+      0% { transform: translate(0, 0) rotate(0deg); }
+      10% { transform: translate(-10px, -10px) rotate(-1deg); }
+      20% { transform: translate(10px, 10px) rotate(1deg); }
+      30% { transform: translate(-10px, 10px) rotate(-1deg); }
+      40% { transform: translate(10px, -10px) rotate(1deg); }
+      50% { transform: translate(-10px, -5px) rotate(-0.5deg); }
+      60% { transform: translate(10px, 5px) rotate(0.5deg); }
+      70% { transform: translate(-10px, -10px) rotate(-1deg); }
+      80% { transform: translate(10px, 10px) rotate(1deg); }
+      90% { transform: translate(-5px, 5px) rotate(-0.5deg); }
+      100% { transform: translate(0, 0) rotate(0deg); }
+    }
   `;
   render() {
     return html`
-      <div class="${this.cameraShaking ? "camera-shake" : ""}">
-        <canvas id="canvas"></canvas>
-        <div class="damage-overlay ${this.showDamageOverlay ? "active" : ""}"></div>
-        <game-stats></game-stats>
-        <div class="controls">
-          <div>W: Forward, S: Backward</div>
-          <div>A: Rotate tank left, D: Rotate tank right</div>
-          <div>←/→: Rotate turret left/right</div>
-          <div>↑/↓: Raise/lower barrel</div>
-          <div>Space or F: Fire shell</div>
-        </div>
-        <div class="game-over ${this.playerDestroyed ? "visible" : ""}">
-          <div class="wasted-text">Wasted</div>
+      <div>
+        <div class="${this.cameraShaking ? "camera-shake" : ""}">
+          <canvas id="canvas"></canvas>
+          <div class="damage-overlay ${this.showDamageOverlay ? "active" : ""}"></div>
+          <game-stats></game-stats>
+          <div class="controls">
+            <div>W: Forward, S: Backward</div>
+            <div>A: Rotate tank left, D: Rotate tank right</div>
+            <div>←/→: Rotate turret left/right</div>
+            <div>↑/↓: Raise/lower barrel</div>
+            <div>Space or F: Fire shell</div>
+          </div>
+          <div class="game-over ${this.playerDestroyed ? "visible" : ""}">
+            <div class="wasted-text">Wasted</div>
+          </div>
         </div>
       </div>
     `;
@@ -27812,7 +27843,12 @@ class GameComponent extends LitElement {
       this.updateStats();
     }
     if (this.playerTank) {
-      this.lastPlayerHealth = this.playerTank.getHealth();
+      const currentHealth = this.playerTank.getHealth();
+      if (currentHealth < this.lastPlayerHealth && !this.playerDestroyed) {
+        console.log(`Health decreased from ${this.lastPlayerHealth} to ${currentHealth}`);
+        this.showPlayerHitEffects();
+      }
+      this.lastPlayerHealth = currentHealth;
     }
     for (const npcTank of this.npcTanks) {
       const distanceToPlayer = this.playerTank?.tank.position.distanceTo(npcTank.tank.position) || 0;
@@ -27857,8 +27893,15 @@ class GameComponent extends LitElement {
       }
     }
   }
-  showDamageEffect() {
-    console.log("Showing damage effect");
+  handleTankHit(event) {
+    const { tank, source, damageAmount } = event.detail;
+    if (tank === this.playerTank) {
+      console.log(`Player tank hit for ${damageAmount} damage!`);
+      this.showPlayerHitEffects();
+      this.updateStats();
+    }
+  }
+  showPlayerHitEffects() {
     this.showDamageOverlay = true;
     this.cameraShaking = true;
     this.requestUpdate();
@@ -27871,14 +27914,6 @@ class GameComponent extends LitElement {
       this.requestUpdate();
     }, 250);
   }
-  handleTankHit(event) {
-    const { tank, source, damageAmount } = event.detail;
-    if (tank === this.playerTank) {
-      console.log(`Player tank hit for ${damageAmount} damage!`);
-      this.showDamageEffect();
-      this.updateStats();
-    }
-  }
   handleTankDestroyed(event) {
     const { tank, source } = event.detail;
     if (tank === this.playerTank) {
@@ -27886,13 +27921,7 @@ class GameComponent extends LitElement {
       this.playerDestroyed = true;
       this.respawnTimer = 0;
       this.playerDeaths++;
-      this.showDamageOverlay = true;
-      this.cameraShaking = true;
-      this.requestUpdate();
-      setTimeout(() => {
-        this.cameraShaking = false;
-        this.requestUpdate();
-      }, 500);
+      this.showPlayerDeathEffects();
       this.updateStats();
     } else {
       console.log("NPC tank destroyed!");
@@ -27907,6 +27936,19 @@ class GameComponent extends LitElement {
         }, 2000);
       }
     }
+  }
+  showPlayerDeathEffects() {
+    this.showDamageOverlay = true;
+    const canvasContainer = this.shadowRoot?.querySelector("#canvas").parentElement;
+    if (canvasContainer) {
+      canvasContainer.classList.remove("camera-shake");
+      canvasContainer.classList.add("camera-shake-death");
+      setTimeout(() => {
+        canvasContainer.classList.remove("camera-shake-death");
+        this.requestUpdate();
+      }, 1000);
+    }
+    this.requestUpdate();
   }
   updateStats() {
     const statsComponent = this.shadowRoot?.querySelector("game-stats");

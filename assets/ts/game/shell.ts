@@ -72,6 +72,8 @@ export class Shell implements ICollidable {
     
     // Check if shell has expired
     if (this.lifeTime >= this.MAX_LIFETIME) {
+      // Create small fade-out explosion effect for expired shells
+      this.createExplosion(this.mesh.position.clone(), 0.5);
       this.destroy();
       return false;
     }
@@ -96,6 +98,12 @@ export class Shell implements ICollidable {
         0,
         this.mesh.position.z
       ));
+      
+      // Immediately remove shell visuals
+      this.scene.remove(this.mesh);
+      if (this.trail) {
+        this.scene.remove(this.trail);
+      }
       
       this.destroy();
       return false;
@@ -145,6 +153,14 @@ export class Shell implements ICollidable {
     // Immediately mark shell as inactive to prevent multiple collisions
     this.isActive = false;
     
+    // Immediately remove shell mesh from the scene
+    this.scene.remove(this.mesh);
+    
+    // Remove trail immediately
+    if (this.trail) {
+      this.scene.remove(this.trail);
+    }
+    
     // Create explosion effect
     this.createExplosion(this.mesh.position.clone());
     
@@ -190,9 +206,6 @@ export class Shell implements ICollidable {
       });
       document.dispatchEvent(hitEvent);
     }
-    
-    // Complete shell deactivation
-    this.destroy();
   }
   
   isAlive(): boolean {
@@ -204,15 +217,18 @@ export class Shell implements ICollidable {
   }
   
   private destroy(): void {
-    // Remove from scene
-    this.scene.remove(this.mesh);
+    // Set isActive to false
+    this.isActive = false;
     
-    // Remove trail
-    if (this.trail) {
-      this.scene.remove(this.trail);
+    // Remove from scene if not already removed
+    if (this.mesh.parent) {
+      this.scene.remove(this.mesh);
     }
     
-    this.isActive = false;
+    // Remove trail if not already removed
+    if (this.trail && this.trail.parent) {
+      this.scene.remove(this.trail);
+    }
   }
   
   private initializeTrail(initialPosition: THREE.Vector3): void {
@@ -256,7 +272,7 @@ export class Shell implements ICollidable {
     this.scene.add(this.trail);
   }
   
-  private createExplosion(position: THREE.Vector3): void {
+  private createExplosion(position: THREE.Vector3, sizeScale: number = 1.0): void {
     // Create explosion particle system
     const particleCount = 30;
     const geometry = new THREE.BufferGeometry();
@@ -282,7 +298,7 @@ export class Shell implements ICollidable {
     
     // Material for particles
     const material = new THREE.PointsMaterial({
-      size: 0.2,
+      size: 0.2 * sizeScale,
       vertexColors: true,
       transparent: true,
       opacity: 0.8
@@ -291,6 +307,10 @@ export class Shell implements ICollidable {
     // Create particle system
     const particles = new THREE.Points(geometry, material);
     particles.position.copy(position);
+    
+    // Apply initial scale
+    particles.scale.set(sizeScale, sizeScale, sizeScale);
+    
     this.scene.add(particles);
     
     // Animate explosion particles
@@ -304,7 +324,7 @@ export class Shell implements ICollidable {
       }
       
       // Scale particles outward
-      const scale = 1 + frame * 0.1;
+      const scale = sizeScale * (1 + frame * 0.1);
       particles.scale.set(scale, scale, scale);
       
       // Fade out

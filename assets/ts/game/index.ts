@@ -147,6 +147,10 @@ export class GameComponent extends LitElement {
       animation: shake 0.25s ease-in-out;
     }
     
+    .camera-shake-death {
+      animation: shake-death 1.0s ease-in-out;
+    }
+    
     @keyframes shake {
       0% { transform: translate(0, 0); }
       10% { transform: translate(-5px, -5px); }
@@ -160,23 +164,39 @@ export class GameComponent extends LitElement {
       90% { transform: translate(-5px, 0); }
       100% { transform: translate(0, 0); }
     }
+    
+    @keyframes shake-death {
+      0% { transform: translate(0, 0) rotate(0deg); }
+      10% { transform: translate(-10px, -10px) rotate(-1deg); }
+      20% { transform: translate(10px, 10px) rotate(1deg); }
+      30% { transform: translate(-10px, 10px) rotate(-1deg); }
+      40% { transform: translate(10px, -10px) rotate(1deg); }
+      50% { transform: translate(-10px, -5px) rotate(-0.5deg); }
+      60% { transform: translate(10px, 5px) rotate(0.5deg); }
+      70% { transform: translate(-10px, -10px) rotate(-1deg); }
+      80% { transform: translate(10px, 10px) rotate(1deg); }
+      90% { transform: translate(-5px, 5px) rotate(-0.5deg); }
+      100% { transform: translate(0, 0) rotate(0deg); }
+    }
   `;
 
   render() {
     return html`
-      <div class="${this.cameraShaking ? 'camera-shake' : ''}">
-        <canvas id="canvas"></canvas>
-        <div class="damage-overlay ${this.showDamageOverlay ? 'active' : ''}"></div>
-        <game-stats></game-stats>
-        <div class="controls">
-          <div>W: Forward, S: Backward</div>
-          <div>A: Rotate tank left, D: Rotate tank right</div>
-          <div>←/→: Rotate turret left/right</div>
-          <div>↑/↓: Raise/lower barrel</div>
-          <div>Space or F: Fire shell</div>
-        </div>
-        <div class="game-over ${this.playerDestroyed ? 'visible' : ''}">
-          <div class="wasted-text">Wasted</div>
+      <div>
+        <div class="${this.cameraShaking ? 'camera-shake' : ''}">
+          <canvas id="canvas"></canvas>
+          <div class="damage-overlay ${this.showDamageOverlay ? 'active' : ''}"></div>
+          <game-stats></game-stats>
+          <div class="controls">
+            <div>W: Forward, S: Backward</div>
+            <div>A: Rotate tank left, D: Rotate tank right</div>
+            <div>←/→: Rotate turret left/right</div>
+            <div>↑/↓: Raise/lower barrel</div>
+            <div>Space or F: Fire shell</div>
+          </div>
+          <div class="game-over ${this.playerDestroyed ? 'visible' : ''}">
+            <div class="wasted-text">Wasted</div>
+          </div>
         </div>
       </div>
     `;
@@ -546,10 +566,18 @@ export class GameComponent extends LitElement {
       this.updateStats();
     }
     
-    // Update player health tracking (but don't trigger effects here)
-    // The effects should come from handleTankHit event
+    // Update player health tracking
     if (this.playerTank) {
-      this.lastPlayerHealth = this.playerTank.getHealth();
+      const currentHealth = this.playerTank.getHealth();
+      
+      // If health decreased (but not destroyed), show damage effects
+      // This is a fallback in case the tank-hit event doesn't fire for some reason
+      if (currentHealth < this.lastPlayerHealth && !this.playerDestroyed) {
+        console.log(`Health decreased from ${this.lastPlayerHealth} to ${currentHealth}`);
+        this.showPlayerHitEffects();
+      }
+      
+      this.lastPlayerHealth = currentHealth;
     }
     
     // Update all NPC tanks, apply LOD (level of detail) based on distance and performance
@@ -621,31 +649,7 @@ export class GameComponent extends LitElement {
     }
   }
   
-  // Handle tank destroyed events from shells
-  // Show damage effect - red overlay and camera shake
-  private showDamageEffect(): void {
-    console.log("Showing damage effect");
-    
-    // Show red overlay
-    this.showDamageOverlay = true;
-    
-    // Start camera shake
-    this.cameraShaking = true;
-    
-    // Force render cycle with effects
-    this.requestUpdate();
-    
-    // Reset effects after a short delay
-    setTimeout(() => {
-      this.showDamageOverlay = false;
-      this.requestUpdate();
-    }, 500);
-    
-    setTimeout(() => {
-      this.cameraShaking = false;
-      this.requestUpdate();
-    }, 250);
-  }
+  // Removed old showDamageEffect - replaced by showPlayerHitEffects
   
   // Handle damage events for all tanks
   private handleTankHit(event: CustomEvent) {
@@ -655,12 +659,39 @@ export class GameComponent extends LitElement {
     if (tank === this.playerTank) {
       console.log(`Player tank hit for ${damageAmount} damage!`);
       
-      // Show damage effect - red overlay and camera shake
-      this.showDamageEffect();
+      // Show hit effects
+      this.showPlayerHitEffects();
       
       // Update stats
       this.updateStats();
     }
+  }
+  
+  /**
+   * Shows visual and audio effects when player is hit
+   * Applies red overlay tint and camera shake
+   */
+  private showPlayerHitEffects() {
+    // Apply red overlay effect
+    this.showDamageOverlay = true;
+    
+    // Apply camera shake
+    this.cameraShaking = true;
+    
+    // Force immediate UI update
+    this.requestUpdate();
+    
+    // Clear red overlay after a short delay
+    setTimeout(() => {
+      this.showDamageOverlay = false;
+      this.requestUpdate();
+    }, 500);
+    
+    // Clear camera shake after a shorter delay
+    setTimeout(() => {
+      this.cameraShaking = false;
+      this.requestUpdate();
+    }, 250);
   }
 
   private handleTankDestroyed(event: CustomEvent) {
@@ -673,18 +704,8 @@ export class GameComponent extends LitElement {
       this.respawnTimer = 0;
       this.playerDeaths++;
       
-      // Show longer, more intense damage effect on death
-      this.showDamageOverlay = true;
-      this.cameraShaking = true;
-      
-      // Force UI refresh to show WASTED screen
-      this.requestUpdate();
-      
-      // Reset shake after a bit, but leave overlay for WASTED screen
-      setTimeout(() => {
-        this.cameraShaking = false;
-        this.requestUpdate();
-      }, 500);
+      // Show death effects
+      this.showPlayerDeathEffects();
       
       // Update stats
       this.updateStats();
@@ -707,6 +728,31 @@ export class GameComponent extends LitElement {
         }, 2000); // 2 second delay before respawn
       }
     }
+  }
+  
+  /**
+   * Shows dramatic death effects when player is killed
+   * Includes stronger camera shake, red tint, and WASTED screen
+   */
+  private showPlayerDeathEffects() {
+    // Show red overlay
+    this.showDamageOverlay = true;
+    
+    // Apply death camera shake
+    const canvasContainer = this.shadowRoot?.querySelector('#canvas').parentElement;
+    if (canvasContainer) {
+      canvasContainer.classList.remove('camera-shake');
+      canvasContainer.classList.add('camera-shake-death');
+      
+      // Remove the death shake after a longer period
+      setTimeout(() => {
+        canvasContainer.classList.remove('camera-shake-death');
+        this.requestUpdate();
+      }, 1000);
+    }
+    
+    // Force UI refresh to show WASTED screen
+    this.requestUpdate();
   }
   
   private updateStats(): void {
