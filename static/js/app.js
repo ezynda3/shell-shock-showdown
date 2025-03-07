@@ -28001,11 +28001,11 @@ class GameComponent extends LitElement {
   createCrosshair() {
     if (!this.scene || !this.camera)
       return;
-    const crosshairSize = 0.01;
+    const crosshairSize = 0.1;
     const crosshairMaterial = new LineBasicMaterial({
       color: 16777215,
       linewidth: 2,
-      depthTest: false
+      depthTest: true
     });
     const crosshairGeometry = new BufferGeometry;
     const vertices = new Float32Array([
@@ -28026,15 +28026,29 @@ class GameComponent extends LitElement {
     const crosshair = new LineSegments(crosshairGeometry, crosshairMaterial);
     this.crosshairObject = new Object3D;
     this.crosshairObject.add(crosshair);
-    this.crosshairObject.position.z = -0.3;
-    crosshair.renderOrder = 999;
-    this.camera.add(this.crosshairObject);
-    this.crosshairObject.updateMatrix();
-    this.camera.updateMatrixWorld(true);
-    if (this.scene) {
-      this.scene.updateMatrixWorld(true);
+    this.scene.add(this.crosshairObject);
+    this.updateCrosshairPosition();
+    console.log("THREE.js crosshair created - will follow barrel direction");
+  }
+  updateCrosshairPosition() {
+    if (!this.playerTank || !this.crosshairObject || !this.scene)
+      return;
+    const distance = 50;
+    const barrelEndPosition = new Vector3(0, 0, 1.5);
+    barrelEndPosition.applyEuler(new Euler(this.playerTank.barrelPivot.rotation.x, 0, 0));
+    barrelEndPosition.applyEuler(new Euler(0, this.playerTank.turretPivot.rotation.y, 0));
+    barrelEndPosition.applyEuler(new Euler(0, this.playerTank.tank.rotation.y, 0));
+    barrelEndPosition.add(this.playerTank.turretPivot.position.clone().add(this.playerTank.tank.position));
+    const direction = new Vector3(0, 0, 1);
+    direction.applyEuler(new Euler(this.playerTank.barrelPivot.rotation.x, 0, 0));
+    direction.applyEuler(new Euler(0, this.playerTank.turretPivot.rotation.y, 0));
+    direction.applyEuler(new Euler(0, this.playerTank.tank.rotation.y, 0));
+    direction.normalize();
+    const crosshairPosition = barrelEndPosition.clone().add(direction.multiplyScalar(distance));
+    this.crosshairObject.position.copy(crosshairPosition);
+    if (this.camera) {
+      this.crosshairObject.lookAt(this.camera.position);
     }
-    console.log("THREE.js crosshair created");
   }
   isPointerLocked = false;
   mouseX = 0;
@@ -28157,6 +28171,7 @@ class GameComponent extends LitElement {
     if (this.camera) {
       window.cameraPosition = this.camera.position;
     }
+    this.updateCrosshairPosition();
     this.collisionSystem.checkCollisions();
     const allColliders = this.collisionSystem.getColliders();
     if (this.playerTank) {

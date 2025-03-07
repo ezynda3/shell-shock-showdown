@@ -501,11 +501,11 @@ export class GameComponent extends LitElement {
     if (!this.scene || !this.camera) return;
     
     // Create a simple plus-shaped crosshair using lines
-    const crosshairSize = 0.01;
+    const crosshairSize = 0.1; // Larger size so it's visible at a distance
     const crosshairMaterial = new THREE.LineBasicMaterial({ 
       color: 0xffffff,  // White
       linewidth: 2,     // Line width (note: not supported in WebGL)
-      depthTest: false  // Ensures the crosshair is always drawn on top
+      depthTest: true   // We want depth testing for this crosshair
     });
     
     // Create the crosshair geometry
@@ -527,27 +527,94 @@ export class GameComponent extends LitElement {
     // Create the crosshair line segments
     const crosshair = new THREE.LineSegments(crosshairGeometry, crosshairMaterial);
     
-    // Create a container that will be attached to the camera
+    // Create a container for the crosshair
     this.crosshairObject = new THREE.Object3D();
     this.crosshairObject.add(crosshair);
     
-    // Position it in front of the camera
-    this.crosshairObject.position.z = -0.3;
+    // We'll add it to the scene, not the camera
+    this.scene.add(this.crosshairObject);
     
-    // Set render order to ensure it renders on top
-    crosshair.renderOrder = 999;
+    // Initial position update
+    this.updateCrosshairPosition();
     
-    // Add it to the camera so it moves with the camera
-    this.camera.add(this.crosshairObject);
+    console.log("THREE.js crosshair created - will follow barrel direction");
+  }
+  
+  private updateCrosshairPosition() {
+    if (!this.playerTank || !this.crosshairObject || !this.scene) return;
     
-    // Make sure the new object is properly transformed
-    this.crosshairObject.updateMatrix();
-    this.camera.updateMatrixWorld(true);
-    if (this.scene) {
-      this.scene.updateMatrixWorld(true);
+    // Distance to project the crosshair
+    const distance = 50; // Units in front of barrel
+    
+    // Get barrel end position and firing direction 
+    // (Similar to the logic in Tank.fireShell method)
+    // Use a fixed offset value since we don't have direct access to Tank's BARREL_END_OFFSET
+    const barrelEndPosition = new THREE.Vector3(0, 0, 1.5); // 1.5 matches Tank.BARREL_END_OFFSET
+    
+    // Apply barrel elevation
+    barrelEndPosition.applyEuler(new THREE.Euler(
+      this.playerTank.barrelPivot.rotation.x,
+      0,
+      0
+    ));
+    
+    // Apply turret rotation
+    barrelEndPosition.applyEuler(new THREE.Euler(
+      0,
+      this.playerTank.turretPivot.rotation.y,
+      0
+    ));
+    
+    // Apply tank rotation and position
+    barrelEndPosition.applyEuler(new THREE.Euler(
+      0,
+      this.playerTank.tank.rotation.y,
+      0
+    ));
+    
+    // Add to tank and turret position
+    barrelEndPosition.add(this.playerTank.turretPivot.position.clone().add(this.playerTank.tank.position));
+    
+    // Calculate firing direction
+    const direction = new THREE.Vector3(0, 0, 1); // Forward vector
+    
+    // Apply barrel elevation
+    direction.applyEuler(new THREE.Euler(
+      this.playerTank.barrelPivot.rotation.x,
+      0,
+      0
+    ));
+    
+    // Apply turret rotation
+    direction.applyEuler(new THREE.Euler(
+      0,
+      this.playerTank.turretPivot.rotation.y,
+      0
+    ));
+    
+    // Apply tank rotation
+    direction.applyEuler(new THREE.Euler(
+      0,
+      this.playerTank.tank.rotation.y,
+      0
+    ));
+    
+    // Normalize direction vector
+    direction.normalize();
+    
+    // Calculate crosshair position by extending from barrel end
+    // in the direction the barrel is pointing
+    const crosshairPosition = barrelEndPosition.clone().add(
+      direction.multiplyScalar(distance)
+    );
+    
+    // Update crosshair position
+    this.crosshairObject.position.copy(crosshairPosition);
+    
+    // Make the crosshair face the camera
+    if (this.camera) {
+      this.crosshairObject.lookAt(this.camera.position);
     }
-    
-    console.log("THREE.js crosshair created");
   }
   
   // Pointer lock variables
@@ -745,6 +812,9 @@ export class GameComponent extends LitElement {
     if (this.camera) {
       (window as any).cameraPosition = this.camera.position;
     }
+    
+    // Update crosshair position to align with tank barrel
+    this.updateCrosshairPosition();
     
     // Run the collision system check
     this.collisionSystem.checkCollisions();
