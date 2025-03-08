@@ -9,8 +9,8 @@ export class Shell implements ICollidable {
   private collider: THREE.Sphere;
   private isActive: boolean = true;
   private lifeTime: number = 0;
-  private readonly MAX_LIFETIME: number = 600; // 10 seconds at 60fps - doubled for longer range
-  private readonly GRAVITY: number = 0.01; // Reduced gravity for much longer arcs
+  private readonly MAX_LIFETIME: number = 1200; // 20 seconds at 60fps - 5x longer range
+  private readonly GRAVITY: number = 0.005; // Greatly reduced gravity for extreme arcs
   private readonly COLLISION_RADIUS: number = 0.2;
   
   // Unique shell ID for tracking and deduplication

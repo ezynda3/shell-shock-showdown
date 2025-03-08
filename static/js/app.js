@@ -29064,8 +29064,8 @@ class Shell {
   collider;
   isActive = true;
   lifeTime = 0;
-  MAX_LIFETIME = 600;
-  GRAVITY = 0.01;
+  MAX_LIFETIME = 1200;
+  GRAVITY = 0.005;
   COLLISION_RADIUS = 0.2;
   shellId;
   source;
@@ -29580,10 +29580,10 @@ class Tank {
   fireSound;
   explodeSound;
   lastMoveSoundState = false;
-  tankSpeed = 0.15;
-  tankRotationSpeed = 0.05;
-  turretRotationSpeed = 0.04;
-  barrelElevationSpeed = 0.03;
+  tankSpeed = 2.5;
+  tankRotationSpeed = 0.25;
+  turretRotationSpeed = 0.1;
+  barrelElevationSpeed = 0.08;
   maxBarrelElevation = 0;
   minBarrelElevation = -Math.PI / 4;
   tankName;
@@ -29598,11 +29598,11 @@ class Tank {
   collisionRadius = 2;
   lastPosition = new Vector3;
   canFire = true;
-  RELOAD_TIME = 60;
+  RELOAD_TIME = 30;
   reloadCounter = 0;
   lastFireTime = 0;
-  FIRE_COOLDOWN_MS = 1000;
-  SHELL_SPEED = 6;
+  FIRE_COOLDOWN_MS = 500;
+  SHELL_SPEED = 10;
   BARREL_END_OFFSET = 1.5;
   health = 100;
   MAX_HEALTH = 100;
@@ -29845,8 +29845,8 @@ class Tank {
     barrelGroup.add(muzzleBrake);
   }
   acceleration = 0;
-  maxAcceleration = 0.01;
-  maxDeceleration = 0.02;
+  maxAcceleration = 0.15;
+  maxDeceleration = 0.2;
   engineRPM = 0;
   trackRotationSpeed = 0;
   MAX_ENGINE_RPM = 1.5;
@@ -29859,9 +29859,9 @@ class Tank {
     this.acceleration = this.acceleration * 0.9 + targetAcceleration * 0.1;
     this.velocity += this.acceleration;
     if (!keys["w"] && !keys["W"] && !keys["s"] && !keys["S"]) {
-      this.velocity *= 0.95;
+      this.velocity *= 0.92;
     }
-    const maxSpeed = 0.2;
+    const maxSpeed = 3;
     this.velocity = Math.max(-maxSpeed, Math.min(maxSpeed, this.velocity));
     if (Math.abs(this.velocity) > 0.001) {
       this.tank.position.x += Math.sin(this.tank.rotation.y) * this.velocity;
@@ -31897,6 +31897,11 @@ class GameComponent extends LitElement {
       width: 100%;
       height: 100%;
       display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
     }
 
     .controls {
@@ -32756,9 +32761,11 @@ class GameComponent extends LitElement {
   handleResize() {
     if (!this.camera || !this.renderer)
       return;
-    this.camera.aspect = this.canvas.clientWidth / this.canvas.clientHeight;
+    const parentWidth = this.canvas.parentElement?.clientWidth || this.canvas.clientWidth;
+    const parentHeight = this.canvas.parentElement?.clientHeight || this.canvas.clientHeight;
+    this.camera.aspect = parentWidth / parentHeight;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
+    this.renderer.setSize(parentWidth, parentHeight);
   }
   frameCounter = 0;
   animate() {

@@ -246,6 +246,11 @@ export class GameComponent extends LitElement {
       width: 100%;
       height: 100%;
       display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
     }
 
     .controls {
@@ -1552,9 +1557,12 @@ export class GameComponent extends LitElement {
   private handleResize() {
     if (!this.camera || !this.renderer) return;
     
-    this.camera.aspect = this.canvas.clientWidth / this.canvas.clientHeight;
+    const parentWidth = this.canvas.parentElement?.clientWidth || this.canvas.clientWidth;
+    const parentHeight = this.canvas.parentElement?.clientHeight || this.canvas.clientHeight;
+    
+    this.camera.aspect = parentWidth / parentHeight;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
+    this.renderer.setSize(parentWidth, parentHeight);
   }
 
   // Track frame counts for throttled operations

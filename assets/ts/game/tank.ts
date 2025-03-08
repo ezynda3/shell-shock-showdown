@@ -191,10 +191,10 @@ export class Tank implements ITank {
   protected lastMoveSoundState: boolean = false;
   
   // Tank properties
-  private tankSpeed = 0.15;
-  private tankRotationSpeed = 0.05;
-  private turretRotationSpeed = 0.04;
-  private barrelElevationSpeed = 0.03;
+  private tankSpeed = 2.5; // Increased 5x from original 0.15 for extreme speed
+  private tankRotationSpeed = 0.25; // Increased 5x from original 0.05 for rapid turning
+  private turretRotationSpeed = 0.1; // Increased from 0.04 for faster aiming
+  private barrelElevationSpeed = 0.08; // Increased from 0.03 for quicker elevation changes
   private maxBarrelElevation = 0;           // Barrel can't go lower than starting position
   private minBarrelElevation = -Math.PI / 4; // Barrel pointing up limit
   private tankName: string;                  // Name to display above tank
@@ -216,11 +216,11 @@ export class Tank implements ITank {
   
   // Firing properties
   private canFire = true;
-  private readonly RELOAD_TIME = 60; // 1 second cooldown at 60fps
+  private readonly RELOAD_TIME = 30; // Half-second cooldown at 60fps - 2x faster firing
   private reloadCounter = 0;
   private lastFireTime: number = 0;
-  private readonly FIRE_COOLDOWN_MS: number = 1000; // 1 second cooldown in milliseconds
-  private readonly SHELL_SPEED = 6.0; // 4x from 1.5 for much longer range
+  private readonly FIRE_COOLDOWN_MS: number = 500; // Half-second cooldown in milliseconds
+  private readonly SHELL_SPEED = 10.0; // Massively increased from 1.5 for extreme range
   private readonly BARREL_END_OFFSET = 1.5; // Distance from turret pivot to end of barrel
   
   // Health properties
@@ -577,8 +577,8 @@ export class Tank implements ITank {
 
   // Track movement physics properties
   private acceleration: number = 0;
-  private maxAcceleration: number = 0.01;
-  private maxDeceleration: number = 0.02;
+  private maxAcceleration: number = 0.15; // Increased 5x from original 0.01 for lightning acceleration
+  private maxDeceleration: number = 0.2; // Increased 5x from original 0.02 for superior handling
   private engineRPM: number = 0;
   private trackRotationSpeed: number = 0;
   private readonly MAX_ENGINE_RPM: number = 1.5;
@@ -604,11 +604,11 @@ export class Tank implements ITank {
     
     // Apply friction/drag when no input
     if (!keys['w'] && !keys['W'] && !keys['s'] && !keys['S']) {
-      this.velocity *= 0.95; // Gradual slowdown
+      this.velocity *= 0.92; // Quicker slowdown for better control at high speeds
     }
     
     // Clamp velocity to max speed
-    const maxSpeed = 0.2;
+    const maxSpeed = 3.0; // Increased 5x from original 0.2 for extreme max speed
     this.velocity = Math.max(-maxSpeed, Math.min(maxSpeed, this.velocity));
     
     // Update position based on velocity and tank rotation
