@@ -75,10 +75,16 @@ export class CollisionSystem {
     const typeB = objB.getType();
     
     // Skip collision between static environment objects
+    // Static objects should not collide with each other
     if ((typeA === 'tree' && typeB === 'tree') || 
         (typeA === 'rock' && typeB === 'rock') ||
         (typeA === 'tree' && typeB === 'rock') ||
-        (typeA === 'rock' && typeB === 'tree')) {
+        (typeA === 'rock' && typeB === 'tree') ||
+        (typeA === 'building' && typeB === 'building') ||
+        (typeA === 'building' && typeB === 'tree') ||
+        (typeA === 'tree' && typeB === 'building') ||
+        (typeA === 'building' && typeB === 'rock') ||
+        (typeA === 'rock' && typeB === 'building')) {
       return true;
     }
     

@@ -26147,7 +26147,7 @@ class CollisionSystem {
   shouldSkipCollision(objA, objB) {
     const typeA = objA.getType();
     const typeB = objB.getType();
-    if (typeA === "tree" && typeB === "tree" || typeA === "rock" && typeB === "rock" || typeA === "tree" && typeB === "rock" || typeA === "rock" && typeB === "tree") {
+    if (typeA === "tree" && typeB === "tree" || typeA === "rock" && typeB === "rock" || typeA === "tree" && typeB === "rock" || typeA === "rock" && typeB === "tree" || typeA === "building" && typeB === "building" || typeA === "building" && typeB === "tree" || typeA === "tree" && typeB === "building" || typeA === "building" && typeB === "rock" || typeA === "rock" && typeB === "building") {
       return true;
     }
     if (typeA === "shell" && typeB === "tank") {
@@ -26612,7 +26612,8 @@ class MapGenerator {
     buildingMesh.receiveShadow = true;
     this.scene.add(buildingMesh);
     const colliderPosition = new Vector3(x, height / 2, z);
-    const buildingCollider = new StaticCollider(colliderPosition, "building", Math.max(width, depth) / 2);
+    const colliderSize = new Vector3(width, height, depth);
+    const buildingCollider = new StaticCollider(colliderPosition, "building", undefined, colliderSize);
     this.buildingColliders.push(buildingCollider);
     return buildingCollider;
   }

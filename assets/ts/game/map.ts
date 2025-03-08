@@ -599,7 +599,9 @@ export class MapGenerator {
     
     // Create a collider box for the building
     const colliderPosition = new THREE.Vector3(x, height / 2, z);
-    const buildingCollider = new StaticCollider(colliderPosition, 'building', Math.max(width, depth) / 2);
+    // Use box collider instead of sphere for better building collision
+    const colliderSize = new THREE.Vector3(width, height, depth);
+    const buildingCollider = new StaticCollider(colliderPosition, 'building', undefined, colliderSize);
     this.buildingColliders.push(buildingCollider);
     
     return buildingCollider;
