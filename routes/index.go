@@ -12,6 +12,8 @@ import (
 
 	"github.com/mark3labs/pro-saaskit/middleware"
 	"github.com/mark3labs/pro-saaskit/views"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
 	datastar "github.com/starfederation/datastar/sdk/go"
@@ -131,7 +133,7 @@ func cleanupGameState() {
 	gameState.Shells = activeShells
 }
 
-func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
+func setupIndexRoutes(router *router.Router[*core.RequestEvent], nc *nats.Conn, js jetstream.JetStream, kv jetstream.KeyValue) error {
 	// Initialize random seed for spawn positions
 	rand.Seed(time.Now().UnixNano())
 
@@ -139,10 +141,48 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 	protected := router.Group("")
 	protected.BindFunc(middleware.AuthGuard)
 
+	// Load initial game state from KV store or initialize if not exists
+	ctx := context.Background()
+	entry, err := kv.Get(ctx, "current")
+	if err == nil {
+		// Game state exists, unmarshal it
+		if err := json.Unmarshal(entry.Value(), &gameState); err != nil {
+			log.Printf("Error unmarshaling game state from KV: %v, initializing new state", err)
+			// Initialize gameState with defaults (already done in var declaration)
+		}
+		log.Printf("Loaded game state from KV store with %d players and %d shells", 
+			len(gameState.Players), len(gameState.Shells))
+	} else {
+		log.Printf("No existing game state found in KV store, initializing new state")
+		// Initialize gameState with defaults (already done in var declaration)
+		
+		// Save initial game state to KV
+		stateJSON, _ := json.Marshal(gameState)
+		if _, err := kv.Put(ctx, "current", stateJSON); err != nil {
+			log.Printf("Error saving initial game state to KV: %v", err)
+		}
+	}
+
 	// Start a goroutine to clean up inactive players and expired shells
+	// and periodically save to KV store
 	go func() {
 		for {
+			// Clean up game state
 			cleanupGameState()
+			
+			// Save current game state to KV store
+			gameStateMutex.RLock()
+			stateJSON, err := json.Marshal(gameState)
+			gameStateMutex.RUnlock()
+			
+			if err == nil {
+				if _, err := kv.Put(ctx, "current", stateJSON); err != nil {
+					log.Printf("Error saving game state to KV: %v", err)
+				}
+			} else {
+				log.Printf("Error marshaling game state for KV: %v", err)
+			}
+			
 			time.Sleep(2 * time.Second)
 		}
 	}()
@@ -197,6 +237,12 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 				gameState.Shells = gameState.Shells[len(gameState.Shells)-100:]
 			}
 			gameStateMutex.Unlock()
+
+			// Publish shell fired event to NATS
+			shellJSON, _ := json.Marshal(newShell)
+			if err := nc.Publish("shells.fired", shellJSON); err != nil {
+				log.Printf("Error publishing shell fired event to NATS: %v", err)
+			}
 
 			log.Printf("Added new shell %s from player %s", newShell.ID, playerID)
 			sse.MergeSignals([]byte("{shellFired:''}"))
@@ -258,6 +304,12 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent]) error {
 			gameStateMutex.Lock()
 			gameState.Players[playerID] = playerUpdate
 			gameStateMutex.Unlock()
+
+			// Publish player update to NATS
+			playerJSON, _ := json.Marshal(playerUpdate)
+			if err := nc.Publish("players.updated", playerJSON); err != nil {
+				log.Printf("Error publishing player update to NATS: %v", err)
+			}
 
 			log.Printf("Updated player %s at position (%f, %f, %f)",
 				playerID,

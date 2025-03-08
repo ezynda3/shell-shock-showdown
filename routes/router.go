@@ -5,14 +5,17 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
 )
 
-func SetupRoutes(ctx context.Context, router *router.Router[*core.RequestEvent]) error {
+// SetupRoutes initializes all routes with NATS, JetStream, and KV
+func SetupRoutes(ctx context.Context, router *router.Router[*core.RequestEvent], nc *nats.Conn, js jetstream.JetStream, kv jetstream.KeyValue) error {
 
 	err := errors.Join(
-		setupIndexRoutes(router),
+		setupIndexRoutes(router, nc, js, kv),
 		setupAuthRoutes(router),
 	)
 	if err != nil {
