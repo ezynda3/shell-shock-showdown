@@ -29108,41 +29108,44 @@ class GameComponent extends LitElement {
     }
   }
   addDebugVisualToRemoteTank(remoteTank) {
-    const cubeSize = 10;
-    const geometry = new BoxGeometry(cubeSize, cubeSize, cubeSize);
+    const triangleHeight = 5;
+    const triangleWidth = 4;
+    const geometry = new BufferGeometry;
+    const vertices = new Float32Array([
+      0,
+      0,
+      0,
+      -triangleWidth / 2,
+      triangleHeight,
+      0,
+      triangleWidth / 2,
+      triangleHeight,
+      0
+    ]);
+    geometry.setAttribute("position", new BufferAttribute(vertices, 3));
+    geometry.setIndex([0, 1, 2]);
     const material = new MeshBasicMaterial({
-      color: 35071,
+      color: 16711680,
       transparent: true,
-      opacity: 0.3,
-      wireframe: true,
-      wireframeLinewidth: 2
+      opacity: 0.8,
+      side: DoubleSide
     });
-    const debugCube = new Mesh(geometry, material);
-    debugCube.position.set(0, cubeSize / 2, 0);
-    remoteTank.tank.add(debugCube);
-    const canvas = document.createElement("canvas");
-    canvas.width = 256;
-    canvas.height = 128;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.fillStyle = "rgba(0, 0, 100, 0.8)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.font = "bold 36px Arial";
-      ctx.fillStyle = "white";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("REMOTE PLAYER", canvas.width / 2, canvas.height / 2);
-      const texture = new CanvasTexture(canvas);
-      const spriteMaterial = new SpriteMaterial({
-        map: texture,
-        transparent: true
-      });
-      const sprite = new Sprite(spriteMaterial);
-      sprite.position.set(0, cubeSize, 0);
-      sprite.scale.set(10, 5, 1);
-      remoteTank.tank.add(sprite);
-    }
-    console.log("Added debug visual to remote tank");
+    const triangleMesh = new Mesh(geometry, material);
+    triangleMesh.position.set(0, 6, 0);
+    triangleMesh.userData = {
+      bobOffset: Math.random() * Math.PI * 2,
+      bobSpeed: 1.5 + Math.random() * 0.5
+    };
+    const animate = function() {
+      if (triangleMesh && triangleMesh.userData) {
+        triangleMesh.position.y = 6 + Math.sin(Date.now() * 0.003 + triangleMesh.userData.bobOffset) * 0.5;
+        triangleMesh.rotation.y += 0.02;
+        requestAnimationFrame(animate);
+      }
+    };
+    animate();
+    remoteTank.tank.add(triangleMesh);
+    console.log("Added bobbing red triangle to remote tank");
   }
   updateRemoteTankPosition(tank, playerData) {
     try {

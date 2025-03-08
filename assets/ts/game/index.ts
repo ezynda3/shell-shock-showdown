@@ -714,51 +714,59 @@ export class GameComponent extends LitElement {
   
   // Add debug visualization to remote tank
   private addDebugVisualToRemoteTank(remoteTank: NPCTank): void {
-    // Create a larger transparent blue cube around the tank
-    const cubeSize = 10; // Large size to be very visible
-    const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+    // Create a red triangle that bobs up and down
+    const triangleHeight = 5; // Height of the triangle
+    const triangleWidth = 4;  // Width of the triangle at the base
+    
+    // Create an upside-down triangle geometry
+    const geometry = new THREE.BufferGeometry();
+    const vertices = new Float32Array([
+      0, 0, 0,                 // bottom point
+      -triangleWidth/2, triangleHeight, 0,  // top left
+      triangleWidth/2, triangleHeight, 0    // top right
+    ]);
+    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    geometry.setIndex([0, 1, 2]); // Connect vertices to form a triangle
+    
+    // Create a red material
     const material = new THREE.MeshBasicMaterial({
-      color: 0x0088ff,
+      color: 0xff0000,        // Bright red
       transparent: true,
-      opacity: 0.3,
-      wireframe: true,
-      wireframeLinewidth: 2
+      opacity: 0.8,
+      side: THREE.DoubleSide  // Visible from both sides
     });
     
-    // Create the cube and add it to the tank
-    const debugCube = new THREE.Mesh(geometry, material);
-    debugCube.position.set(0, cubeSize/2, 0); // Center height on the tank
-    remoteTank.tank.add(debugCube);
+    // Create the triangle mesh
+    const triangleMesh = new THREE.Mesh(geometry, material);
     
-    // Also add a floating text label using sprite
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 128;
+    // Position it above the tank
+    triangleMesh.position.set(0, 6, 0);
     
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.fillStyle = 'rgba(0, 0, 100, 0.8)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.font = 'bold 36px Arial';
-      ctx.fillStyle = 'white';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('REMOTE PLAYER', canvas.width/2, canvas.height/2);
-      
-      const texture = new THREE.CanvasTexture(canvas);
-      const spriteMaterial = new THREE.SpriteMaterial({ 
-        map: texture,
-        transparent: true
-      });
-      
-      const sprite = new THREE.Sprite(spriteMaterial);
-      sprite.position.set(0, cubeSize, 0); // Position above the tank
-      sprite.scale.set(10, 5, 1); // Scale the sprite
-      
-      remoteTank.tank.add(sprite);
-    }
+    // Add animation data as properties on the mesh object
+    triangleMesh.userData = {
+      bobOffset: Math.random() * Math.PI * 2, // Random start phase
+      bobSpeed: 1.5 + Math.random() * 0.5     // Slightly random speed
+    };
     
-    console.log('Added debug visual to remote tank');
+    // Add an update function for the animation
+    // This will be called in the animation loop
+    const animate = function() {
+      if (triangleMesh && triangleMesh.userData) {
+        triangleMesh.position.y = 6 + Math.sin(Date.now() * 0.003 + triangleMesh.userData.bobOffset) * 0.5;
+        triangleMesh.rotation.y += 0.02; // Rotate about y-axis
+        requestAnimationFrame(animate);
+      }
+    };
+    
+    // Start the animation
+    animate();
+    
+    // Add the triangle to the tank
+    remoteTank.tank.add(triangleMesh);
+    
+    // No more text label - just the triangle
+    
+    console.log('Added bobbing red triangle to remote tank');
   }
   
   // Update an existing remote tank's position and rotation
