@@ -187,7 +187,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], nc *nats.Conn, 
 				log.Printf("Error marshaling game state for KV: %v", err)
 			}
 
-			time.Sleep(2 * time.Second)
+			time.Sleep(250 * time.Millisecond)
 		}
 	}()
 
