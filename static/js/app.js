@@ -28011,40 +28011,91 @@ class CollisionSystem {
   getColliders() {
     return this.colliders;
   }
+  activeCollidersCache = [];
+  collidersDirty = true;
+  frameCounter = 0;
+  addCollider(collider) {
+    this.colliders.push(collider);
+    this.collidersDirty = true;
+  }
+  removeCollider(collider) {
+    const index = this.colliders.indexOf(collider);
+    if (index !== -1) {
+      this.colliders.splice(index, 1);
+      this.collidersDirty = true;
+    }
+  }
   checkCollisions() {
-    const currentColliders = [...this.colliders];
-    const activeColliders = currentColliders.filter((collider) => {
-      if (collider.getType() === "shell") {
-        const shell = collider;
-        if (shell.isAlive && !shell.isAlive()) {
-          return false;
+    this.frameCounter++;
+    if (this.collidersDirty) {
+      this.activeCollidersCache = this.colliders.filter((collider) => {
+        if (collider.getType() === "shell") {
+          const shell = collider;
+          if (shell.isAlive && !shell.isAlive()) {
+            return false;
+          }
+          if (shell.hasProcessedCollision) {
+            return false;
+          }
         }
-        if (shell.hasProcessedCollision) {
-          return false;
-        }
-      }
-      return true;
-    });
-    for (let i = 0;i < activeColliders.length; i++) {
-      const objA = activeColliders[i];
-      for (let j = i + 1;j < activeColliders.length; j++) {
-        const objB = activeColliders[j];
-        if (this.shouldSkipCollision(objA, objB)) {
+        return true;
+      });
+      this.collidersDirty = false;
+    }
+    const activeColliders = this.activeCollidersCache;
+    const shells = activeColliders.filter((c) => c.getType() === "shell");
+    const tanks = activeColliders.filter((c) => c.getType() === "tank");
+    const staticObjects = activeColliders.filter((c) => c.getType() !== "shell" && c.getType() !== "tank");
+    for (const shell of shells) {
+      for (const tank of tanks) {
+        if (this.shouldSkipCollision(shell, tank)) {
           continue;
         }
-        if (this.testCollision(objA, objB)) {
-          if (objA.getType() === "shell" && objA.onCollision) {
-            objA.onCollision(objB);
-          } else if (objB.getType() === "shell" && objB.onCollision) {
-            objB.onCollision(objA);
-          } else {
-            if (objA.onCollision)
-              objA.onCollision(objB);
-            if (objB.onCollision)
-              objB.onCollision(objA);
+        if (this.testCollision(shell, tank)) {
+          if (shell.onCollision) {
+            shell.onCollision(tank);
           }
         }
       }
+    }
+    for (const shell of shells) {
+      if (shell.hasProcessedCollision)
+        continue;
+      for (const staticObj of staticObjects) {
+        if (this.testCollision(shell, staticObj)) {
+          if (shell.onCollision) {
+            shell.onCollision(staticObj);
+          }
+        }
+      }
+    }
+    if (this.frameCounter % 2 === 0) {
+      for (let i = 0;i < tanks.length; i++) {
+        const tankA = tanks[i];
+        for (let j = i + 1;j < tanks.length; j++) {
+          const tankB = tanks[j];
+          if (this.testCollision(tankA, tankB)) {
+            if (tankA.onCollision)
+              tankA.onCollision(tankB);
+            if (tankB.onCollision)
+              tankB.onCollision(tankA);
+          }
+        }
+      }
+    }
+    for (const tank of tanks) {
+      const isMoving = tank.isMoving?.() ?? true;
+      if (!isMoving)
+        continue;
+      for (const staticObj of staticObjects) {
+        if (this.testCollision(tank, staticObj)) {
+          if (tank.onCollision)
+            tank.onCollision(staticObj);
+        }
+      }
+    }
+    if (shells.length > 0) {
+      this.collidersDirty = true;
     }
   }
   shouldSkipCollision(objA, objB) {
@@ -28208,23 +28259,23 @@ class MapGenerator {
   }
   createPineTree(scale, x, z) {
     const tree = new Group;
-    const trunkGeometry = new CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 8);
+    const trunkGeometry = new CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 6);
     const trunk = new Mesh(trunkGeometry, this.trunkMaterial);
     trunk.position.y = 0.75 * scale;
     trunk.castShadow = true;
     trunk.receiveShadow = true;
     tree.add(trunk);
-    const foliageGeometry1 = new ConeGeometry(1 * scale, 2 * scale, 8);
+    const foliageGeometry1 = new ConeGeometry(1 * scale, 2 * scale, 6);
     const foliage1 = new Mesh(foliageGeometry1, this.leafMaterial);
     foliage1.position.y = 2 * scale;
     foliage1.castShadow = true;
     tree.add(foliage1);
-    const foliageGeometry2 = new ConeGeometry(0.8 * scale, 1.8 * scale, 8);
+    const foliageGeometry2 = new ConeGeometry(0.8 * scale, 1.8 * scale, 6);
     const foliage2 = new Mesh(foliageGeometry2, this.leafMaterial);
     foliage2.position.y = 3 * scale;
     foliage2.castShadow = true;
     tree.add(foliage2);
-    const foliageGeometry3 = new ConeGeometry(0.6 * scale, 1.6 * scale, 8);
+    const foliageGeometry3 = new ConeGeometry(0.6 * scale, 1.6 * scale, 6);
     const foliage3 = new Mesh(foliageGeometry3, this.leafMaterial);
     foliage3.position.y = 4 * scale;
     foliage3.castShadow = true;
@@ -28239,13 +28290,13 @@ class MapGenerator {
   }
   createRoundTree(scale, x, z) {
     const tree = new Group;
-    const trunkGeometry = new CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 8);
+    const trunkGeometry = new CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 6);
     const trunk = new Mesh(trunkGeometry, this.trunkMaterial);
     trunk.position.y = 0.75 * scale;
     trunk.castShadow = true;
     trunk.receiveShadow = true;
     tree.add(trunk);
-    const foliageGeometry = new SphereGeometry(1.2 * scale, 8, 8);
+    const foliageGeometry = new SphereGeometry(1.2 * scale, 6, 6);
     const foliage = new Mesh(foliageGeometry, this.leafMaterial);
     foliage.position.y = 2.5 * scale;
     foliage.castShadow = true;
@@ -29026,19 +29077,23 @@ class Shell {
   TRAIL_FADE_RATE = 0.96;
   owner;
   direction;
+  static shellGeometry;
+  static shellMaterial;
   constructor(scene, position, direction, velocity, owner, shellId) {
     this.scene = scene;
     this.owner = owner;
     this.source = owner;
     this.shellId = shellId || `shell_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     this.direction = direction.clone().normalize();
-    const geometry = new SphereGeometry(this.COLLISION_RADIUS, 8, 8);
-    const material = new MeshStandardMaterial({
-      color: 3355443,
-      roughness: 0.7,
-      metalness: 0.5
-    });
-    this.mesh = new Mesh(geometry, material);
+    if (!Shell.shellGeometry) {
+      Shell.shellGeometry = new SphereGeometry(this.COLLISION_RADIUS, 6, 6);
+      Shell.shellMaterial = new MeshStandardMaterial({
+        color: 3355443,
+        roughness: 0.7,
+        metalness: 0.5
+      });
+    }
+    this.mesh = new Mesh(Shell.shellGeometry, Shell.shellMaterial);
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
     this.mesh.position.copy(position);
@@ -29162,10 +29217,12 @@ class Shell {
       this.scene.remove(this.trail);
     }
   }
+  static trailMaterial;
   initializeTrail(initialPosition) {
-    this.trailPositions = new Float32Array(this.TRAIL_LENGTH * 3);
-    this.trailColors = new Float32Array(this.TRAIL_LENGTH * 3);
-    for (let i = 0;i < this.TRAIL_LENGTH; i++) {
+    const trailLength = this.TRAIL_LENGTH * (window.innerWidth < 1000 ? 0.75 : 1);
+    this.trailPositions = new Float32Array(trailLength * 3);
+    this.trailColors = new Float32Array(trailLength * 3);
+    for (let i = 0;i < trailLength; i++) {
       const idx = i * 3;
       this.trailPositions[idx] = initialPosition.x;
       this.trailPositions[idx + 1] = initialPosition.y;
@@ -29178,19 +29235,23 @@ class Shell {
     this.trailGeometry = new BufferGeometry;
     this.trailGeometry.setAttribute("position", new BufferAttribute(this.trailPositions, 3));
     this.trailGeometry.setAttribute("color", new BufferAttribute(this.trailColors, 3));
-    const trailMaterial = new PointsMaterial({
-      size: 0.25,
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.8,
-      blending: AdditiveBlending,
-      depthWrite: false
-    });
-    this.trail = new Points(this.trailGeometry, trailMaterial);
+    if (!Shell.trailMaterial) {
+      Shell.trailMaterial = new PointsMaterial({
+        size: 0.25,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.8,
+        blending: AdditiveBlending,
+        depthWrite: false
+      });
+    }
+    this.trail = new Points(this.trailGeometry, Shell.trailMaterial);
     this.scene.add(this.trail);
   }
+  static explosionMaterial;
   createExplosion(position, sizeScale = 1) {
-    const particleCount = 30;
+    const isLowPerformance = window.lowPerformanceMode || false;
+    const particleCount = isLowPerformance ? 15 : 25;
     const geometry = new BufferGeometry;
     const positions = new Float32Array(particleCount * 3);
     const colors = new Float32Array(particleCount * 3);
@@ -29205,33 +29266,41 @@ class Shell {
     }
     geometry.setAttribute("position", new BufferAttribute(positions, 3));
     geometry.setAttribute("color", new BufferAttribute(colors, 3));
-    const material = new PointsMaterial({
-      size: 0.2 * sizeScale,
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.8
-    });
+    if (!Shell.explosionMaterial) {
+      Shell.explosionMaterial = new PointsMaterial({
+        size: 0.2,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.8
+      });
+    }
+    const material = Shell.explosionMaterial.clone();
+    material.size = 0.2 * sizeScale;
     const particles = new Points(geometry, material);
     particles.position.copy(position);
     particles.scale.set(sizeScale, sizeScale, sizeScale);
     this.scene.add(particles);
     let frame = 0;
-    const MAX_FRAMES = 20;
+    const MAX_FRAMES = isLowPerformance ? 15 : 20;
+    const startTime = performance.now();
+    const duration = MAX_FRAMES * 16.7;
     const animateExplosion = () => {
-      if (frame >= MAX_FRAMES) {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      frame = Math.floor(progress * MAX_FRAMES);
+      if (progress >= 1) {
         this.scene.remove(particles);
         return;
       }
-      const scale = sizeScale * (1 + frame * 0.1);
+      const scale = sizeScale * (1 + progress * 2);
       particles.scale.set(scale, scale, scale);
-      const opacity = 1 - frame / MAX_FRAMES;
+      const opacity = 1 - progress;
       if (material.opacity !== undefined) {
         material.opacity = opacity;
       }
-      frame++;
       requestAnimationFrame(animateExplosion);
     };
-    animateExplosion();
+    requestAnimationFrame(animateExplosion);
   }
 }
 
@@ -31074,6 +31143,61 @@ class GameStats extends LitElement {
       color: #ff8a8a;
     }
     
+    .performance-toggle {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+      pointer-events: auto;
+    }
+    
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 40px;
+      height: 20px;
+      margin-right: 8px;
+    }
+    
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #555;
+      transition: .3s;
+      border-radius: 20px;
+    }
+    
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 2px;
+      bottom: 2px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+    
+    input:checked + .toggle-slider {
+      background-color: #8aff8a;
+    }
+    
+    input:checked + .toggle-slider:before {
+      transform: translateX(20px);
+    }
+    
     .health-high {
       color: #8aff8a;
     }
@@ -31103,6 +31227,7 @@ class GameStats extends LitElement {
     this.playerHealth = 100;
     this.kills = 0;
     this.deaths = 0;
+    this.highPerformanceMode = false;
     this.startMonitoring();
   }
   disconnectedCallback() {
@@ -31145,8 +31270,30 @@ class GameStats extends LitElement {
           <span class="stat-label">Triangles</span>
           <span class="stat-value">${this.triangleCount.toLocaleString()}</span>
         </div>
+        
+        <label class="performance-toggle">
+          <span class="toggle-switch">
+            <input 
+              type="checkbox" 
+              ?checked=${this.highPerformanceMode}
+              @change=${this.togglePerformanceMode}
+            >
+            <span class="toggle-slider"></span>
+          </span>
+          Max Performance Mode
+        </label>
       </div>
     `;
+  }
+  togglePerformanceMode(e) {
+    const checkbox = e.target;
+    this.highPerformanceMode = checkbox.checked;
+    window.lowPerformanceMode = !this.highPerformanceMode;
+    this.dispatchEvent(new CustomEvent("performance-mode-change", {
+      detail: { highPerformance: this.highPerformanceMode },
+      bubbles: true,
+      composed: true
+    }));
   }
   startMonitoring() {
     const updateFrame = (timestamp) => {
@@ -31253,6 +31400,9 @@ __legacyDecorateClassTS([
 __legacyDecorateClassTS([
   state()
 ], GameStats.prototype, "deaths", undefined);
+__legacyDecorateClassTS([
+  state()
+], GameStats.prototype, "highPerformanceMode", undefined);
 GameStats = __legacyDecorateClassTS([
   customElement("game-stats")
 ], GameStats);
@@ -31372,9 +31522,11 @@ class GameRadar extends LitElement {
       this.drawRadar();
     }
   }
+  frameCount = 0;
   animateRadar(timestamp = performance.now()) {
     const delta = timestamp - this.lastTimestamp;
     this.lastTimestamp = timestamp;
+    this.frameCount++;
     this.sweepAngle += delta / 4000 * Math.PI * 2;
     if (this.sweepAngle > Math.PI * 2) {
       this.sweepAngle -= Math.PI * 2;
@@ -31387,7 +31539,9 @@ class GameRadar extends LitElement {
     if (sweepElement) {
       sweepElement.style.transform = `rotate(${this.sweepAngle + playerRotation}rad)`;
     }
-    this.drawRadar();
+    if (this.frameCount % 2 === 0) {
+      this.drawRadar();
+    }
     requestAnimationFrame((t) => this.animateRadar(t));
   }
   drawRadar() {
@@ -31904,7 +32058,25 @@ class GameComponent extends LitElement {
     document.addEventListener("shell-fired", this.handleShellFired);
     this.handleTankRespawn = this.handleTankRespawn.bind(this);
     document.addEventListener("tank-respawn", this.handleTankRespawn);
+    this.handlePerformanceModeChange = this.handlePerformanceModeChange.bind(this);
+    document.addEventListener("performance-mode-change", this.handlePerformanceModeChange);
     this.updateStats();
+  }
+  handlePerformanceModeChange(event) {
+    const highPerformance = event.detail.highPerformance;
+    this.lowPerformanceMode = !highPerformance;
+    window.lowPerformanceMode = this.lowPerformanceMode;
+    if (this.renderer) {
+      const basePixelRatio = window.devicePixelRatio || 1;
+      let pixelRatio;
+      if (this.lowPerformanceMode) {
+        pixelRatio = basePixelRatio > 1 ? basePixelRatio / 2 : 0.75;
+      } else {
+        pixelRatio = Math.min(basePixelRatio, 2);
+      }
+      this.renderer.setPixelRatio(pixelRatio);
+    }
+    this.lodDistance = this.lowPerformanceMode ? 200 : 300;
   }
   handleTankRespawn(event) {
     const respawnData = event.detail;
@@ -32165,6 +32337,9 @@ class GameComponent extends LitElement {
     window.removeEventListener("resize", this.handleResize);
     document.removeEventListener("tank-destroyed", this.handleTankDestroyed);
     document.removeEventListener("tank-hit", this.handleTankHit);
+    document.removeEventListener("shell-fired", this.handleShellFired);
+    document.removeEventListener("tank-respawn", this.handleTankRespawn);
+    document.removeEventListener("performance-mode-change", this.handlePerformanceModeChange);
     document.removeEventListener("pointerlockchange", this.handlePointerLockChange);
     document.removeEventListener("mozpointerlockchange", this.handlePointerLockChange);
     document.removeEventListener("webkitpointerlockchange", this.handlePointerLockChange);
@@ -32198,23 +32373,35 @@ class GameComponent extends LitElement {
   initThree() {
     this.scene = new Scene;
     this.scene.background = this.skyColor;
-    this.scene.fog = new FogExp2(this.skyColor.clone().multiplyScalar(1.2), 0.0005);
+    this.scene.fog = new FogExp2(this.skyColor, 0.0006);
     this.createSkybox();
-    this.camera = new PerspectiveCamera(60, this.canvas.clientWidth / this.canvas.clientHeight, 0.1, 2000);
+    this.camera = new PerspectiveCamera(60, this.canvas.clientWidth / this.canvas.clientHeight, 0.5, 1500);
     this.scene.add(this.camera);
     this.scene.updateMatrixWorld(true);
     this.renderer = new WebGLRenderer({
       canvas: this.canvas,
       antialias: false,
       powerPreference: "high-performance",
-      precision: "mediump"
+      precision: "mediump",
+      stencil: false,
+      depth: true,
+      alpha: false
     });
     this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
-    const pixelRatio = Math.min(window.devicePixelRatio, 2);
+    const basePixelRatio = window.devicePixelRatio || 1;
+    let pixelRatio;
+    if (basePixelRatio > 2) {
+      pixelRatio = basePixelRatio / 2;
+    } else if (basePixelRatio > 1) {
+      pixelRatio = basePixelRatio * 0.75;
+    } else {
+      pixelRatio = 1;
+    }
     this.renderer.setPixelRatio(pixelRatio);
     this.renderer.shadowMap.enabled = false;
     this.renderer.sortObjects = true;
     this.renderer.physicallyCorrectLights = false;
+    this.renderer.localClippingEnabled = false;
     const directionalLight = new DirectionalLight(16777164, 0.8);
     directionalLight.position.set(100, 200, 50);
     directionalLight.castShadow = false;
@@ -32357,24 +32544,34 @@ class GameComponent extends LitElement {
     this.crosshairObject.add(crosshair);
     this.scene.add(this.crosshairObject);
     this.updateCrosshairPosition();
-    console.log("THREE.js crosshair created - will follow barrel direction");
   }
+  tempVector = new Vector3;
+  tempDirection = new Vector3;
+  tempBarrelEnd = new Vector3;
+  tempEuler = new Euler;
   updateCrosshairPosition() {
     if (!this.playerTank || !this.crosshairObject || !this.scene)
       return;
     const distance = 50;
-    const barrelEndPosition = new Vector3(0, 0, 1.5);
-    barrelEndPosition.applyEuler(new Euler(this.playerTank.barrelPivot.rotation.x, 0, 0));
-    barrelEndPosition.applyEuler(new Euler(0, this.playerTank.turretPivot.rotation.y, 0));
-    barrelEndPosition.applyEuler(new Euler(0, this.playerTank.tank.rotation.y, 0));
-    barrelEndPosition.add(this.playerTank.turretPivot.position.clone().add(this.playerTank.tank.position));
-    const direction = new Vector3(0, 0, 1);
-    direction.applyEuler(new Euler(this.playerTank.barrelPivot.rotation.x, 0, 0));
-    direction.applyEuler(new Euler(0, this.playerTank.turretPivot.rotation.y, 0));
-    direction.applyEuler(new Euler(0, this.playerTank.tank.rotation.y, 0));
-    direction.normalize();
-    const crosshairPosition = barrelEndPosition.clone().add(direction.multiplyScalar(distance));
-    this.crosshairObject.position.copy(crosshairPosition);
+    this.tempBarrelEnd.set(0, 0, 1.5);
+    this.tempEuler.set(this.playerTank.barrelPivot.rotation.x, 0, 0);
+    this.tempBarrelEnd.applyEuler(this.tempEuler);
+    this.tempEuler.set(0, this.playerTank.turretPivot.rotation.y, 0);
+    this.tempBarrelEnd.applyEuler(this.tempEuler);
+    this.tempEuler.set(0, this.playerTank.tank.rotation.y, 0);
+    this.tempBarrelEnd.applyEuler(this.tempEuler);
+    this.tempVector.copy(this.playerTank.turretPivot.position);
+    this.tempVector.add(this.playerTank.tank.position);
+    this.tempBarrelEnd.add(this.tempVector);
+    this.tempDirection.set(0, 0, 1);
+    this.tempEuler.set(this.playerTank.barrelPivot.rotation.x, 0, 0);
+    this.tempDirection.applyEuler(this.tempEuler);
+    this.tempEuler.set(0, this.playerTank.turretPivot.rotation.y, 0);
+    this.tempDirection.applyEuler(this.tempEuler);
+    this.tempEuler.set(0, this.playerTank.tank.rotation.y, 0);
+    this.tempDirection.applyEuler(this.tempEuler);
+    this.tempDirection.normalize();
+    this.crosshairObject.position.copy(this.tempBarrelEnd).addScaledVector(this.tempDirection, distance);
     if (this.camera) {
       this.crosshairObject.lookAt(this.camera.position);
     }
@@ -32478,29 +32675,36 @@ class GameComponent extends LitElement {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
   }
+  frameCounter = 0;
   animate() {
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
-    if (this.renderer && this.renderer.info && this.renderer.info.render) {
+    this.frameCounter++;
+    if (this.frameCounter % 30 === 0 && this.renderer?.info?.render) {
       const fps = 1000 / (this.renderer.info.render.frame || 16.7);
       this.lowPerformanceMode = fps < 30;
     }
     if (this.camera) {
-      window.cameraPosition = this.camera.position;
-      if (typeof window.SpatialAudio?.setGlobalListener === "function") {
-        window.SpatialAudio.setGlobalListener(this.camera.position);
+      if (this.frameCounter % 10 === 0) {
+        window.cameraPosition = this.camera.position;
+        if (typeof window.SpatialAudio?.setGlobalListener === "function") {
+          window.SpatialAudio.setGlobalListener(this.camera.position);
+        }
       }
     }
     if (this.multiplayerState && this.scene && this.gameStateInitialized) {
-      const frameCount = this.renderer?.info.render.frame || 0;
-      if (frameCount % 60 === 0) {
+      if (this.frameCounter % 60 === 0) {
         this.updateRemotePlayers();
       }
       if (this.multiplayerState.shells && this.multiplayerState.shells.length > 0) {
         this.processRemoteShells();
       }
     }
-    this.updateCrosshairPosition();
-    this.updateKillNotifications();
+    if (this.frameCounter % 2 === 0) {
+      this.updateCrosshairPosition();
+    }
+    if (this.frameCounter % 5 === 0) {
+      this.updateKillNotifications();
+    }
     this.collisionSystem.checkCollisions();
     const allColliders = this.collisionSystem.getColliders();
     if (this.playerTank) {
@@ -32516,43 +32720,49 @@ class GameComponent extends LitElement {
       } else {
         const newShell = this.playerTank.update(this.keys, allColliders);
         if (newShell) {
-          console.log("New shell created, adding to game");
           this.addShell(newShell);
         }
       }
       if (this.camera) {
         this.playerTank.updateCamera(this.camera);
       }
-      if (this.animationFrameId % 5 === 0) {
+      if (this.frameCounter % 6 === 0) {
         this.emitPlayerPositionEvent();
       }
-      this.updateStats();
+      if (this.frameCounter % 15 === 0) {
+        this.updateStats();
+      }
     }
     if (this.playerTank) {
       const currentHealth = this.playerTank.getHealth();
       if (currentHealth < this.lastPlayerHealth && !this.playerDestroyed) {
-        console.log(`Health decreased from ${this.lastPlayerHealth} to ${currentHealth}`);
         this.showPlayerHitEffects();
       }
       this.lastPlayerHealth = currentHealth;
     }
-    for (const npcTank of this.npcTanks) {
-      const distanceToPlayer = this.playerTank?.tank.position.distanceTo(npcTank.tank.position) || 0;
-      let newShell = null;
-      if (distanceToPlayer < this.lodDistance) {
-        newShell = npcTank.update({}, allColliders);
-      } else if (distanceToPlayer < this.lodDistance * 2) {
-        if (!this.lowPerformanceMode || Math.random() < 0.5) {
+    if (this.npcTanks.length > 0 && this.playerTank) {
+      const tanksPerFrame = this.lowPerformanceMode ? 1 : 2;
+      const startIdx = this.frameCounter % Math.ceil(this.npcTanks.length / tanksPerFrame) * tanksPerFrame;
+      const endIdx = Math.min(startIdx + tanksPerFrame, this.npcTanks.length);
+      for (let i = startIdx;i < endIdx; i++) {
+        const npcTank = this.npcTanks[i];
+        const distanceToPlayer = this.playerTank.tank.position.distanceTo(npcTank.tank.position);
+        let newShell = null;
+        if (distanceToPlayer < this.lodDistance) {
           newShell = npcTank.update({}, allColliders);
+        } else if (distanceToPlayer < this.lodDistance * 2) {
+          if (!this.lowPerformanceMode || Math.random() < 0.5) {
+            newShell = npcTank.update({}, allColliders);
+          }
+        } else {
+          const updateChance = this.lowPerformanceMode ? 0.1 : 0.2;
+          if (Math.random() < updateChance) {
+            newShell = npcTank.update({}, allColliders);
+          }
         }
-      } else {
-        const updateChance = this.lowPerformanceMode ? 0.1 : 0.2;
-        if (Math.random() < updateChance) {
-          newShell = npcTank.update({}, allColliders);
+        if (newShell) {
+          this.addShell(newShell);
         }
-      }
-      if (newShell) {
-        this.addShell(newShell);
       }
     }
     this.updateShells(allColliders);

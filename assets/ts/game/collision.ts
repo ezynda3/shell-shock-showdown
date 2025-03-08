@@ -21,52 +21,116 @@ export class CollisionSystem {
     return this.colliders;
   }
   
+  // Cache activeColliders and update only when collection changes
+  private activeCollidersCache: ICollidable[] = [];
+  private collidersDirty = true;
+  private frameCounter = 0;
+  
+  addCollider(collider: ICollidable): void {
+    this.colliders.push(collider);
+    this.collidersDirty = true;
+  }
+  
+  removeCollider(collider: ICollidable): void {
+    const index = this.colliders.indexOf(collider);
+    if (index !== -1) {
+      this.colliders.splice(index, 1);
+      this.collidersDirty = true;
+    }
+  }
+  
   checkCollisions(): void {
-    // Get a copy of the array to avoid issues if colliders are removed during iteration
-    const currentColliders = [...this.colliders];
+    this.frameCounter++;
     
-    // Filter out inactive shells before processing collisions
-    const activeColliders = currentColliders.filter(collider => {
-      if (collider.getType() === 'shell') {
-        const shell = collider as any;
-        if (shell.isAlive && !shell.isAlive()) {
-          return false; // Skip inactive shells
+    // Update the active colliders cache only when needed
+    if (this.collidersDirty) {
+      // Filter out inactive shells before processing collisions
+      this.activeCollidersCache = this.colliders.filter(collider => {
+        if (collider.getType() === 'shell') {
+          const shell = collider as any;
+          if (shell.isAlive && !shell.isAlive()) {
+            return false; // Skip inactive shells
+          }
+          if (shell.hasProcessedCollision) {
+            return false; // Skip shells that have already processed a collision
+          }
         }
-        if (shell.hasProcessedCollision) {
-          return false; // Skip shells that have already processed a collision
-        }
-      }
-      return true;
-    });
-    
-    // For each pair of objects, check for collisions
-    for (let i = 0; i < activeColliders.length; i++) {
-      const objA = activeColliders[i];
+        return true;
+      });
       
-      for (let j = i + 1; j < activeColliders.length; j++) {
-        const objB = activeColliders[j];
-        
-        // Skip collision detection between certain object types
-        // For example, tree-tree or rock-rock collisions
-        if (this.shouldSkipCollision(objA, objB)) {
+      this.collidersDirty = false;
+    }
+    
+    const activeColliders = this.activeCollidersCache;
+    
+    // Process collisions prioritizing moving objects and shells
+    const shells = activeColliders.filter(c => c.getType() === 'shell');
+    const tanks = activeColliders.filter(c => c.getType() === 'tank');
+    const staticObjects = activeColliders.filter(c => c.getType() !== 'shell' && c.getType() !== 'tank');
+    
+    // Check shell-tank collisions first (most important for gameplay)
+    for (const shell of shells) {
+      for (const tank of tanks) {
+        // Skip collision with owner
+        if (this.shouldSkipCollision(shell, tank)) {
           continue;
         }
         
-        if (this.testCollision(objA, objB)) {
-          // Handle collision - do shell collisions first to ensure proper deactivation
-          if (objA.getType() === 'shell' && objA.onCollision) {
-            objA.onCollision(objB);
-          }
-          else if (objB.getType() === 'shell' && objB.onCollision) {
-            objB.onCollision(objA);
-          } 
-          else {
-            // Handle non-shell collisions
-            if (objA.onCollision) objA.onCollision(objB);
-            if (objB.onCollision) objB.onCollision(objA);
+        if (this.testCollision(shell, tank)) {
+          if (shell.onCollision) {
+            shell.onCollision(tank);
           }
         }
       }
+    }
+    
+    // Check shell-static collisions next
+    for (const shell of shells) {
+      // Skip testing inactive shells
+      if ((shell as any).hasProcessedCollision) continue;
+      
+      for (const staticObj of staticObjects) {
+        if (this.testCollision(shell, staticObj)) {
+          if (shell.onCollision) {
+            shell.onCollision(staticObj);
+          }
+        }
+      }
+    }
+    
+    // Check tank-tank collisions only every other frame to reduce calculations
+    if (this.frameCounter % 2 === 0) {
+      for (let i = 0; i < tanks.length; i++) {
+        const tankA = tanks[i];
+        
+        for (let j = i + 1; j < tanks.length; j++) {
+          const tankB = tanks[j];
+          
+          if (this.testCollision(tankA, tankB)) {
+            if (tankA.onCollision) tankA.onCollision(tankB);
+            if (tankB.onCollision) tankB.onCollision(tankA);
+          }
+        }
+      }
+    }
+    
+    // Check tank-static collisions every frame but only for tanks that are moving
+    for (const tank of tanks) {
+      // Skip non-moving tanks for static collision tests
+      // This assumes tank has isMoving method or property
+      const isMoving = (tank as any).isMoving?.() ?? true;
+      if (!isMoving) continue;
+      
+      for (const staticObj of staticObjects) {
+        if (this.testCollision(tank, staticObj)) {
+          if (tank.onCollision) tank.onCollision(staticObj);
+        }
+      }
+    }
+    
+    // Mark the cache as dirty if shells were checked (they might be inactive now)
+    if (shells.length > 0) {
+      this.collidersDirty = true;
     }
   }
   

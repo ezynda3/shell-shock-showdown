@@ -99,28 +99,28 @@ export class MapGenerator {
   createPineTree(scale: number, x: number, z: number) {
     const tree = new THREE.Group();
     
-    // Tree trunk
-    const trunkGeometry = new THREE.CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 8);
+    // Tree trunk - reduced segments for lower polygon count
+    const trunkGeometry = new THREE.CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 6);
     const trunk = new THREE.Mesh(trunkGeometry, this.trunkMaterial);
     trunk.position.y = 0.75 * scale;
     trunk.castShadow = true;
     trunk.receiveShadow = true;
     tree.add(trunk);
     
-    // Tree foliage (cones)
-    const foliageGeometry1 = new THREE.ConeGeometry(1 * scale, 2 * scale, 8);
+    // Tree foliage (cones) - reduced segments for lower polygon count
+    const foliageGeometry1 = new THREE.ConeGeometry(1 * scale, 2 * scale, 6);
     const foliage1 = new THREE.Mesh(foliageGeometry1, this.leafMaterial);
     foliage1.position.y = 2 * scale;
     foliage1.castShadow = true;
     tree.add(foliage1);
     
-    const foliageGeometry2 = new THREE.ConeGeometry(0.8 * scale, 1.8 * scale, 8);
+    const foliageGeometry2 = new THREE.ConeGeometry(0.8 * scale, 1.8 * scale, 6);
     const foliage2 = new THREE.Mesh(foliageGeometry2, this.leafMaterial);
     foliage2.position.y = 3 * scale;
     foliage2.castShadow = true;
     tree.add(foliage2);
     
-    const foliageGeometry3 = new THREE.ConeGeometry(0.6 * scale, 1.6 * scale, 8);
+    const foliageGeometry3 = new THREE.ConeGeometry(0.6 * scale, 1.6 * scale, 6);
     const foliage3 = new THREE.Mesh(foliageGeometry3, this.leafMaterial);
     foliage3.position.y = 4 * scale;
     foliage3.castShadow = true;
@@ -144,16 +144,16 @@ export class MapGenerator {
   createRoundTree(scale: number, x: number, z: number) {
     const tree = new THREE.Group();
     
-    // Tree trunk
-    const trunkGeometry = new THREE.CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 8);
+    // Tree trunk - reduced segments
+    const trunkGeometry = new THREE.CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 6);
     const trunk = new THREE.Mesh(trunkGeometry, this.trunkMaterial);
     trunk.position.y = 0.75 * scale;
     trunk.castShadow = true;
     trunk.receiveShadow = true;
     tree.add(trunk);
     
-    // Tree foliage (sphere)
-    const foliageGeometry = new THREE.SphereGeometry(1.2 * scale, 8, 8);
+    // Tree foliage (sphere) - reduced segments
+    const foliageGeometry = new THREE.SphereGeometry(1.2 * scale, 6, 6);
     const foliage = new THREE.Mesh(foliageGeometry, this.leafMaterial);
     foliage.position.y = 2.5 * scale;
     foliage.castShadow = true;

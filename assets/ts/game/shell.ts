@@ -33,6 +33,10 @@ export class Shell implements ICollidable {
   // Direction the shell is traveling - needed for network sync
   private direction: THREE.Vector3;
 
+  // Static shared geometry for all shells
+  private static shellGeometry: THREE.SphereGeometry;
+  private static shellMaterial: THREE.MeshStandardMaterial;
+  
   constructor(
     scene: THREE.Scene,
     position: THREE.Vector3,
@@ -51,16 +55,20 @@ export class Shell implements ICollidable {
     // Store initial direction (normalized)
     this.direction = direction.clone().normalize();
     
-    // Create shell geometry - small sphere
-    const geometry = new THREE.SphereGeometry(this.COLLISION_RADIUS, 8, 8);
-    const material = new THREE.MeshStandardMaterial({
-      color: 0x333333,
-      roughness: 0.7,
-      metalness: 0.5
-    });
+    // Create shell geometry - only create once statically to share across all shells
+    if (!Shell.shellGeometry) {
+      // Use lower-poly sphere (6 segments instead of 8)
+      Shell.shellGeometry = new THREE.SphereGeometry(this.COLLISION_RADIUS, 6, 6);
+      Shell.shellMaterial = new THREE.MeshStandardMaterial({
+        color: 0x333333,
+        roughness: 0.7,
+        metalness: 0.5
+      });
+    }
     
-    this.mesh = new THREE.Mesh(geometry, material);
-    this.mesh.castShadow = false; // No shadow for better performance
+    // Create mesh using shared geometry
+    this.mesh = new THREE.Mesh(Shell.shellGeometry, Shell.shellMaterial);
+    this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
     this.mesh.position.copy(position);
     
@@ -268,13 +276,19 @@ export class Shell implements ICollidable {
     }
   }
   
+  // Static shared material for trails
+  private static trailMaterial: THREE.PointsMaterial;
+  
   private initializeTrail(initialPosition: THREE.Vector3): void {
+    // Reduce trail length for performance
+    const trailLength = this.TRAIL_LENGTH * (window.innerWidth < 1000 ? 0.75 : 1.0);
+    
     // Create arrays for trail positions and colors
-    this.trailPositions = new Float32Array(this.TRAIL_LENGTH * 3); // xyz * trail length
-    this.trailColors = new Float32Array(this.TRAIL_LENGTH * 3); // rgb * trail length
+    this.trailPositions = new Float32Array(trailLength * 3); // xyz * trail length
+    this.trailColors = new Float32Array(trailLength * 3); // rgb * trail length
     
     // Initialize all trail positions to the starting position
-    for (let i = 0; i < this.TRAIL_LENGTH; i++) {
+    for (let i = 0; i < trailLength; i++) {
       const idx = i * 3;
       this.trailPositions[idx] = initialPosition.x;
       this.trailPositions[idx + 1] = initialPosition.y;
@@ -292,26 +306,33 @@ export class Shell implements ICollidable {
     this.trailGeometry.setAttribute('position', new THREE.BufferAttribute(this.trailPositions, 3));
     this.trailGeometry.setAttribute('color', new THREE.BufferAttribute(this.trailColors, 3));
     
-    // Create material for the trail
-    const trailMaterial = new THREE.PointsMaterial({
-      size: 0.25, // Increased from 0.15 for better visibility
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.8, // Increased from 0.6 for better visibility
-      blending: THREE.AdditiveBlending,
-      depthWrite: false
-    });
+    // Create material for the trail (shared across all shells)
+    if (!Shell.trailMaterial) {
+      Shell.trailMaterial = new THREE.PointsMaterial({
+        size: 0.25,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+    }
     
-    // Create the trail points system
-    this.trail = new THREE.Points(this.trailGeometry, trailMaterial);
+    // Create the trail points system with shared material
+    this.trail = new THREE.Points(this.trailGeometry, Shell.trailMaterial);
     
     // Add trail to scene
     this.scene.add(this.trail);
   }
   
+  // Cache for explosion materials
+  private static explosionMaterial: THREE.PointsMaterial;
+  
   private createExplosion(position: THREE.Vector3, sizeScale: number = 1.0): void {
-    // Create explosion particle system
-    const particleCount = 30;
+    // Reduce particle count on low-end devices
+    const isLowPerformance = (window as any).lowPerformanceMode || false;
+    const particleCount = isLowPerformance ? 15 : 25; // Reduced from 30
+    
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(particleCount * 3);
     const colors = new Float32Array(particleCount * 3);
@@ -333,13 +354,19 @@ export class Shell implements ICollidable {
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     
-    // Material for particles
-    const material = new THREE.PointsMaterial({
-      size: 0.2 * sizeScale,
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.8
-    });
+    // Reuse explosion material
+    if (!Shell.explosionMaterial) {
+      Shell.explosionMaterial = new THREE.PointsMaterial({
+        size: 0.2,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.8
+      });
+    }
+    
+    // Clone the material for this specific explosion (to allow independent opacity)
+    const material = Shell.explosionMaterial.clone();
+    material.size = 0.2 * sizeScale;
     
     // Create particle system
     const particles = new THREE.Points(geometry, material);
@@ -352,29 +379,36 @@ export class Shell implements ICollidable {
     
     // Animate explosion particles
     let frame = 0;
-    const MAX_FRAMES = 20;
+    const MAX_FRAMES = isLowPerformance ? 15 : 20; // Fewer animation frames on low-end devices
+    
+    // Use a single requestAnimationFrame to reduce overhead
+    const startTime = performance.now();
+    const duration = MAX_FRAMES * 16.7; // ~16.7ms per frame at 60fps
     
     const animateExplosion = () => {
-      if (frame >= MAX_FRAMES) {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      frame = Math.floor(progress * MAX_FRAMES);
+      
+      if (progress >= 1) {
         this.scene.remove(particles);
         return;
       }
       
       // Scale particles outward
-      const scale = sizeScale * (1 + frame * 0.1);
+      const scale = sizeScale * (1 + progress * 2);
       particles.scale.set(scale, scale, scale);
       
       // Fade out
-      const opacity = 1 - (frame / MAX_FRAMES);
+      const opacity = 1 - progress;
       if (material.opacity !== undefined) {
         material.opacity = opacity;
       }
       
-      frame++;
       requestAnimationFrame(animateExplosion);
     };
     
     // Start animation
-    animateExplosion();
+    requestAnimationFrame(animateExplosion);
   }
 }

@@ -165,10 +165,14 @@ export class GameRadar extends LitElement {
     }
   }
 
+  // Track frames for limiting radar updates
+  private frameCount = 0;
+  
   private animateRadar(timestamp = performance.now()) {
     // Calculate time delta
     const delta = timestamp - this.lastTimestamp;
     this.lastTimestamp = timestamp;
+    this.frameCount++;
     
     // Update sweep angle (complete rotation every 4 seconds)
     this.sweepAngle += (delta / 4000) * Math.PI * 2;
@@ -190,8 +194,10 @@ export class GameRadar extends LitElement {
       sweepElement.style.transform = `rotate(${this.sweepAngle + playerRotation}rad)`;
     }
     
-    // Draw the radar
-    this.drawRadar();
+    // Draw the radar - only every 2nd frame to improve performance
+    if (this.frameCount % 2 === 0) {
+      this.drawRadar();
+    }
     
     // Continue animation
     requestAnimationFrame((t) => this.animateRadar(t));

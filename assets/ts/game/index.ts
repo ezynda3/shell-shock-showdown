@@ -508,8 +508,41 @@ export class GameComponent extends LitElement {
     this.handleTankRespawn = this.handleTankRespawn.bind(this);
     document.addEventListener('tank-respawn', this.handleTankRespawn);
     
+    // Listen for performance mode changes
+    this.handlePerformanceModeChange = this.handlePerformanceModeChange.bind(this);
+    document.addEventListener('performance-mode-change', this.handlePerformanceModeChange);
+    
     // Initialize game stats
     this.updateStats();
+  }
+  
+  // Performance mode change handler
+  private handlePerformanceModeChange(event: CustomEvent) {
+    const highPerformance = event.detail.highPerformance;
+    this.lowPerformanceMode = !highPerformance;
+    
+    // Make mode accessible globally 
+    (window as any).lowPerformanceMode = this.lowPerformanceMode;
+    
+    // Adjust settings based on performance mode
+    if (this.renderer) {
+      // Adjust pixel ratio
+      const basePixelRatio = window.devicePixelRatio || 1;
+      let pixelRatio;
+      
+      if (this.lowPerformanceMode) {
+        // Low performance mode: reduce resolution more aggressively
+        pixelRatio = basePixelRatio > 1 ? basePixelRatio / 2 : 0.75;
+      } else {
+        // High performance mode: use higher resolution
+        pixelRatio = Math.min(basePixelRatio, 2);
+      }
+      
+      this.renderer.setPixelRatio(pixelRatio);
+    }
+    
+    // Adjust LOD distance
+    this.lodDistance = this.lowPerformanceMode ? 200 : 300;
   }
   
   // Handle tank respawn events
@@ -949,6 +982,9 @@ export class GameComponent extends LitElement {
     window.removeEventListener('resize', this.handleResize);
     document.removeEventListener('tank-destroyed', this.handleTankDestroyed);
     document.removeEventListener('tank-hit', this.handleTankHit);
+    document.removeEventListener('shell-fired', this.handleShellFired);
+    document.removeEventListener('tank-respawn', this.handleTankRespawn);
+    document.removeEventListener('performance-mode-change', this.handlePerformanceModeChange);
     
     // Remove pointer lock related event listeners
     document.removeEventListener('pointerlockchange', this.handlePointerLockChange);
@@ -1005,17 +1041,18 @@ export class GameComponent extends LitElement {
     this.scene.background = this.skyColor;
     
     // Use exponential fog for better performance and appearance
-    this.scene.fog = new THREE.FogExp2(this.skyColor.clone().multiplyScalar(1.2), 0.0005);
+    // Reuse the same color instance instead of cloning
+    this.scene.fog = new THREE.FogExp2(this.skyColor, 0.0006); // Slightly increased fog density
     
     // Create skybox
     this.createSkybox();
     
-    // Create camera with optimized far plane for performance
+    // Create camera with more optimized near/far planes for performance
     this.camera = new THREE.PerspectiveCamera(
       60,
       this.canvas.clientWidth / this.canvas.clientHeight,
-      0.1,
-      2000 // Reduced far plane for better performance
+      0.5, // Increased near plane (0.1 -> 0.5) for better z-buffer precision
+      1500 // Further reduced far plane for better performance
     );
     
     // Add camera to scene immediately
@@ -1024,17 +1061,34 @@ export class GameComponent extends LitElement {
     // Update scene matrices
     this.scene.updateMatrixWorld(true);
     
-    // Create optimized renderer
+    // Create highly optimized renderer
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
       antialias: false, // Disable antialias for better performance
       powerPreference: 'high-performance',
-      precision: 'mediump' // Use medium precision for better performance
+      precision: 'mediump', // Use medium precision for better performance
+      stencil: false, // Disable stencil buffer if not needed
+      depth: true,    // Keep depth testing
+      alpha: false    // Disable alpha channel for better performance
     });
     this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
     
-    // Limit pixel ratio to 2 to prevent excessive rendering on high-DPI displays
-    const pixelRatio = Math.min(window.devicePixelRatio, 2);
+    // Limit pixel ratio more aggressively based on device performance
+    // Values below 1 will look pixelated but give better performance
+    const basePixelRatio = window.devicePixelRatio || 1;
+    let pixelRatio;
+    
+    if (basePixelRatio > 2) {
+      // For very high DPI displays (like 3x or 4x), use half resolution
+      pixelRatio = basePixelRatio / 2;
+    } else if (basePixelRatio > 1) {
+      // For standard high DPI (2x), use 75% resolution
+      pixelRatio = basePixelRatio * 0.75;
+    } else {
+      // For standard displays, use full resolution
+      pixelRatio = 1;
+    }
+    
     this.renderer.setPixelRatio(pixelRatio);
     
     // Completely disable shadows for maximum performance
@@ -1043,6 +1097,7 @@ export class GameComponent extends LitElement {
     // Enable renderer optimizations
     this.renderer.sortObjects = true;
     this.renderer.physicallyCorrectLights = false;
+    this.renderer.localClippingEnabled = false; // Disable clipping planes if not needed
     
     // Simplified lighting setup for better performance
     
@@ -1275,9 +1330,13 @@ export class GameComponent extends LitElement {
     
     // Initial position update
     this.updateCrosshairPosition();
-    
-    console.log("THREE.js crosshair created - will follow barrel direction");
   }
+  
+  // Reuse these vectors to avoid unnecessary object creation
+  private readonly tempVector = new THREE.Vector3();
+  private readonly tempDirection = new THREE.Vector3();
+  private readonly tempBarrelEnd = new THREE.Vector3();
+  private readonly tempEuler = new THREE.Euler();
   
   private updateCrosshairPosition() {
     if (!this.playerTank || !this.crosshairObject || !this.scene) return;
@@ -1285,70 +1344,48 @@ export class GameComponent extends LitElement {
     // Distance to project the crosshair
     const distance = 50; // Units in front of barrel
     
-    // Get barrel end position and firing direction 
-    // (Similar to the logic in Tank.fireShell method)
+    // Get barrel end position and firing direction
     // Use a fixed offset value since we don't have direct access to Tank's BARREL_END_OFFSET
-    const barrelEndPosition = new THREE.Vector3(0, 0, 1.5); // 1.5 matches Tank.BARREL_END_OFFSET
+    this.tempBarrelEnd.set(0, 0, 1.5); // 1.5 matches Tank.BARREL_END_OFFSET
     
     // Apply barrel elevation
-    barrelEndPosition.applyEuler(new THREE.Euler(
-      this.playerTank.barrelPivot.rotation.x,
-      0,
-      0
-    ));
+    this.tempEuler.set(this.playerTank.barrelPivot.rotation.x, 0, 0);
+    this.tempBarrelEnd.applyEuler(this.tempEuler);
     
     // Apply turret rotation
-    barrelEndPosition.applyEuler(new THREE.Euler(
-      0,
-      this.playerTank.turretPivot.rotation.y,
-      0
-    ));
-    
-    // Apply tank rotation and position
-    barrelEndPosition.applyEuler(new THREE.Euler(
-      0,
-      this.playerTank.tank.rotation.y,
-      0
-    ));
-    
-    // Add to tank and turret position
-    barrelEndPosition.add(this.playerTank.turretPivot.position.clone().add(this.playerTank.tank.position));
-    
-    // Calculate firing direction
-    const direction = new THREE.Vector3(0, 0, 1); // Forward vector
-    
-    // Apply barrel elevation
-    direction.applyEuler(new THREE.Euler(
-      this.playerTank.barrelPivot.rotation.x,
-      0,
-      0
-    ));
-    
-    // Apply turret rotation
-    direction.applyEuler(new THREE.Euler(
-      0,
-      this.playerTank.turretPivot.rotation.y,
-      0
-    ));
+    this.tempEuler.set(0, this.playerTank.turretPivot.rotation.y, 0);
+    this.tempBarrelEnd.applyEuler(this.tempEuler);
     
     // Apply tank rotation
-    direction.applyEuler(new THREE.Euler(
-      0,
-      this.playerTank.tank.rotation.y,
-      0
-    ));
+    this.tempEuler.set(0, this.playerTank.tank.rotation.y, 0);
+    this.tempBarrelEnd.applyEuler(this.tempEuler);
+    
+    // Add to tank and turret position
+    this.tempVector.copy(this.playerTank.turretPivot.position);
+    this.tempVector.add(this.playerTank.tank.position);
+    this.tempBarrelEnd.add(this.tempVector);
+    
+    // Calculate firing direction
+    this.tempDirection.set(0, 0, 1); // Forward vector
+    
+    // Apply barrel elevation
+    this.tempEuler.set(this.playerTank.barrelPivot.rotation.x, 0, 0);
+    this.tempDirection.applyEuler(this.tempEuler);
+    
+    // Apply turret rotation
+    this.tempEuler.set(0, this.playerTank.turretPivot.rotation.y, 0);
+    this.tempDirection.applyEuler(this.tempEuler);
+    
+    // Apply tank rotation
+    this.tempEuler.set(0, this.playerTank.tank.rotation.y, 0);
+    this.tempDirection.applyEuler(this.tempEuler);
     
     // Normalize direction vector
-    direction.normalize();
+    this.tempDirection.normalize();
     
     // Calculate crosshair position by extending from barrel end
     // in the direction the barrel is pointing
-    const crosshairPosition = barrelEndPosition.clone().add(
-      direction.multiplyScalar(distance)
-    );
-    
-    // Update crosshair position
-    this.crosshairObject.position.copy(crosshairPosition);
+    this.crosshairObject.position.copy(this.tempBarrelEnd).addScaledVector(this.tempDirection, distance);
     
     // Make the crosshair face the camera
     if (this.camera) {
@@ -1525,11 +1562,15 @@ export class GameComponent extends LitElement {
     this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
   }
 
+  // Track frame counts for throttled operations
+  private frameCounter = 0;
+  
   private animate() {
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
+    this.frameCounter++;
     
-    // Performance monitoring (shadows completely disabled now)
-    if (this.renderer && this.renderer.info && this.renderer.info.render) {
+    // Performance monitoring (calculate only every 30 frames)
+    if (this.frameCounter % 30 === 0 && this.renderer?.info?.render) {
       // Calculate current FPS for the stats display
       const fps = 1000 / (this.renderer.info.render.frame || 16.7);
       
@@ -1539,11 +1580,14 @@ export class GameComponent extends LitElement {
     
     // Store camera position for health bar billboarding and audio
     if (this.camera) {
-      (window as any).cameraPosition = this.camera.position;
-      
-      // Update audio listener position for all spatial audio
-      if (typeof window.SpatialAudio?.setGlobalListener === 'function') {
-        window.SpatialAudio.setGlobalListener(this.camera.position);
+      // Only update global audio listener every 10 frames
+      if (this.frameCounter % 10 === 0) {
+        (window as any).cameraPosition = this.camera.position;
+        
+        // Update audio listener position for all spatial audio
+        if (typeof window.SpatialAudio?.setGlobalListener === 'function') {
+          window.SpatialAudio.setGlobalListener(this.camera.position);
+        }
       }
     }
     
@@ -1551,10 +1595,7 @@ export class GameComponent extends LitElement {
     // This ensures we constantly check for remote player updates
     if (this.multiplayerState && this.scene && this.gameStateInitialized) {
       // Check for remote players periodically in the animation loop
-      const frameCount = this.renderer?.info.render.frame || 0;
-      
-      if (frameCount % 60 === 0) { // Process once per second (at 60fps)
-        // Periodic checks are helpful but don't need to log every time
+      if (this.frameCounter % 60 === 0) { // Process once per second (at 60fps)
         this.updateRemotePlayers();
       }
       
@@ -1564,11 +1605,15 @@ export class GameComponent extends LitElement {
       }
     }
     
-    // Update crosshair position to align with tank barrel
-    this.updateCrosshairPosition();
+    // Update crosshair position every other frame
+    if (this.frameCounter % 2 === 0) {
+      this.updateCrosshairPosition();
+    }
     
-    // Update kill notifications (remove expired ones)
-    this.updateKillNotifications();
+    // Update kill notifications every 5 frames
+    if (this.frameCounter % 5 === 0) {
+      this.updateKillNotifications();
+    }
     
     // Run the collision system check
     this.collisionSystem.checkCollisions();
@@ -1595,7 +1640,6 @@ export class GameComponent extends LitElement {
         // Update tank and check if shell was fired
         const newShell = this.playerTank.update(this.keys, allColliders);
         if (newShell) {
-          console.log('New shell created, adding to game');
           this.addShell(newShell);
         }
       }
@@ -1605,14 +1649,15 @@ export class GameComponent extends LitElement {
         this.playerTank.updateCamera(this.camera);
       }
       
-      // Emit player position and orientation event, but limit frequency
-      // Only emit every 5 frames to reduce event frequency
-      if (this.animationFrameId % 5 === 0) {
+      // Emit player position and orientation event with reduced frequency
+      if (this.frameCounter % 6 === 0) { // Reduced from every 5 frames to every 6
         this.emitPlayerPositionEvent();
       }
       
       // Update stats for health changes
-      this.updateStats();
+      if (this.frameCounter % 15 === 0) { // Only update UI stats every quarter second
+        this.updateStats();
+      }
     }
     
     // Update player health tracking
@@ -1620,42 +1665,49 @@ export class GameComponent extends LitElement {
       const currentHealth = this.playerTank.getHealth();
       
       // If health decreased (but not destroyed), show damage effects
-      // This is a fallback in case the tank-hit event doesn't fire for some reason
       if (currentHealth < this.lastPlayerHealth && !this.playerDestroyed) {
-        console.log(`Health decreased from ${this.lastPlayerHealth} to ${currentHealth}`);
         this.showPlayerHitEffects();
       }
       
       this.lastPlayerHealth = currentHealth;
     }
     
-    // Update all NPC tanks, apply LOD (level of detail) based on distance and performance
-    for (const npcTank of this.npcTanks) {
-      // Get distance to player
-      const distanceToPlayer = this.playerTank?.tank.position.distanceTo(npcTank.tank.position) || 0;
+    // Update NPC tanks with optimized frequency
+    if (this.npcTanks.length > 0 && this.playerTank) {
+      // Only process a subset of tanks each frame based on performance
+      const tanksPerFrame = this.lowPerformanceMode ? 1 : 2;
+      const startIdx = (this.frameCounter % Math.ceil(this.npcTanks.length / tanksPerFrame)) * tanksPerFrame;
+      const endIdx = Math.min(startIdx + tanksPerFrame, this.npcTanks.length);
       
-      // Determine update frequency based on distance and performance mode
-      let newShell: Shell | null = null;
-      
-      if (distanceToPlayer < this.lodDistance) {
-        // Close tanks always update
-        newShell = npcTank.update({}, allColliders);
-      } else if (distanceToPlayer < this.lodDistance * 2) {
-        // Mid-range tanks
-        if (!this.lowPerformanceMode || Math.random() < 0.5) { // 50% chance in low performance mode
+      for (let i = startIdx; i < endIdx; i++) {
+        const npcTank = this.npcTanks[i];
+        
+        // Get distance to player
+        const distanceToPlayer = this.playerTank.tank.position.distanceTo(npcTank.tank.position);
+        
+        // Determine update frequency based on distance and performance mode
+        let newShell: Shell | null = null;
+        
+        if (distanceToPlayer < this.lodDistance) {
+          // Close tanks always update
           newShell = npcTank.update({}, allColliders);
+        } else if (distanceToPlayer < this.lodDistance * 2) {
+          // Mid-range tanks
+          if (!this.lowPerformanceMode || Math.random() < 0.5) { // 50% chance in low performance mode
+            newShell = npcTank.update({}, allColliders);
+          }
+        } else {
+          // Distant tanks update very infrequently
+          const updateChance = this.lowPerformanceMode ? 0.1 : 0.2; // 10% or 20% chance based on performance
+          if (Math.random() < updateChance) {
+            newShell = npcTank.update({}, allColliders);
+          }
         }
-      } else {
-        // Distant tanks update very infrequently
-        const updateChance = this.lowPerformanceMode ? 0.1 : 0.2; // 10% or 20% chance based on performance
-        if (Math.random() < updateChance) {
-          newShell = npcTank.update({}, allColliders);
+        
+        // Add new shell if one was fired
+        if (newShell) {
+          this.addShell(newShell);
         }
-      }
-      
-      // Add new shell if one was fired
-      if (newShell) {
-        this.addShell(newShell);
       }
     }
     
