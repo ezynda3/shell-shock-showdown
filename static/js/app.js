@@ -10231,6 +10231,54 @@ class DepthTexture extends Texture {
     return data;
   }
 }
+class CircleGeometry extends BufferGeometry {
+  constructor(radius = 1, segments = 32, thetaStart = 0, thetaLength = Math.PI * 2) {
+    super();
+    this.type = "CircleGeometry";
+    this.parameters = {
+      radius,
+      segments,
+      thetaStart,
+      thetaLength
+    };
+    segments = Math.max(3, segments);
+    const indices = [];
+    const vertices = [];
+    const normals = [];
+    const uvs = [];
+    const vertex = new Vector3;
+    const uv = new Vector2;
+    vertices.push(0, 0, 0);
+    normals.push(0, 0, 1);
+    uvs.push(0.5, 0.5);
+    for (let s = 0, i = 3;s <= segments; s++, i += 3) {
+      const segment = thetaStart + s / segments * thetaLength;
+      vertex.x = radius * Math.cos(segment);
+      vertex.y = radius * Math.sin(segment);
+      vertices.push(vertex.x, vertex.y, vertex.z);
+      normals.push(0, 0, 1);
+      uv.x = (vertices[i] / radius + 1) / 2;
+      uv.y = (vertices[i + 1] / radius + 1) / 2;
+      uvs.push(uv.x, uv.y);
+    }
+    for (let i = 1;i <= segments; i++) {
+      indices.push(i, i + 1, 0);
+    }
+    this.setIndex(indices);
+    this.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+    this.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+    this.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+  }
+  copy(source) {
+    super.copy(source);
+    this.parameters = Object.assign({}, source.parameters);
+    return this;
+  }
+  static fromJSON(data) {
+    return new CircleGeometry(data.radius, data.segments, data.thetaStart, data.thetaLength);
+  }
+}
+
 class CylinderGeometry extends BufferGeometry {
   constructor(radiusTop = 1, radiusBottom = 1, height = 1, radialSegments = 32, heightSegments = 1, openEnded = false, thetaStart = 0, thetaLength = Math.PI * 2) {
     super();
@@ -26185,10 +26233,14 @@ class MapGenerator {
   scene;
   treeColliders = [];
   rockColliders = [];
+  buildingColliders = [];
   trunkMaterial;
   leafMaterial;
   rockMaterial;
   darkRockMaterial;
+  buildingMaterials = [];
+  glassMaterial;
+  roadMaterial;
   constructor(scene) {
     this.scene = scene;
     this.trunkMaterial = new MeshStandardMaterial({
@@ -26210,6 +26262,45 @@ class MapGenerator {
       color: 5263440,
       roughness: 0.9,
       metalness: 0.3
+    });
+    this.buildingMaterials = [
+      new MeshStandardMaterial({
+        color: 7372944,
+        roughness: 0.7,
+        metalness: 0.3
+      }),
+      new MeshStandardMaterial({
+        color: 11119017,
+        roughness: 0.7,
+        metalness: 0.2
+      }),
+      new MeshStandardMaterial({
+        color: 4620980,
+        roughness: 0.6,
+        metalness: 0.4
+      }),
+      new MeshStandardMaterial({
+        color: 9127187,
+        roughness: 0.8,
+        metalness: 0.1
+      }),
+      new MeshStandardMaterial({
+        color: 3100495,
+        roughness: 0.7,
+        metalness: 0.3
+      })
+    ];
+    this.glassMaterial = new MeshStandardMaterial({
+      color: 8900331,
+      roughness: 0.2,
+      metalness: 0.8,
+      transparent: true,
+      opacity: 0.6
+    });
+    this.roadMaterial = new MeshStandardMaterial({
+      color: 3355443,
+      roughness: 0.9,
+      metalness: 0.1
     });
   }
   createPineTree(scale, x, z) {
@@ -26474,14 +26565,146 @@ class MapGenerator {
       this.createRockCluster(500 - i * 50, -500 + i * 50, i * 5 + 1000);
     }
   }
+  createSkyscraper(x, z, height, width, depth, materialIndex) {
+    let buildingMaterialIndex = materialIndex;
+    if (buildingMaterialIndex === undefined) {
+      buildingMaterialIndex = Math.abs(Math.floor(Math.sin(x * 0.1 + z * 0.2) * this.buildingMaterials.length)) % this.buildingMaterials.length;
+    }
+    const buildingMaterial = this.buildingMaterials[buildingMaterialIndex];
+    const buildingGeometry = new BoxGeometry(width, height, depth);
+    const textureSize = 512;
+    const canvas = document.createElement("canvas");
+    canvas.width = textureSize;
+    canvas.height = textureSize;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      const color = buildingMaterial.color;
+      ctx.fillStyle = "#" + color.getHexString();
+      ctx.fillRect(0, 0, textureSize, textureSize);
+      const windowRows = 16;
+      const windowCols = 16;
+      const windowWidth = textureSize / windowCols;
+      const windowHeight = textureSize / windowRows;
+      ctx.fillStyle = "rgba(135, 206, 235, 0.7)";
+      const offset = buildingMaterialIndex % 4;
+      for (let row = 1;row < windowRows; row++) {
+        for (let col = 1;col < windowCols; col++) {
+          if ((row + col + offset) % 4 === 0)
+            continue;
+          ctx.fillRect(col * windowWidth - windowWidth * 0.8, row * windowHeight - windowHeight * 0.8, windowWidth * 0.6, windowHeight * 0.6);
+        }
+      }
+    }
+    const texture = new CanvasTexture(canvas);
+    texture.wrapS = RepeatWrapping;
+    texture.wrapT = RepeatWrapping;
+    const material = new MeshStandardMaterial({
+      map: texture,
+      color: buildingMaterial.color,
+      roughness: buildingMaterial.roughness,
+      metalness: buildingMaterial.metalness
+    });
+    const buildingMesh = new Mesh(buildingGeometry, material);
+    buildingMesh.position.set(x, height / 2, 0);
+    buildingMesh.position.y = height / 2;
+    buildingMesh.position.z = z;
+    buildingMesh.castShadow = true;
+    buildingMesh.receiveShadow = true;
+    this.scene.add(buildingMesh);
+    const colliderPosition = new Vector3(x, height / 2, z);
+    const buildingCollider = new StaticCollider(colliderPosition, "building", Math.max(width, depth) / 2);
+    this.buildingColliders.push(buildingCollider);
+    return buildingCollider;
+  }
+  createRoad(startX, startZ, endX, endZ, width) {
+    const roadLength = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endZ - startZ, 2));
+    const angle = Math.atan2(endZ - startZ, endX - startX);
+    const roadGeometry = new PlaneGeometry(roadLength, width);
+    const roadMesh = new Mesh(roadGeometry, this.roadMaterial);
+    roadMesh.rotation.x = -Math.PI / 2;
+    roadMesh.rotation.z = -angle;
+    const midX = (startX + endX) / 2;
+    const midZ = (startZ + endZ) / 2;
+    roadMesh.position.set(midX, 0.1, midZ);
+    this.scene.add(roadMesh);
+  }
+  createCityCenter() {
+    const cityRadius = 80;
+    const buildingTypes = [
+      { height: 200, width: 20, depth: 20, materialIndex: 0 },
+      { height: 180, width: 25, depth: 25, materialIndex: 1 },
+      { height: 160, width: 20, depth: 20, materialIndex: 2 },
+      { height: 140, width: 18, depth: 18, materialIndex: 3 },
+      { height: 120, width: 22, depth: 22, materialIndex: 4 },
+      { height: 100, width: 28, depth: 15, materialIndex: 0 },
+      { height: 90, width: 15, depth: 28, materialIndex: 1 },
+      { height: 80, width: 20, depth: 20, materialIndex: 2 },
+      { height: 70, width: 25, depth: 15, materialIndex: 3 },
+      { height: 60, width: 15, depth: 25, materialIndex: 4 },
+      { height: 55, width: 20, depth: 20, materialIndex: 0 },
+      { height: 50, width: 30, depth: 15, materialIndex: 1 },
+      { height: 45, width: 15, depth: 30, materialIndex: 2 },
+      { height: 40, width: 20, depth: 25, materialIndex: 3 },
+      { height: 35, width: 25, depth: 20, materialIndex: 4 },
+      { height: 30, width: 18, depth: 18, materialIndex: 0 },
+      { height: 25, width: 22, depth: 22, materialIndex: 1 },
+      { height: 20, width: 25, depth: 25, materialIndex: 2 }
+    ];
+    const centralBuilding = buildingTypes[0];
+    this.createSkyscraper(0, 0, centralBuilding.height, centralBuilding.width, centralBuilding.depth, centralBuilding.materialIndex);
+    for (let i = 0;i < 8; i++) {
+      const angle = i / 8 * Math.PI * 2;
+      const distance = 50;
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      const buildingType = buildingTypes[i + 1];
+      this.createSkyscraper(x, z, buildingType.height, buildingType.width, buildingType.depth, buildingType.materialIndex);
+    }
+    for (let i = 0;i < 6; i++) {
+      const angle = i / 6 * Math.PI * 2 + Math.PI / 12;
+      const distance = 30;
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      const buildingType = buildingTypes[i + 9];
+      this.createSkyscraper(x, z, buildingType.height, buildingType.width, buildingType.depth, buildingType.materialIndex);
+    }
+    for (let i = 0;i < 8; i++) {
+      const angle = i / 8 * Math.PI * 2 + Math.PI / 16;
+      const distance = 70;
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      const buildingIndex = (i + 15) % buildingTypes.length;
+      const buildingType = buildingTypes[buildingIndex];
+      this.createSkyscraper(x, z, buildingType.height, buildingType.width, buildingType.depth, buildingType.materialIndex);
+    }
+    for (let x = -cityRadius;x <= cityRadius; x += 30) {
+      this.createRoad(x, -cityRadius, x, cityRadius, 10);
+    }
+    for (let z = -cityRadius;z <= cityRadius; z += 30) {
+      this.createRoad(-cityRadius, z, cityRadius, z, 10);
+    }
+    const plazaGeometry = new CircleGeometry(15, 32);
+    const plazaMaterial = new MeshStandardMaterial({
+      color: 13421772,
+      roughness: 0.9,
+      metalness: 0.1
+    });
+    const plaza = new Mesh(plazaGeometry, plazaMaterial);
+    plaza.rotation.x = -Math.PI / 2;
+    plaza.position.set(0, 0.2, 0);
+    this.scene.add(plaza);
+  }
   getAllColliders() {
-    return [...this.treeColliders, ...this.rockColliders];
+    return [...this.treeColliders, ...this.rockColliders, ...this.buildingColliders];
   }
   getTreeColliders() {
     return [...this.treeColliders];
   }
   getRockColliders() {
     return [...this.rockColliders];
+  }
+  getBuildingColliders() {
+    return [...this.buildingColliders];
   }
 }
 
@@ -29050,13 +29273,25 @@ class GameComponent extends LitElement {
       if (playerId === this.playerId) {
         continue;
       }
-      if (this.remoteTanks.has(playerId)) {
-        const remoteTank = this.remoteTanks.get(playerId);
-        if (remoteTank) {
-          this.updateRemoteTankPosition(remoteTank, playerData);
+      if (playerData.health <= 0 && this.remoteTanks.has(playerId)) {
+        const tank = this.remoteTanks.get(playerId);
+        if (tank && tank.getHealth() > 0) {
+          console.log(`Remote player ${playerId} died, updating tank health to 0`);
+          tank.setHealth(0);
         }
-      } else {
-        this.createRemoteTank(playerId, playerData);
+      } else if (playerData.health > 0) {
+        const existingTank = this.remoteTanks.get(playerId);
+        if (!existingTank) {
+          this.createRemoteTank(playerId, playerData);
+        } else if (existingTank.getHealth() <= 0) {
+          console.log(`Remote player ${playerId} respawned - replacing tank instance`);
+          this.collisionSystem.removeCollider(existingTank);
+          existingTank.dispose();
+          this.remoteTanks.delete(playerId);
+          this.createRemoteTank(playerId, playerData);
+        } else {
+          this.updateRemoteTankPosition(existingTank, playerData);
+        }
       }
     }
     for (const [playerId, tank] of this.remoteTanks.entries()) {
@@ -29163,27 +29398,8 @@ class GameComponent extends LitElement {
       if (typeof playerData.barrelElevation === "number") {
         tank.barrelPivot.rotation.x = this.lerpAngle(tank.barrelPivot.rotation.x, playerData.barrelElevation, 0.2);
       }
-      if (typeof playerData.health === "number") {
-        const currentHealth = playerData.health;
-        const previousHealth = tank.getHealth();
-        if (previousHealth <= 0 && currentHealth > 0) {
-          console.log("Remote player respawned - recreating tank at new position");
-          this.collisionSystem.removeCollider(tank);
-          tank.dispose();
-          this.remoteTanks.delete(tank.getOwnerId());
-          const tankOwnerId = tank.getOwnerId();
-          if (tankOwnerId) {
-            this.createRemoteTank(tankOwnerId, playerData);
-          }
-          return;
-        }
-        if (typeof tank.setHealth === "function") {
-          tank.setHealth(currentHealth);
-        }
-        if (currentHealth > 0 && !tank.tank.visible) {
-          console.log("Making remote tank visible");
-          tank.tank.visible = true;
-        }
+      if (typeof playerData.health === "number" && typeof tank.setHealth === "function") {
+        tank.setHealth(playerData.health);
       }
     } catch (error) {
       console.error("Error updating remote tank:", error);
@@ -29315,6 +29531,7 @@ class GameComponent extends LitElement {
     this.mapGenerator = new MapGenerator(this.scene);
     this.createTrees();
     this.createRocks();
+    this.createCityCenter();
     const spawnPoint = this.findRandomSpawnPoint();
     this.playerTank = new Tank(this.scene, this.camera);
     this.playerTank.respawn(spawnPoint);
@@ -29338,6 +29555,15 @@ class GameComponent extends LitElement {
     this.mapGenerator.createRocks();
     const rockColliders = this.mapGenerator.getRockColliders();
     for (const collider of rockColliders) {
+      this.collisionSystem.addCollider(collider);
+    }
+  }
+  createCityCenter() {
+    if (!this.scene || !this.mapGenerator)
+      return;
+    this.mapGenerator.createCityCenter();
+    const buildingColliders = this.mapGenerator.getBuildingColliders();
+    for (const collider of buildingColliders) {
       this.collisionSystem.addCollider(collider);
     }
   }

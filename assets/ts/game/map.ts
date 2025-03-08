@@ -7,12 +7,18 @@ export class MapGenerator {
   // Collider arrays for environment objects
   private treeColliders: StaticCollider[] = [];
   private rockColliders: StaticCollider[] = [];
+  private buildingColliders: StaticCollider[] = [];
   
   // Materials
   private trunkMaterial: THREE.MeshStandardMaterial;
   private leafMaterial: THREE.MeshStandardMaterial;
   private rockMaterial: THREE.MeshStandardMaterial;
   private darkRockMaterial: THREE.MeshStandardMaterial;
+  
+  // Building materials
+  private buildingMaterials: THREE.MeshStandardMaterial[] = [];
+  private glassMaterial: THREE.MeshStandardMaterial;
+  private roadMaterial: THREE.MeshStandardMaterial;
   
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -40,6 +46,51 @@ export class MapGenerator {
       color: 0x505050, // Darker gray
       roughness: 0.9,
       metalness: 0.3
+    });
+    
+    // Building materials with different colors
+    this.buildingMaterials = [
+      new THREE.MeshStandardMaterial({
+        color: 0x708090, // Slate gray
+        roughness: 0.7,
+        metalness: 0.3
+      }),
+      new THREE.MeshStandardMaterial({
+        color: 0xA9A9A9, // Dark gray
+        roughness: 0.7,
+        metalness: 0.2
+      }),
+      new THREE.MeshStandardMaterial({
+        color: 0x4682B4, // Steel blue
+        roughness: 0.6,
+        metalness: 0.4
+      }),
+      new THREE.MeshStandardMaterial({
+        color: 0x8B4513, // Brown
+        roughness: 0.8,
+        metalness: 0.1
+      }),
+      new THREE.MeshStandardMaterial({
+        color: 0x2F4F4F, // Dark slate gray
+        roughness: 0.7,
+        metalness: 0.3
+      })
+    ];
+    
+    // Glass material for windows
+    this.glassMaterial = new THREE.MeshStandardMaterial({
+      color: 0x87CEEB, // Sky blue
+      roughness: 0.2,
+      metalness: 0.8,
+      transparent: true,
+      opacity: 0.6
+    });
+    
+    // Road material
+    this.roadMaterial = new THREE.MeshStandardMaterial({
+      color: 0x333333, // Dark gray
+      roughness: 0.9,
+      metalness: 0.1
     });
   }
   
@@ -465,9 +516,214 @@ export class MapGenerator {
     }
   }
   
+  // ===== BUILDING AND CITY METHODS =====
+  
+  createSkyscraper(x: number, z: number, height: number, width: number, depth: number, materialIndex?: number) {
+    // Use provided material index or calculate deterministically
+    let buildingMaterialIndex = materialIndex;
+    if (buildingMaterialIndex === undefined) {
+      // Create a deterministic index based on building position
+      buildingMaterialIndex = Math.abs(Math.floor(Math.sin(x * 0.1 + z * 0.2) * this.buildingMaterials.length)) % this.buildingMaterials.length;
+    }
+    const buildingMaterial = this.buildingMaterials[buildingMaterialIndex];
+    
+    // LOW-POLY APPROACH: Create the building as a single mesh with a simple texture
+    // Create the main building structure
+    const buildingGeometry = new THREE.BoxGeometry(width, height, depth);
+    
+    // Create a canvas for the building texture with window pattern
+    const textureSize = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = textureSize;
+    canvas.height = textureSize;
+    const ctx = canvas.getContext('2d');
+    
+    if (ctx) {
+      // Fill with building base color
+      const color = buildingMaterial.color;
+      ctx.fillStyle = '#' + color.getHexString();
+      ctx.fillRect(0, 0, textureSize, textureSize);
+      
+      // Create window grid pattern - simple and efficient
+      const windowRows = 16; // Fixed number for texture
+      const windowCols = 16;
+      const windowWidth = textureSize / windowCols;
+      const windowHeight = textureSize / windowRows;
+      
+      // Draw windows as simple blue rectangles
+      ctx.fillStyle = 'rgba(135, 206, 235, 0.7)'; // Light blue windows
+      
+      // Vary the window pattern based on materialIndex for diversity
+      const offset = buildingMaterialIndex % 4; // 0-3 different patterns
+      
+      // Create windows based on pattern
+      for (let row = 1; row < windowRows; row++) {
+        for (let col = 1; col < windowCols; col++) {
+          // Skip some windows based on pattern
+          if ((row + col + offset) % 4 === 0) continue;
+          
+          // Draw window
+          ctx.fillRect(
+            col * windowWidth - windowWidth * 0.8,
+            row * windowHeight - windowHeight * 0.8,
+            windowWidth * 0.6,
+            windowHeight * 0.6
+          );
+        }
+      }
+    }
+    
+    // Create texture from canvas
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    
+    // Create material with the texture
+    const material = new THREE.MeshStandardMaterial({
+      map: texture,
+      color: buildingMaterial.color,
+      roughness: buildingMaterial.roughness,
+      metalness: buildingMaterial.metalness
+    });
+    
+    // Create the mesh with the optimized geometry and textured material
+    const buildingMesh = new THREE.Mesh(buildingGeometry, material);
+    buildingMesh.position.set(x, height / 2, 0);
+    buildingMesh.position.y = height / 2; // Position at ground level with height centered
+    buildingMesh.position.z = z;
+    buildingMesh.castShadow = true;
+    buildingMesh.receiveShadow = true;
+    
+    // Add to scene directly (no group needed)
+    this.scene.add(buildingMesh);
+    
+    // Create a collider box for the building
+    const colliderPosition = new THREE.Vector3(x, height / 2, z);
+    const buildingCollider = new StaticCollider(colliderPosition, 'building', Math.max(width, depth) / 2);
+    this.buildingColliders.push(buildingCollider);
+    
+    return buildingCollider;
+  }
+  
+  createRoad(startX: number, startZ: number, endX: number, endZ: number, width: number) {
+    // Calculate road length and direction
+    const roadLength = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endZ - startZ, 2));
+    const angle = Math.atan2(endZ - startZ, endX - startX);
+    
+    // Create road geometry
+    const roadGeometry = new THREE.PlaneGeometry(roadLength, width);
+    const roadMesh = new THREE.Mesh(roadGeometry, this.roadMaterial);
+    
+    // Position and rotate road
+    roadMesh.rotation.x = -Math.PI / 2; // Lay flat on the ground
+    roadMesh.rotation.z = -angle; // Align with direction
+    
+    // Position at midpoint between start and end
+    const midX = (startX + endX) / 2;
+    const midZ = (startZ + endZ) / 2;
+    roadMesh.position.set(midX, 0.1, midZ); // Slightly above ground to prevent z-fighting
+    
+    // Add to scene
+    this.scene.add(roadMesh);
+  }
+  
+  createCityCenter() {
+    // Create a city center with buildings arranged in a grid
+    const cityRadius = 80; // City size
+    
+    // Define building properties for deterministic generation
+    const buildingTypes = [
+      { height: 200, width: 20, depth: 20, materialIndex: 0 }, // Central skyscraper
+      { height: 180, width: 25, depth: 25, materialIndex: 1 }, // Financial district towers
+      { height: 160, width: 20, depth: 20, materialIndex: 2 },
+      { height: 140, width: 18, depth: 18, materialIndex: 3 },
+      { height: 120, width: 22, depth: 22, materialIndex: 4 },
+      { height: 100, width: 28, depth: 15, materialIndex: 0 },
+      { height: 90, width: 15, depth: 28, materialIndex: 1 },
+      { height: 80, width: 20, depth: 20, materialIndex: 2 },
+      // Medium buildings
+      { height: 70, width: 25, depth: 15, materialIndex: 3 },
+      { height: 60, width: 15, depth: 25, materialIndex: 4 },
+      { height: 55, width: 20, depth: 20, materialIndex: 0 },
+      { height: 50, width: 30, depth: 15, materialIndex: 1 },
+      // Smaller buildings
+      { height: 45, width: 15, depth: 30, materialIndex: 2 },
+      { height: 40, width: 20, depth: 25, materialIndex: 3 },
+      { height: 35, width: 25, depth: 20, materialIndex: 4 },
+      { height: 30, width: 18, depth: 18, materialIndex: 0 },
+      { height: 25, width: 22, depth: 22, materialIndex: 1 },
+      { height: 20, width: 25, depth: 25, materialIndex: 2 }
+    ];
+    
+    // Create a central high-rise building
+    const centralBuilding = buildingTypes[0];
+    this.createSkyscraper(0, 0, centralBuilding.height, centralBuilding.width, centralBuilding.depth, centralBuilding.materialIndex);
+    
+    // Create skyscrapers in a circular arrangement
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const distance = 50; // Distance from center
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      
+      // Use pre-defined building properties (1-8)
+      const buildingType = buildingTypes[i + 1];
+      this.createSkyscraper(x, z, buildingType.height, buildingType.width, buildingType.depth, buildingType.materialIndex);
+    }
+    
+    // Create additional buildings in a deterministic pattern
+    // Inner ring of medium buildings
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2 + Math.PI / 12; // Offset to avoid overlapping with skyscrapers
+      const distance = 30; // Closer to center
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      
+      // Use pre-defined building properties (9-14)
+      const buildingType = buildingTypes[i + 9];
+      this.createSkyscraper(x, z, buildingType.height, buildingType.width, buildingType.depth, buildingType.materialIndex);
+    }
+    
+    // Outer ring of smaller buildings
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2 + Math.PI / 16; // Offset for variety
+      const distance = 70; // Further from center
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      
+      // Use last building types for outer ring (or loop back to beginning)
+      const buildingIndex = (i + 15) % buildingTypes.length;
+      const buildingType = buildingTypes[buildingIndex];
+      this.createSkyscraper(x, z, buildingType.height, buildingType.width, buildingType.depth, buildingType.materialIndex);
+    }
+    
+    // Create roads in a grid pattern
+    // North-South Roads
+    for (let x = -cityRadius; x <= cityRadius; x += 30) {
+      this.createRoad(x, -cityRadius, x, cityRadius, 10);
+    }
+    
+    // East-West Roads
+    for (let z = -cityRadius; z <= cityRadius; z += 30) {
+      this.createRoad(-cityRadius, z, cityRadius, z, 10);
+    }
+    
+    // Add central plaza
+    const plazaGeometry = new THREE.CircleGeometry(15, 32);
+    const plazaMaterial = new THREE.MeshStandardMaterial({
+      color: 0xCCCCCC, // Light gray
+      roughness: 0.9,
+      metalness: 0.1
+    });
+    const plaza = new THREE.Mesh(plazaGeometry, plazaMaterial);
+    plaza.rotation.x = -Math.PI / 2; // Lay flat
+    plaza.position.set(0, 0.2, 0); // Slightly above ground
+    this.scene.add(plaza);
+  }
+  
   // Methods to get colliders for collision detection
   getAllColliders(): ICollidable[] {
-    return [...this.treeColliders, ...this.rockColliders];
+    return [...this.treeColliders, ...this.rockColliders, ...this.buildingColliders];
   }
   
   getTreeColliders(): ICollidable[] {
@@ -476,5 +732,9 @@ export class MapGenerator {
   
   getRockColliders(): ICollidable[] {
     return [...this.rockColliders];
+  }
+  
+  getBuildingColliders(): ICollidable[] {
+    return [...this.buildingColliders];
   }
 }
