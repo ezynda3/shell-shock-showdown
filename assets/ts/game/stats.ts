@@ -19,9 +19,6 @@ export class GameStats extends LitElement {
   @state() private kills: number = 0;
   @state() private deaths: number = 0;
   
-  // Performance mode toggle
-  @state() private highPerformanceMode: boolean = false;
-  
   // Frame time tracking
   private frameTimeHistory: number[] = [];
   private readonly HISTORY_SIZE = 30; // Average over this many frames
@@ -88,60 +85,6 @@ export class GameStats extends LitElement {
       color: #ff8a8a;
     }
     
-    .performance-toggle {
-      margin-top: 8px;
-      display: flex;
-      align-items: center;
-      cursor: pointer;
-      user-select: none;
-      pointer-events: auto;
-    }
-    
-    .toggle-switch {
-      position: relative;
-      display: inline-block;
-      width: 40px;
-      height: 20px;
-      margin-right: 8px;
-    }
-    
-    .toggle-switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-    
-    .toggle-slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: #555;
-      transition: .3s;
-      border-radius: 20px;
-    }
-    
-    .toggle-slider:before {
-      position: absolute;
-      content: "";
-      height: 16px;
-      width: 16px;
-      left: 2px;
-      bottom: 2px;
-      background-color: white;
-      transition: .3s;
-      border-radius: 50%;
-    }
-    
-    input:checked + .toggle-slider {
-      background-color: #8aff8a;
-    }
-    
-    input:checked + .toggle-slider:before {
-      transform: translateX(20px);
-    }
     
     .health-high {
       color: #8aff8a;
@@ -210,36 +153,10 @@ export class GameStats extends LitElement {
           <span class="stat-label">Triangles</span>
           <span class="stat-value">${this.triangleCount.toLocaleString()}</span>
         </div>
-        
-        <label class="performance-toggle">
-          <span class="toggle-switch">
-            <input 
-              type="checkbox" 
-              ?checked=${this.highPerformanceMode}
-              @change=${this.togglePerformanceMode}
-            >
-            <span class="toggle-slider"></span>
-          </span>
-          Max Performance Mode
-        </label>
       </div>
     `;
   }
   
-  private togglePerformanceMode(e: Event) {
-    const checkbox = e.target as HTMLInputElement;
-    this.highPerformanceMode = checkbox.checked;
-    
-    // Set global performance mode
-    (window as any).lowPerformanceMode = !this.highPerformanceMode;
-    
-    // Dispatch event for other components to react
-    this.dispatchEvent(new CustomEvent('performance-mode-change', {
-      detail: { highPerformance: this.highPerformanceMode },
-      bubbles: true,
-      composed: true
-    }));
-  }
 
   /**
    * Start performance monitoring

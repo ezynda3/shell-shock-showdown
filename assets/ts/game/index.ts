@@ -197,7 +197,6 @@ export class GameComponent extends LitElement {
   private readonly NUM_NPC_TANKS = 0;
   
   // Performance settings
-  private lowPerformanceMode = false;
   private lodDistance = 300; // Distance at which to switch to lower detail
   
   // Collision system
@@ -510,41 +509,8 @@ export class GameComponent extends LitElement {
     this.handleTankRespawn = this.handleTankRespawn.bind(this);
     document.addEventListener('tank-respawn', this.handleTankRespawn);
     
-    // Listen for performance mode changes
-    this.handlePerformanceModeChange = this.handlePerformanceModeChange.bind(this);
-    document.addEventListener('performance-mode-change', this.handlePerformanceModeChange);
-    
     // Initialize game stats
     this.updateStats();
-  }
-  
-  // Performance mode change handler
-  private handlePerformanceModeChange(event: CustomEvent) {
-    const highPerformance = event.detail.highPerformance;
-    this.lowPerformanceMode = !highPerformance;
-    
-    // Make mode accessible globally 
-    (window as any).lowPerformanceMode = this.lowPerformanceMode;
-    
-    // Adjust settings based on performance mode
-    if (this.renderer) {
-      // Adjust pixel ratio
-      const basePixelRatio = window.devicePixelRatio || 1;
-      let pixelRatio;
-      
-      if (this.lowPerformanceMode) {
-        // Low performance mode: reduce resolution more aggressively
-        pixelRatio = basePixelRatio > 1 ? basePixelRatio / 2 : 0.75;
-      } else {
-        // High performance mode: use higher resolution
-        pixelRatio = Math.min(basePixelRatio, 2);
-      }
-      
-      this.renderer.setPixelRatio(pixelRatio);
-    }
-    
-    // Adjust LOD distance
-    this.lodDistance = this.lowPerformanceMode ? 200 : 300;
   }
   
   // Handle tank respawn events
@@ -986,7 +952,6 @@ export class GameComponent extends LitElement {
     document.removeEventListener('tank-hit', this.handleTankHit);
     document.removeEventListener('shell-fired', this.handleShellFired);
     document.removeEventListener('tank-respawn', this.handleTankRespawn);
-    document.removeEventListener('performance-mode-change', this.handlePerformanceModeChange);
     
     // Remove pointer lock related event listeners
     document.removeEventListener('pointerlockchange', this.handlePointerLockChange);
@@ -1075,21 +1040,10 @@ export class GameComponent extends LitElement {
     });
     this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
     
-    // Limit pixel ratio more aggressively based on device performance
-    // Values below 1 will look pixelated but give better performance
+    // Use consistent medium-high quality rendering
     const basePixelRatio = window.devicePixelRatio || 1;
-    let pixelRatio;
-    
-    if (basePixelRatio > 2) {
-      // For very high DPI displays (like 3x or 4x), use half resolution
-      pixelRatio = basePixelRatio / 2;
-    } else if (basePixelRatio > 1) {
-      // For standard high DPI (2x), use 75% resolution
-      pixelRatio = basePixelRatio * 0.75;
-    } else {
-      // For standard displays, use full resolution
-      pixelRatio = 1;
-    }
+    // Limit to 1.5x pixel ratio for balanced quality and performance
+    const pixelRatio = Math.min(basePixelRatio, 1.5);
     
     this.renderer.setPixelRatio(pixelRatio);
     
@@ -1743,9 +1697,6 @@ export class GameComponent extends LitElement {
     if (this.frameCounter % 30 === 0 && this.renderer?.info?.render) {
       // Calculate current FPS for the stats display
       const fps = 1000 / (this.renderer.info.render.frame || 16.7);
-      
-      // Check if we're getting low FPS and should reduce update frequency of distant objects
-      this.lowPerformanceMode = fps < 30;
     }
     
     // Update grass shader time uniform
@@ -1848,8 +1799,8 @@ export class GameComponent extends LitElement {
     
     // Update NPC tanks with optimized frequency
     if (this.npcTanks.length > 0 && this.playerTank) {
-      // Only process a subset of tanks each frame based on performance
-      const tanksPerFrame = this.lowPerformanceMode ? 1 : 2;
+      // Process up to 2 tanks per frame for consistent performance
+      const tanksPerFrame = 2;
       const startIdx = (this.frameCounter % Math.ceil(this.npcTanks.length / tanksPerFrame)) * tanksPerFrame;
       const endIdx = Math.min(startIdx + tanksPerFrame, this.npcTanks.length);
       
@@ -1859,21 +1810,20 @@ export class GameComponent extends LitElement {
         // Get distance to player
         const distanceToPlayer = this.playerTank.tank.position.distanceTo(npcTank.tank.position);
         
-        // Determine update frequency based on distance and performance mode
+        // Determine update frequency based on distance
         let newShell: Shell | null = null;
         
         if (distanceToPlayer < this.lodDistance) {
           // Close tanks always update
           newShell = npcTank.update({}, allColliders);
         } else if (distanceToPlayer < this.lodDistance * 2) {
-          // Mid-range tanks
-          if (!this.lowPerformanceMode || Math.random() < 0.5) { // 50% chance in low performance mode
+          // Mid-range tanks update with 50% chance
+          if (Math.random() < 0.5) {
             newShell = npcTank.update({}, allColliders);
           }
         } else {
-          // Distant tanks update very infrequently
-          const updateChance = this.lowPerformanceMode ? 0.1 : 0.2; // 10% or 20% chance based on performance
-          if (Math.random() < updateChance) {
+          // Distant tanks update very infrequently (20% chance)
+          if (Math.random() < 0.2) {
             newShell = npcTank.update({}, allColliders);
           }
         }

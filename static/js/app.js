@@ -31467,60 +31467,6 @@ class GameStats extends LitElement {
       color: #ff8a8a;
     }
     
-    .performance-toggle {
-      margin-top: 8px;
-      display: flex;
-      align-items: center;
-      cursor: pointer;
-      user-select: none;
-      pointer-events: auto;
-    }
-    
-    .toggle-switch {
-      position: relative;
-      display: inline-block;
-      width: 40px;
-      height: 20px;
-      margin-right: 8px;
-    }
-    
-    .toggle-switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-    
-    .toggle-slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: #555;
-      transition: .3s;
-      border-radius: 20px;
-    }
-    
-    .toggle-slider:before {
-      position: absolute;
-      content: "";
-      height: 16px;
-      width: 16px;
-      left: 2px;
-      bottom: 2px;
-      background-color: white;
-      transition: .3s;
-      border-radius: 50%;
-    }
-    
-    input:checked + .toggle-slider {
-      background-color: #8aff8a;
-    }
-    
-    input:checked + .toggle-slider:before {
-      transform: translateX(20px);
-    }
     
     .health-high {
       color: #8aff8a;
@@ -31551,7 +31497,6 @@ class GameStats extends LitElement {
     this.playerHealth = 100;
     this.kills = 0;
     this.deaths = 0;
-    this.highPerformanceMode = false;
     this.startMonitoring();
   }
   disconnectedCallback() {
@@ -31594,30 +31539,8 @@ class GameStats extends LitElement {
           <span class="stat-label">Triangles</span>
           <span class="stat-value">${this.triangleCount.toLocaleString()}</span>
         </div>
-        
-        <label class="performance-toggle">
-          <span class="toggle-switch">
-            <input 
-              type="checkbox" 
-              ?checked=${this.highPerformanceMode}
-              @change=${this.togglePerformanceMode}
-            >
-            <span class="toggle-slider"></span>
-          </span>
-          Max Performance Mode
-        </label>
       </div>
     `;
-  }
-  togglePerformanceMode(e) {
-    const checkbox = e.target;
-    this.highPerformanceMode = checkbox.checked;
-    window.lowPerformanceMode = !this.highPerformanceMode;
-    this.dispatchEvent(new CustomEvent("performance-mode-change", {
-      detail: { highPerformance: this.highPerformanceMode },
-      bubbles: true,
-      composed: true
-    }));
   }
   startMonitoring() {
     const updateFrame = (timestamp) => {
@@ -31724,9 +31647,6 @@ __legacyDecorateClassTS([
 __legacyDecorateClassTS([
   state()
 ], GameStats.prototype, "deaths", undefined);
-__legacyDecorateClassTS([
-  state()
-], GameStats.prototype, "highPerformanceMode", undefined);
 GameStats = __legacyDecorateClassTS([
   customElement("game-stats")
 ], GameStats);
@@ -31818,7 +31738,6 @@ class GameComponent extends LitElement {
   remoteTanks = new Map;
   npcTanks = [];
   NUM_NPC_TANKS = 0;
-  lowPerformanceMode = false;
   lodDistance = 300;
   collisionSystem = new CollisionSystem;
   mapGenerator;
@@ -32101,25 +32020,7 @@ class GameComponent extends LitElement {
     document.addEventListener("shell-fired", this.handleShellFired);
     this.handleTankRespawn = this.handleTankRespawn.bind(this);
     document.addEventListener("tank-respawn", this.handleTankRespawn);
-    this.handlePerformanceModeChange = this.handlePerformanceModeChange.bind(this);
-    document.addEventListener("performance-mode-change", this.handlePerformanceModeChange);
     this.updateStats();
-  }
-  handlePerformanceModeChange(event) {
-    const highPerformance = event.detail.highPerformance;
-    this.lowPerformanceMode = !highPerformance;
-    window.lowPerformanceMode = this.lowPerformanceMode;
-    if (this.renderer) {
-      const basePixelRatio = window.devicePixelRatio || 1;
-      let pixelRatio;
-      if (this.lowPerformanceMode) {
-        pixelRatio = basePixelRatio > 1 ? basePixelRatio / 2 : 0.75;
-      } else {
-        pixelRatio = Math.min(basePixelRatio, 2);
-      }
-      this.renderer.setPixelRatio(pixelRatio);
-    }
-    this.lodDistance = this.lowPerformanceMode ? 200 : 300;
   }
   handleTankRespawn(event) {
     const respawnData = event.detail;
@@ -32382,7 +32283,6 @@ class GameComponent extends LitElement {
     document.removeEventListener("tank-hit", this.handleTankHit);
     document.removeEventListener("shell-fired", this.handleShellFired);
     document.removeEventListener("tank-respawn", this.handleTankRespawn);
-    document.removeEventListener("performance-mode-change", this.handlePerformanceModeChange);
     document.removeEventListener("pointerlockchange", this.handlePointerLockChange);
     document.removeEventListener("mozpointerlockchange", this.handlePointerLockChange);
     document.removeEventListener("webkitpointerlockchange", this.handlePointerLockChange);
@@ -32432,14 +32332,7 @@ class GameComponent extends LitElement {
     });
     this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
     const basePixelRatio = window.devicePixelRatio || 1;
-    let pixelRatio;
-    if (basePixelRatio > 2) {
-      pixelRatio = basePixelRatio / 2;
-    } else if (basePixelRatio > 1) {
-      pixelRatio = basePixelRatio * 0.75;
-    } else {
-      pixelRatio = 1;
-    }
+    const pixelRatio = Math.min(basePixelRatio, 1.5);
     this.renderer.setPixelRatio(pixelRatio);
     this.renderer.shadowMap.enabled = false;
     this.renderer.sortObjects = true;
@@ -32881,7 +32774,6 @@ class GameComponent extends LitElement {
     this.frameCounter++;
     if (this.frameCounter % 30 === 0 && this.renderer?.info?.render) {
       const fps = 1000 / (this.renderer.info.render.frame || 16.7);
-      this.lowPerformanceMode = fps < 30;
     }
     if (this.groundMaterial && this.groundMaterial.uniforms.time) {
       this.groundMaterial.uniforms.time.value = performance.now() * 0.0003;
@@ -32942,7 +32834,7 @@ class GameComponent extends LitElement {
       this.lastPlayerHealth = currentHealth;
     }
     if (this.npcTanks.length > 0 && this.playerTank) {
-      const tanksPerFrame = this.lowPerformanceMode ? 1 : 2;
+      const tanksPerFrame = 2;
       const startIdx = this.frameCounter % Math.ceil(this.npcTanks.length / tanksPerFrame) * tanksPerFrame;
       const endIdx = Math.min(startIdx + tanksPerFrame, this.npcTanks.length);
       for (let i = startIdx;i < endIdx; i++) {
@@ -32952,12 +32844,11 @@ class GameComponent extends LitElement {
         if (distanceToPlayer < this.lodDistance) {
           newShell = npcTank.update({}, allColliders);
         } else if (distanceToPlayer < this.lodDistance * 2) {
-          if (!this.lowPerformanceMode || Math.random() < 0.5) {
+          if (Math.random() < 0.5) {
             newShell = npcTank.update({}, allColliders);
           }
         } else {
-          const updateChance = this.lowPerformanceMode ? 0.1 : 0.2;
-          if (Math.random() < updateChance) {
+          if (Math.random() < 0.2) {
             newShell = npcTank.update({}, allColliders);
           }
         }
