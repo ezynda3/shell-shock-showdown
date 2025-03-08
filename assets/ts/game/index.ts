@@ -1288,44 +1288,179 @@ export class GameComponent extends LitElement {
   private createCrosshair() {
     if (!this.scene || !this.camera) return;
     
-    // Create a simple plus-shaped crosshair using lines
-    const crosshairSize = 0.5; // 50% smaller than the previous size
-    const crosshairMaterial = new THREE.LineBasicMaterial({ 
-      color: 0xffffff,   // White
-      linewidth: 3,      // Thicker lines (note: may not work in WebGL)
-      depthTest: false,  // Ensures it's always drawn on top of other objects
-      depthWrite: false, // Doesn't write to depth buffer
+    // Create a professional tank-style crosshair
+    const crosshairGroup = new THREE.Group();
+    
+    // Create main outer circle
+    const outerRadius = 0.8;
+    const outerSegments = 32;
+    const outerCircleGeometry = new THREE.BufferGeometry();
+    const outerCircleVertices = [];
+    
+    for (let i = 0; i <= outerSegments; i++) {
+      const theta = (i / outerSegments) * Math.PI * 2;
+      outerCircleVertices.push(Math.cos(theta) * outerRadius, Math.sin(theta) * outerRadius, 0);
+      // Add the next point to create line segments
+      if (i < outerSegments) {
+        const nextTheta = ((i + 1) / outerSegments) * Math.PI * 2;
+        outerCircleVertices.push(Math.cos(nextTheta) * outerRadius, Math.sin(nextTheta) * outerRadius, 0);
+      }
+    }
+    
+    outerCircleGeometry.setAttribute('position', new THREE.Float32BufferAttribute(outerCircleVertices, 3));
+    
+    // Create a more prominent inner circle
+    const innerRadius = 0.3;
+    const innerSegments = 24;
+    const innerCircleGeometry = new THREE.BufferGeometry();
+    const innerCircleVertices = [];
+    
+    for (let i = 0; i <= innerSegments; i++) {
+      const theta = (i / innerSegments) * Math.PI * 2;
+      innerCircleVertices.push(Math.cos(theta) * innerRadius, Math.sin(theta) * innerRadius, 0);
+      // Add the next point to create line segments
+      if (i < innerSegments) {
+        const nextTheta = ((i + 1) / innerSegments) * Math.PI * 2;
+        innerCircleVertices.push(Math.cos(nextTheta) * innerRadius, Math.sin(nextTheta) * innerRadius, 0);
+      }
+    }
+    
+    innerCircleGeometry.setAttribute('position', new THREE.Float32BufferAttribute(innerCircleVertices, 3));
+    
+    // Create tick marks at each cardinal direction
+    const tickGeometry = new THREE.BufferGeometry();
+    const tickSize = 0.2;
+    const tickGap = 0.15;
+    const tickVertices = [
+      // North tick
+      0, outerRadius + tickSize, 0,
+      0, outerRadius + tickGap, 0,
+      
+      // East tick
+      outerRadius + tickSize, 0, 0,
+      outerRadius + tickGap, 0, 0,
+      
+      // South tick
+      0, -(outerRadius + tickSize), 0,
+      0, -(outerRadius + tickGap), 0,
+      
+      // West tick
+      -(outerRadius + tickSize), 0, 0,
+      -(outerRadius + tickGap), 0, 0
+    ];
+    
+    tickGeometry.setAttribute('position', new THREE.Float32BufferAttribute(tickVertices, 3));
+    
+    // Create center dot
+    const centerGeometry = new THREE.BufferGeometry();
+    const centerVertices = [
+      0, 0, 0,
+      0.05, 0, 0
+    ];
+    centerGeometry.setAttribute('position', new THREE.Float32BufferAttribute(centerVertices, 3));
+    
+    // Create range estimation marks (horizontal lines)
+    const rangeMarkGeometry = new THREE.BufferGeometry();
+    const rangeMarkLength = 0.15;
+    const rangeVertices = [
+      // Bottom range marks for distance estimation
+      -rangeMarkLength, -0.2, 0,
+      rangeMarkLength, -0.2, 0,
+      
+      -rangeMarkLength, -0.4, 0,
+      rangeMarkLength, -0.4, 0,
+      
+      -rangeMarkLength, -0.6, 0,
+      rangeMarkLength, -0.6, 0
+    ];
+    
+    rangeMarkGeometry.setAttribute('position', new THREE.Float32BufferAttribute(rangeVertices, 3));
+    
+    // Materials with different colors and opacity
+    const outerMaterial = new THREE.LineBasicMaterial({
+      color: 0x00ff00,   // Green
       transparent: true,
-      opacity: 0.9
+      opacity: 0.7,
+      depthTest: false,
+      depthWrite: false
     });
     
-    // Create the crosshair geometry
-    const crosshairGeometry = new THREE.BufferGeometry();
+    const innerMaterial = new THREE.LineBasicMaterial({
+      color: 0x00ff00,   // Green
+      transparent: true,
+      opacity: 0.9,
+      depthTest: false,
+      depthWrite: false,
+      linewidth: 2       // Thicker for emphasis (note: may not work in WebGL)
+    });
     
-    // Define the vertices for a plus shape
-    const vertices = new Float32Array([
-      // Horizontal line
-      -crosshairSize, 0, 0,
-      crosshairSize, 0, 0,
-      
-      // Vertical line
-      0, -crosshairSize, 0,
-      0, crosshairSize, 0
-    ]);
+    const tickMaterial = new THREE.LineBasicMaterial({
+      color: 0xffff00,   // Yellow for ticks
+      transparent: true,
+      opacity: 0.9,
+      depthTest: false,
+      depthWrite: false
+    });
     
-    crosshairGeometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    const centerMaterial = new THREE.LineBasicMaterial({
+      color: 0xff0000,   // Red for center
+      transparent: true,
+      opacity: 1.0,
+      depthTest: false,
+      depthWrite: false
+    });
     
-    // Create the crosshair line segments
-    const crosshair = new THREE.LineSegments(crosshairGeometry, crosshairMaterial);
+    const rangeMaterial = new THREE.LineBasicMaterial({
+      color: 0xffffff,   // White
+      transparent: true,
+      opacity: 0.6,
+      depthTest: false,
+      depthWrite: false
+    });
     
-    // Set extremely high render order to ensure it renders on top of everything
-    crosshair.renderOrder = 9999;
+    // Create meshes
+    const outerCircle = new THREE.LineSegments(outerCircleGeometry, outerMaterial);
+    const innerCircle = new THREE.LineSegments(innerCircleGeometry, innerMaterial);
+    const tickMarks = new THREE.LineSegments(tickGeometry, tickMaterial);
+    const centerPoint = new THREE.Points(centerGeometry, centerMaterial);
+    const rangeMarks = new THREE.LineSegments(rangeMarkGeometry, rangeMaterial);
     
-    // Create a container for the crosshair
-    this.crosshairObject = new THREE.Object3D();
-    this.crosshairObject.add(crosshair);
+    // Set high render order to ensure they render on top
+    outerCircle.renderOrder = 9999;
+    innerCircle.renderOrder = 9999;
+    tickMarks.renderOrder = 9999;
+    centerPoint.renderOrder = 9999;
+    rangeMarks.renderOrder = 9999;
     
-    // Add to scene with special layer if needed
+    // Add all elements to the group
+    crosshairGroup.add(outerCircle);
+    crosshairGroup.add(innerCircle);
+    crosshairGroup.add(tickMarks);
+    crosshairGroup.add(centerPoint);
+    crosshairGroup.add(rangeMarks);
+    
+    // Create a center dot that's a real point with size
+    const dotGeometry = new THREE.BufferGeometry();
+    dotGeometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
+    
+    const dotMaterial = new THREE.PointsMaterial({
+      color: 0xff0000,
+      size: 0.1,
+      sizeAttenuation: false,
+      transparent: true,
+      opacity: 1.0,
+      depthTest: false,
+      depthWrite: false
+    });
+    
+    const centerDot = new THREE.Points(dotGeometry, dotMaterial);
+    centerDot.renderOrder = 10000; // Even higher render order
+    crosshairGroup.add(centerDot);
+    
+    // Set as the crosshair object
+    this.crosshairObject = crosshairGroup;
+    
+    // Add to scene
     this.scene.add(this.crosshairObject);
     
     // Initial position update
@@ -1339,58 +1474,57 @@ export class GameComponent extends LitElement {
   private readonly tempEuler = new THREE.Euler();
   
   private updateCrosshairPosition() {
-    if (!this.playerTank || !this.crosshairObject || !this.scene) return;
+    if (!this.playerTank || !this.crosshairObject || !this.scene || !this.camera) return;
     
     // Distance to project the crosshair
     const distance = 50; // Units in front of barrel
     
     // Get barrel end position and firing direction
-    // Use a fixed offset value since we don't have direct access to Tank's BARREL_END_OFFSET
-    this.tempBarrelEnd.set(0, 0, 1.5); // 1.5 matches Tank.BARREL_END_OFFSET
+    // Calculate the barrel end position more accurately
+    const BARREL_END_OFFSET = 2.5; // Slightly increased from 1.5 for better accuracy
+
+    // STEP 1: Get the barrel's forward direction vector
+    this.tempDirection.set(0, 0, 1); // Forward vector (z-axis)
     
-    // Apply barrel elevation
-    this.tempEuler.set(this.playerTank.barrelPivot.rotation.x, 0, 0);
-    this.tempBarrelEnd.applyEuler(this.tempEuler);
-    
-    // Apply turret rotation
-    this.tempEuler.set(0, this.playerTank.turretPivot.rotation.y, 0);
-    this.tempBarrelEnd.applyEuler(this.tempEuler);
-    
-    // Apply tank rotation
-    this.tempEuler.set(0, this.playerTank.tank.rotation.y, 0);
-    this.tempBarrelEnd.applyEuler(this.tempEuler);
-    
-    // Add to tank and turret position
-    this.tempVector.copy(this.playerTank.turretPivot.position);
-    this.tempVector.add(this.playerTank.tank.position);
-    this.tempBarrelEnd.add(this.tempVector);
-    
-    // Calculate firing direction
-    this.tempDirection.set(0, 0, 1); // Forward vector
-    
-    // Apply barrel elevation
+    // Apply barrel elevation (rotation around x-axis)
     this.tempEuler.set(this.playerTank.barrelPivot.rotation.x, 0, 0);
     this.tempDirection.applyEuler(this.tempEuler);
     
-    // Apply turret rotation
+    // Apply turret rotation (rotation around y-axis)
     this.tempEuler.set(0, this.playerTank.turretPivot.rotation.y, 0);
     this.tempDirection.applyEuler(this.tempEuler);
     
-    // Apply tank rotation
+    // Apply tank rotation (rotation around y-axis)
     this.tempEuler.set(0, this.playerTank.tank.rotation.y, 0);
     this.tempDirection.applyEuler(this.tempEuler);
     
     // Normalize direction vector
     this.tempDirection.normalize();
     
-    // Calculate crosshair position by extending from barrel end
-    // in the direction the barrel is pointing
+    // STEP 2: Calculate barrel end position
+    // Start with tank position
+    this.tempBarrelEnd.copy(this.playerTank.tank.position);
+    
+    // Add turret position offset (usually at a small height above the tank body)
+    this.tempBarrelEnd.y += 1.0; // Assuming turret is 1 unit above tank base
+    
+    // Add barrel length in the direction the barrel is pointing
+    this.tempBarrelEnd.addScaledVector(this.tempDirection, BARREL_END_OFFSET);
+    
+    // STEP 3: Set crosshair position directly
+    // Calculate where the crosshair should be positioned and set it immediately
     this.crosshairObject.position.copy(this.tempBarrelEnd).addScaledVector(this.tempDirection, distance);
     
-    // Make the crosshair face the camera
-    if (this.camera) {
-      this.crosshairObject.lookAt(this.camera.position);
-    }
+    // STEP 4: Make the crosshair face the camera
+    // We want the crosshair's local z-axis to point at the camera
+    // to ensure it's always visible
+    this.crosshairObject.lookAt(this.camera.position);
+
+    // STEP 5: Apply a small scale factor to make crosshair grow with distance
+    // This helps with depth perception
+    const distanceToCamera = this.crosshairObject.position.distanceTo(this.camera.position);
+    const scaleFactor = Math.max(0.8, Math.min(1.5, distanceToCamera / 60));
+    this.crosshairObject.scale.set(scaleFactor, scaleFactor, scaleFactor);
   }
   
   // Pointer lock variables
@@ -1608,10 +1742,8 @@ export class GameComponent extends LitElement {
       }
     }
     
-    // Update crosshair position every other frame
-    if (this.frameCounter % 2 === 0) {
-      this.updateCrosshairPosition();
-    }
+    // Update crosshair position every frame to prevent trailing/ghosting effect
+    this.updateCrosshairPosition();
     
     // Update kill notifications every 5 frames
     if (this.frameCounter % 5 === 0) {
