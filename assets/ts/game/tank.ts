@@ -478,7 +478,7 @@ export class Tank implements ITank {
   private createHealthBar(): void {
     // Creating a canvas for the health bar and name tag
     const canvas = document.createElement('canvas');
-    canvas.width = 128;  // Wider canvas to fit the name
+    canvas.width = 256;  // Wider canvas to fit the name
     canvas.height = 32;  // Taller canvas for name + health bar
     const context = canvas.getContext('2d');
     
@@ -487,7 +487,7 @@ export class Tank implements ITank {
       context.clearRect(0, 0, 128, 32);
       
       // Draw the tank name
-      context.font = 'bold 12px Arial';
+      context.font = 'bold 18px Arial';
       context.textAlign = 'center';
       context.fillStyle = 'white';
       context.strokeStyle = 'black';
@@ -1405,30 +1405,30 @@ export class NPCTank implements ITank {
     // Follow the billboarding example from three.js manual
     // Creating a canvas for the health bar and name tag
     const canvas = document.createElement('canvas');
-    canvas.width = 128;  // Wider canvas to fit the name
-    canvas.height = 32;  // Taller canvas for name + health bar
+    canvas.width = 256;  // Much wider canvas to fit the player ID
+    canvas.height = 48;  // Taller canvas for name + health bar
     const context = canvas.getContext('2d');
     
     if (context) {
       // Clear the entire canvas
-      context.clearRect(0, 0, 128, 32);
+      context.clearRect(0, 0, 256, 48);
       
       // Draw the tank name
-      context.font = 'bold 12px Arial';
+      context.font = 'bold 20px Arial'; // Larger font
       context.textAlign = 'center';
       context.fillStyle = 'white';
       context.strokeStyle = 'black';
-      context.lineWidth = 2;
-      context.strokeText(this.tankName, 64, 12);
-      context.fillText(this.tankName, 64, 12);
+      context.lineWidth = 3; // Thicker outline for better visibility
+      context.strokeText(this.tankName, 128, 20); // Centered text
+      context.fillText(this.tankName, 128, 20);
       
       // Draw the background (black) for health bar
-      context.fillStyle = 'rgba(0,0,0,0.6)';
-      context.fillRect(0, 16, 128, 16);
+      context.fillStyle = 'rgba(0,0,0,0.7)'; // Slightly more opaque
+      context.fillRect(0, 28, 256, 20); // Taller health bar
       
       // Draw the health bar (green)
       context.fillStyle = '#00FF00';
-      context.fillRect(2, 18, 124, 12);
+      context.fillRect(4, 30, 248, 16); // Adjusted position and size
       
       // Create a texture from the canvas
       const texture = new THREE.CanvasTexture(canvas);
@@ -1447,10 +1447,10 @@ export class NPCTank implements ITank {
       const sprite = new THREE.Sprite(spriteMaterial);
       
       // Position the sprite above the tank
-      sprite.position.set(0, 3.5, 0); // Higher position to make room for name
+      sprite.position.set(0, 3.7, 0); // Higher position to make room for name
       
       // Scale the sprite to an appropriate size
-      sprite.scale.set(3.0, 1.0, 1.0); // Wider to accommodate name
+      sprite.scale.set(4.0, 1.5, 1.0); // Wider and taller to accommodate name
       
       // Add the sprite to the tank
       this.tank.add(sprite);
@@ -1470,11 +1470,11 @@ export class NPCTank implements ITank {
     const healthPercent = this.health / this.MAX_HEALTH;
     
     // Clear only the health bar portion (bottom half of the canvas)
-    this.healthBarContext.clearRect(0, 16, 128, 16);
+    this.healthBarContext.clearRect(0, 28, 256, 20);
     
     // Draw background (black) for health bar
-    this.healthBarContext.fillStyle = 'rgba(0,0,0,0.6)';
-    this.healthBarContext.fillRect(0, 16, 128, 16);
+    this.healthBarContext.fillStyle = 'rgba(0,0,0,0.7)';
+    this.healthBarContext.fillRect(0, 28, 256, 20);
     
     // Determine color based on health percentage
     if (healthPercent > 0.6) {
@@ -1486,8 +1486,8 @@ export class NPCTank implements ITank {
     }
     
     // Draw health bar with current percentage
-    const barWidth = Math.floor(124 * healthPercent);
-    this.healthBarContext.fillRect(2, 18, barWidth, 12);
+    const barWidth = Math.floor(248 * healthPercent);
+    this.healthBarContext.fillRect(4, 30, barWidth, 16);
     
     // Update the texture
     this.healthBarTexture.needsUpdate = true;

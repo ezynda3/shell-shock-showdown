@@ -267,8 +267,10 @@ export class GameComponent extends LitElement {
       border-radius: 5px;
       font-family: monospace;
       pointer-events: none;
-      font-size: 16px;
+      font-size: 18px;
       font-weight: bold;
+      min-width: 200px;
+      text-align: right;
     }
     
     .game-state-display {
@@ -788,10 +790,8 @@ export class GameComponent extends LitElement {
     
     // Add the triangle to the tank
     remoteTank.tank.add(triangleMesh);
-    
-    // No more text label - just the triangle
-    
-    console.log('Added bobbing red triangle to remote tank');
+        
+    console.log('Added visuals to remote tank');
   }
   
   // Update an existing remote tank's position and rotation

@@ -27194,12 +27194,12 @@ class Tank {
   }
   createHealthBar() {
     const canvas = document.createElement("canvas");
-    canvas.width = 128;
+    canvas.width = 256;
     canvas.height = 32;
     const context = canvas.getContext("2d");
     if (context) {
       context.clearRect(0, 0, 128, 32);
-      context.font = "bold 12px Arial";
+      context.font = "bold 18px Arial";
       context.textAlign = "center";
       context.fillStyle = "white";
       context.strokeStyle = "black";
@@ -27846,22 +27846,22 @@ class NPCTank {
   }
   createHealthBar() {
     const canvas = document.createElement("canvas");
-    canvas.width = 128;
-    canvas.height = 32;
+    canvas.width = 256;
+    canvas.height = 48;
     const context = canvas.getContext("2d");
     if (context) {
-      context.clearRect(0, 0, 128, 32);
-      context.font = "bold 12px Arial";
+      context.clearRect(0, 0, 256, 48);
+      context.font = "bold 20px Arial";
       context.textAlign = "center";
       context.fillStyle = "white";
       context.strokeStyle = "black";
-      context.lineWidth = 2;
-      context.strokeText(this.tankName, 64, 12);
-      context.fillText(this.tankName, 64, 12);
-      context.fillStyle = "rgba(0,0,0,0.6)";
-      context.fillRect(0, 16, 128, 16);
+      context.lineWidth = 3;
+      context.strokeText(this.tankName, 128, 20);
+      context.fillText(this.tankName, 128, 20);
+      context.fillStyle = "rgba(0,0,0,0.7)";
+      context.fillRect(0, 28, 256, 20);
       context.fillStyle = "#00FF00";
-      context.fillRect(2, 18, 124, 12);
+      context.fillRect(4, 30, 248, 16);
       const texture = new CanvasTexture(canvas);
       this.healthBarContext = context;
       this.healthBarTexture = texture;
@@ -27870,8 +27870,8 @@ class NPCTank {
         transparent: true
       });
       const sprite = new Sprite(spriteMaterial);
-      sprite.position.set(0, 3.5, 0);
-      sprite.scale.set(3, 1, 1);
+      sprite.position.set(0, 3.7, 0);
+      sprite.scale.set(4, 1.5, 1);
       this.tank.add(sprite);
       this.healthBarSprite = sprite;
     }
@@ -27881,9 +27881,9 @@ class NPCTank {
     if (!this.healthBarContext || !this.healthBarTexture)
       return;
     const healthPercent = this.health / this.MAX_HEALTH;
-    this.healthBarContext.clearRect(0, 16, 128, 16);
-    this.healthBarContext.fillStyle = "rgba(0,0,0,0.6)";
-    this.healthBarContext.fillRect(0, 16, 128, 16);
+    this.healthBarContext.clearRect(0, 28, 256, 20);
+    this.healthBarContext.fillStyle = "rgba(0,0,0,0.7)";
+    this.healthBarContext.fillRect(0, 28, 256, 20);
     if (healthPercent > 0.6) {
       this.healthBarContext.fillStyle = "#00FF00";
     } else if (healthPercent > 0.3) {
@@ -27891,8 +27891,8 @@ class NPCTank {
     } else {
       this.healthBarContext.fillStyle = "#FF0000";
     }
-    const barWidth = Math.floor(124 * healthPercent);
-    this.healthBarContext.fillRect(2, 18, barWidth, 12);
+    const barWidth = Math.floor(248 * healthPercent);
+    this.healthBarContext.fillRect(4, 30, barWidth, 16);
     this.healthBarTexture.needsUpdate = true;
   }
   createTank() {
@@ -28973,8 +28973,10 @@ class GameComponent extends LitElement {
       border-radius: 5px;
       font-family: monospace;
       pointer-events: none;
-      font-size: 16px;
+      font-size: 18px;
       font-weight: bold;
+      min-width: 200px;
+      text-align: right;
     }
     
     .game-state-display {
@@ -29376,7 +29378,7 @@ class GameComponent extends LitElement {
     };
     animate();
     remoteTank.tank.add(triangleMesh);
-    console.log("Added bobbing red triangle to remote tank");
+    console.log("Added visuals to remote tank");
   }
   updateRemoteTankPosition(tank, playerData) {
     try {

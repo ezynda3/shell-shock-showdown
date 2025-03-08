@@ -372,14 +372,11 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], nc *nats.Conn, 
 				playerID = authRecord.Id
 			}
 
-			// Get username from auth
+			// Get username from player ID
 			playerName := "Guest"
 			if authRecord != nil {
-				// Use Email() accessor method from the auth record
-				email := authRecord.Email()
-				if email != "" {
-					playerName = email
-				}
+				// Use player ID instead of email
+				playerName = "Player: " + playerID
 			}
 
 			// Set ID and name in player update
