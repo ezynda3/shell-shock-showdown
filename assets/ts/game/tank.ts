@@ -156,6 +156,8 @@ export class Tank implements ITank {
   private canFire = true;
   private readonly RELOAD_TIME = 60; // 1 second cooldown at 60fps
   private reloadCounter = 0;
+  private lastFireTime: number = 0;
+  private readonly FIRE_COOLDOWN_MS: number = 1000; // 1 second cooldown in milliseconds
   private readonly SHELL_SPEED = 6.0; // 4x from 1.5 for much longer range
   private readonly BARREL_END_OFFSET = 1.5; // Distance from turret pivot to end of barrel
   
@@ -308,12 +310,11 @@ export class Tank implements ITank {
     // Update sound source positions
     this.updateSoundPositions();
     
-    // Handle reloading
+    // Handle reloading using timestamps instead of frame counting
     if (!this.canFire) {
-      this.reloadCounter++;
-      if (this.reloadCounter >= this.RELOAD_TIME) {
+      const currentTime = Date.now();
+      if (currentTime - this.lastFireTime >= this.FIRE_COOLDOWN_MS) {
         this.canFire = true;
-        this.reloadCounter = 0;
       }
     }
     
@@ -471,7 +472,7 @@ export class Tank implements ITank {
   private fireShell(): Shell {
     // Set reload timer
     this.canFire = false;
-    this.reloadCounter = 0;
+    this.lastFireTime = Date.now();
     
     // Calculate barrel end position
     const barrelEndPosition = new THREE.Vector3(0, 0, this.BARREL_END_OFFSET);
@@ -1478,6 +1479,8 @@ export class NPCTank implements ITank {
   private canFire = true;
   private readonly RELOAD_TIME = 180; // 3 second cooldown at 60fps - slower than player for balance
   private reloadCounter = 0;
+  private lastFireTime: number = 0;
+  private readonly FIRE_COOLDOWN_MS: number = 3000; // 3 second cooldown in milliseconds
   private readonly SHELL_SPEED = 4.8; // 4x from 1.2 but still slower than player
   private readonly BARREL_END_OFFSET = 1.5; // Distance from turret pivot to end of barrel
   private readonly FIRE_PROBABILITY = 0.01; // 1% chance to fire each frame when canFire is true
@@ -1762,12 +1765,11 @@ export class NPCTank implements ITank {
     this.isCurrentlyMoving = false;
     this.velocity = 0;
     
-    // Handle reloading
+    // Handle reloading using timestamps instead of frame counting
     if (!this.canFire) {
-      this.reloadCounter++;
-      if (this.reloadCounter >= this.RELOAD_TIME) {
+      const currentTime = Date.now();
+      if (currentTime - this.lastFireTime >= this.FIRE_COOLDOWN_MS) {
         this.canFire = true;
-        this.reloadCounter = 0;
       }
     }
     
@@ -1926,7 +1928,7 @@ export class NPCTank implements ITank {
   private fireShell(): Shell {
     // Set reload timer
     this.canFire = false;
-    this.reloadCounter = 0;
+    this.lastFireTime = Date.now();
     
     // Calculate barrel end position
     const barrelEndPosition = new THREE.Vector3(0, 0, this.BARREL_END_OFFSET);

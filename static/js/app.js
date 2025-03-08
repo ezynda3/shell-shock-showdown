@@ -27035,6 +27035,8 @@ class Tank {
   canFire = true;
   RELOAD_TIME = 60;
   reloadCounter = 0;
+  lastFireTime = 0;
+  FIRE_COOLDOWN_MS = 1000;
   SHELL_SPEED = 6;
   BARREL_END_OFFSET = 1.5;
   health = 100;
@@ -27129,10 +27131,9 @@ class Tank {
     this.lastPosition.copy(this.tank.position);
     this.updateSoundPositions();
     if (!this.canFire) {
-      this.reloadCounter++;
-      if (this.reloadCounter >= this.RELOAD_TIME) {
+      const currentTime = Date.now();
+      if (currentTime - this.lastFireTime >= this.FIRE_COOLDOWN_MS) {
         this.canFire = true;
-        this.reloadCounter = 0;
       }
     }
     this.isCurrentlyMoving = false;
@@ -27233,7 +27234,7 @@ class Tank {
   }
   fireShell() {
     this.canFire = false;
-    this.reloadCounter = 0;
+    this.lastFireTime = Date.now();
     const barrelEndPosition = new Vector3(0, 0, this.BARREL_END_OFFSET);
     barrelEndPosition.applyEuler(new Euler(this.barrelPivot.rotation.x, 0, 0));
     barrelEndPosition.applyEuler(new Euler(0, this.turretPivot.rotation.y, 0));
@@ -27912,6 +27913,8 @@ class NPCTank {
   canFire = true;
   RELOAD_TIME = 180;
   reloadCounter = 0;
+  lastFireTime = 0;
+  FIRE_COOLDOWN_MS = 3000;
   SHELL_SPEED = 4.8;
   BARREL_END_OFFSET = 1.5;
   FIRE_PROBABILITY = 0.01;
@@ -28083,10 +28086,9 @@ class NPCTank {
     this.isCurrentlyMoving = false;
     this.velocity = 0;
     if (!this.canFire) {
-      this.reloadCounter++;
-      if (this.reloadCounter >= this.RELOAD_TIME) {
+      const currentTime = Date.now();
+      if (currentTime - this.lastFireTime >= this.FIRE_COOLDOWN_MS) {
         this.canFire = true;
-        this.reloadCounter = 0;
       }
     }
     if (this.collisionResetTimer > 0) {
@@ -28187,7 +28189,7 @@ class NPCTank {
   }
   fireShell() {
     this.canFire = false;
-    this.reloadCounter = 0;
+    this.lastFireTime = Date.now();
     const barrelEndPosition = new Vector3(0, 0, this.BARREL_END_OFFSET);
     barrelEndPosition.applyEuler(new Euler(this.barrelPivot.rotation.x, 0, 0));
     barrelEndPosition.applyEuler(new Euler(0, this.turretPivot.rotation.y, 0));
@@ -28954,6 +28956,242 @@ GameStats = __legacyDecorateClassTS([
   customElement("game-stats")
 ], GameStats);
 
+// assets/ts/game/radar.ts
+class GameRadar extends LitElement {
+  constructor() {
+    super(...arguments);
+    this.playerId = "";
+    this.radarRadius = 150;
+    this.mapScale = 0.1;
+    this.dotSize = 6;
+    this.showEnemyNames = true;
+  }
+  canvas;
+  ctx;
+  static styles = css`
+    :host {
+      display: block;
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 1000;
+    }
+
+    .radar-container {
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      background-color: rgba(0, 0, 0, 0.5);
+      border: 2px solid rgba(200, 200, 200, 0.7);
+      overflow: hidden;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Animated radar sweep effect */
+    .radar-sweep {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: linear-gradient(90deg, rgba(0, 255, 0, 0.2) 0%, transparent 50%, transparent 100%);
+      animation: sweep 4s infinite linear;
+      pointer-events: none;
+    }
+
+    @keyframes sweep {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Radar grid lines */
+    .radar-grid {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 1px solid rgba(0, 255, 0, 0.3);
+      pointer-events: none;
+    }
+
+    .radar-grid::before,
+    .radar-grid::after {
+      content: '';
+      position: absolute;
+      background-color: rgba(0, 255, 0, 0.3);
+    }
+
+    .radar-grid::before {
+      top: 50%;
+      left: 0;
+      width: 100%;
+      height: 1px;
+    }
+
+    .radar-grid::after {
+      top: 0;
+      left: 50%;
+      width: 1px;
+      height: 100%;
+    }
+  `;
+  render() {
+    return html`
+      <div class="radar-container">
+        <canvas></canvas>
+        <div class="radar-sweep"></div>
+        <div class="radar-grid"></div>
+      </div>
+    `;
+  }
+  firstUpdated() {
+    this.canvas = this.shadowRoot?.querySelector("canvas");
+    if (this.canvas) {
+      this.ctx = this.canvas.getContext("2d");
+      this.canvas.width = this.radarRadius;
+      this.canvas.height = this.radarRadius;
+      this.drawRadar();
+      this.animateRadar();
+    }
+  }
+  updated(changedProperties) {
+    if (changedProperties.has("gameState") && this.gameState) {
+      this.drawRadar();
+    }
+  }
+  animateRadar() {
+    requestAnimationFrame(() => this.animateRadar());
+    this.drawRadar();
+  }
+  drawRadar() {
+    if (!this.ctx || !this.canvas)
+      return;
+    const ctx = this.ctx;
+    const centerX = this.canvas.width / 2;
+    const centerY = this.canvas.height / 2;
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.fillStyle = "rgba(10, 20, 10, 0.6)";
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, this.radarRadius / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0, 255, 0, 0.3)";
+    ctx.lineWidth = 1;
+    for (let i = 1;i <= 3; i++) {
+      const radius = this.radarRadius / 2 * (i / 3);
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (!this.gameState || !this.gameState.players) {
+      return;
+    }
+    const player = this.gameState.players[this.playerId];
+    if (!player) {
+      return;
+    }
+    const playerPos = new Vector3(player.position.x, player.position.y, player.position.z);
+    ctx.fillStyle = "rgba(0, 255, 0, 0.9)";
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, this.dotSize / 2, 0, Math.PI * 2);
+    ctx.fill();
+    if (player.tankRotation !== undefined) {
+      const dirLength = this.dotSize * 1.5;
+      const tankDirX = centerX + Math.sin(player.tankRotation) * dirLength;
+      const tankDirY = centerY + Math.cos(player.tankRotation) * dirLength;
+      ctx.strokeStyle = "rgba(0, 255, 0, 0.9)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY);
+      ctx.lineTo(tankDirX, tankDirY);
+      ctx.stroke();
+    }
+    Object.entries(this.gameState.players).forEach(([id, otherPlayer]) => {
+      if (id === this.playerId)
+        return;
+      const otherPos = new Vector3(otherPlayer.position.x, otherPlayer.position.y, otherPlayer.position.z);
+      const relativePos = otherPos.clone().sub(playerPos);
+      const scaledX = relativePos.x * this.mapScale;
+      const scaledZ = relativePos.z * this.mapScale;
+      const distance = relativePos.length();
+      const radarRange = this.radarRadius / (2 * this.mapScale);
+      if (distance > radarRange)
+        return;
+      const radarX = centerX + scaledX;
+      const radarY = centerY + scaledZ;
+      const distanceRatio = Math.min(1, distance / radarRange);
+      const adjustedDotSize = this.dotSize * (1 - distanceRatio * 0.5);
+      const dotOpacity = 1 - distanceRatio * 0.7;
+      let dotColor = "rgba(255, 0, 0, " + dotOpacity + ")";
+      if (otherPlayer.color) {
+        const hex = otherPlayer.color.replace("#", "");
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        dotColor = `rgba(${r}, ${g}, ${b}, ${dotOpacity})`;
+      }
+      if (otherPlayer.isDestroyed) {
+        ctx.strokeStyle = dotColor;
+        ctx.lineWidth = 2;
+        const xSize = adjustedDotSize;
+        ctx.beginPath();
+        ctx.moveTo(radarX - xSize, radarY - xSize);
+        ctx.lineTo(radarX + xSize, radarY + xSize);
+        ctx.moveTo(radarX + xSize, radarY - xSize);
+        ctx.lineTo(radarX - xSize, radarY + xSize);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = dotColor;
+        ctx.beginPath();
+        ctx.arc(radarX, radarY, adjustedDotSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        if (otherPlayer.tankRotation !== undefined) {
+          const dirLength = adjustedDotSize * 1.5;
+          const dirX = radarX + Math.sin(otherPlayer.tankRotation) * dirLength;
+          const dirY = radarY + Math.cos(otherPlayer.tankRotation) * dirLength;
+          ctx.strokeStyle = dotColor;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(radarX, radarY);
+          ctx.lineTo(dirX, dirY);
+          ctx.stroke();
+        }
+      }
+    });
+  }
+}
+__legacyDecorateClassTS([
+  property({ type: String })
+], GameRadar.prototype, "playerId", undefined);
+__legacyDecorateClassTS([
+  property({ type: Object })
+], GameRadar.prototype, "gameState", undefined);
+__legacyDecorateClassTS([
+  property({ type: Number })
+], GameRadar.prototype, "radarRadius", undefined);
+__legacyDecorateClassTS([
+  property({ type: Number })
+], GameRadar.prototype, "mapScale", undefined);
+__legacyDecorateClassTS([
+  property({ type: Number })
+], GameRadar.prototype, "dotSize", undefined);
+__legacyDecorateClassTS([
+  property({ type: Boolean })
+], GameRadar.prototype, "showEnemyNames", undefined);
+GameRadar = __legacyDecorateClassTS([
+  customElement("game-radar")
+], GameRadar);
+
 // assets/ts/game/index.ts
 window.SpatialAudio = SpatialAudio;
 
@@ -29279,6 +29517,10 @@ class GameComponent extends LitElement {
           <div class="damage-overlay ${this.showDamageOverlay ? "active" : ""}"></div>
           
           <game-stats></game-stats>
+          <game-radar 
+            .playerId="${this.playerId}" 
+            .gameState="${this.multiplayerState}"
+          ></game-radar>
           <div class="controls">
             <div>W: Forward, S: Backward</div>
             <div>A: Rotate tank left, D: Rotate tank right</div>
