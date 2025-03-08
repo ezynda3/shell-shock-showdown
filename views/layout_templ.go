@@ -58,9 +58,9 @@ func Layout(loggedIn bool) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var2 string
-					templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs("http://localhost:7331/api/files/" + auth.BaseFilesPath() + "/" + auth.GetString("avatar"))
+					templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs("https://tanks.mark3labs.com/api/files/" + auth.BaseFilesPath() + "/" + auth.GetString("avatar"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/layout.templ`, Line: 83, Col: 108}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/layout.templ`, Line: 83, Col: 114}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 					if templ_7745c5c3_Err != nil {
