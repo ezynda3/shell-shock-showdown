@@ -192,7 +192,7 @@ export class Tank implements ITank {
   
   // Tank properties
   private tankSpeed = 2.5; // Increased 5x from original 0.15 for extreme speed
-  private tankRotationSpeed = 0.25; // Increased 5x from original 0.05 for rapid turning
+  private tankRotationSpeed = 0.04; // Reduced by 50% from 0.08 for more controlled turning
   private turretRotationSpeed = 0.1; // Increased from 0.04 for faster aiming
   private barrelElevationSpeed = 0.08; // Increased from 0.03 for quicker elevation changes
   private maxBarrelElevation = 0;           // Barrel can't go lower than starting position
@@ -276,8 +276,9 @@ export class Tank implements ITank {
     const bodyGeometry = new THREE.BoxGeometry(2, 0.75, 3, 1, 1, 2);
     const bodyMaterial = new THREE.MeshStandardMaterial({ 
       color: this.tankColor || 0x4a7c59,  // Dark green (or custom color)
-      roughness: 0.7,
-      metalness: 0.3
+      roughness: 0.3,  // Reduced roughness for more polished look
+      metalness: 0.8,  // Increased metalness for more metallic appearance
+      envMapIntensity: 1.2  // Enhance environmental reflections
     });
     this.tankBody = new THREE.Mesh(bodyGeometry, bodyMaterial);
     this.tankBody.position.y = 0.75 / 2;
@@ -321,8 +322,9 @@ export class Tank implements ITank {
     const frontPlateGeometry = new THREE.BoxGeometry(1.9, 0.4, 0.2);
     const armorMaterial = new THREE.MeshStandardMaterial({
       color: this.tankColor || 0x4a7c59,
-      roughness: 0.6,
-      metalness: 0.4
+      roughness: 0.25, // Smoother for modern armor plating
+      metalness: 0.85, // Very metallic for armored plates
+      envMapIntensity: 1.3 // Enhanced reflections for armor plates
     });
     
     const frontPlate = new THREE.Mesh(frontPlateGeometry, armorMaterial);
@@ -349,9 +351,10 @@ export class Tank implements ITank {
     // Track base
     const trackBaseGeometry = new THREE.BoxGeometry(0.4, 0.5, 3.2);
     const trackMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0x333333, 
-      roughness: 0.9,
-      metalness: 0.2
+      color: 0x1a1a1a, // Darker color for better depth
+      roughness: 0.6, // Slightly rough texture but still metallic
+      metalness: 0.7, // More metallic for modern tank tracks
+      envMapIntensity: 0.8 // Some reflections but not too shiny
     });
     
     // Left track base
@@ -370,11 +373,12 @@ export class Tank implements ITank {
     
     // Track treads - add segments for visual detail
     const treadsPerSide = this.TRACK_SEGMENT_COUNT; // Number of visible tread segments
-    const treadSegmentGeometry = new THREE.BoxGeometry(0.5, 0.08, 0.3);
+    const treadSegmentGeometry = new THREE.BoxGeometry(0.5, 0.1, 0.32); // Slightly larger treads
     const treadMaterial = new THREE.MeshStandardMaterial({
-      color: 0x222222,
-      roughness: 1.0,
-      metalness: 0.1
+      color: 0x111111, // Darker for better contrast
+      roughness: 0.6, // More polished than before but still textured
+      metalness: 0.65, // More metallic for modern tank tracks
+      envMapIntensity: 0.7 // Some reflections but not too shiny
     });
     
     // Create tread segments for both tracks and store references for animation
@@ -393,11 +397,12 @@ export class Tank implements ITank {
     }
     
     // Add drive wheels at the front and back
-    const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 12);
+    const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 18); // More segments for smoother wheels
     const wheelMaterial = new THREE.MeshStandardMaterial({
-      color: 0x444444,
-      roughness: 0.8,
-      metalness: 0.5
+      color: 0x222222, // Darker for contrast and depth
+      roughness: 0.4, // Smoother for modern tank wheels
+      metalness: 0.8, // More metallic for realistic wheels
+      envMapIntensity: 1.2 // Better reflections for wheels
     });
     
     // Front wheels
@@ -488,11 +493,12 @@ export class Tank implements ITank {
   
   private createDetailedTurret(): void {
     // Main turret body - slightly more complex shape
-    const turretGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.5, 16);
+    const turretGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.5, 24); // Increased segments for smoother appearance
     const turretMaterial = new THREE.MeshStandardMaterial({ 
-      color: this.tankColor ? new THREE.Color(this.tankColor).multiplyScalar(0.9).getHex() : 0x3f5e49,
-      roughness: 0.7,
-      metalness: 0.3
+      color: this.tankColor ? new THREE.Color(this.tankColor).multiplyScalar(0.85).getHex() : 0x3f5e49,
+      roughness: 0.2, // Highly polished surface
+      metalness: 0.9, // Very metallic appearance
+      envMapIntensity: 1.4 // Enhanced reflections for turret
     });
     
     this.turret = new THREE.Mesh(turretGeometry, turretMaterial);
@@ -527,11 +533,12 @@ export class Tank implements ITank {
     this.turretPivot.add(antenna);
     
     // Add mantlet at barrel base
-    const mantletGeometry = new THREE.BoxGeometry(0.7, 0.5, 0.3);
+    const mantletGeometry = new THREE.BoxGeometry(0.8, 0.6, 0.35); // Slightly larger for more presence
     const mantletMaterial = new THREE.MeshStandardMaterial({
-      color: 0x333333,
-      roughness: 0.7,
-      metalness: 0.4
+      color: 0x1a1a1a, // Darker color for better contrast
+      roughness: 0.2, // Smoother for modern tank mantlet
+      metalness: 0.9, // Highly metallic for professional look
+      envMapIntensity: 1.5 // Strong reflections for mantlet
     });
     
     const mantlet = new THREE.Mesh(mantletGeometry, mantletMaterial);
@@ -542,11 +549,12 @@ export class Tank implements ITank {
   
   private createDetailedBarrel(barrelGroup: THREE.Group): void {
     // Main barrel (thicker at base, thinner at muzzle)
-    const barrelGeometry = new THREE.CylinderGeometry(0.2, 0.15, 2.2, 12);
+    const barrelGeometry = new THREE.CylinderGeometry(0.2, 0.15, 2.2, 16); // More segments for smoother barrel
     const barrelMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0x333333, 
-      roughness: 0.7,
-      metalness: 0.5
+      color: 0x222222, // Darker color for better contrast
+      roughness: 0.1, // Very smooth for gun barrel
+      metalness: 0.95, // Highly metallic for realistic gun barrel
+      envMapIntensity: 1.6 // Strong reflections
     });
     
     this.barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
@@ -561,11 +569,12 @@ export class Tank implements ITank {
     barrelGroup.add(this.barrel);
     
     // Add muzzle brake
-    const muzzleBrakeGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.3, 12);
+    const muzzleBrakeGeometry = new THREE.CylinderGeometry(0.25, 0.25, 0.35, 16); // Larger, smoother muzzle brake
     const muzzleBrakeMaterial = new THREE.MeshStandardMaterial({
-      color: 0x222222,
-      roughness: 0.6,
-      metalness: 0.6
+      color: 0x111111, // Darker for contrast
+      roughness: 0.15, // Very smooth
+      metalness: 0.98, // Almost fully metallic
+      envMapIntensity: 1.8 // Strong reflections for muzzle
     });
     
     const muzzleBrake = new THREE.Mesh(muzzleBrakeGeometry, muzzleBrakeMaterial);

@@ -29581,7 +29581,7 @@ class Tank {
   explodeSound;
   lastMoveSoundState = false;
   tankSpeed = 2.5;
-  tankRotationSpeed = 0.25;
+  tankRotationSpeed = 0.04;
   turretRotationSpeed = 0.1;
   barrelElevationSpeed = 0.08;
   maxBarrelElevation = 0;
@@ -29634,8 +29634,9 @@ class Tank {
     const bodyGeometry = new BoxGeometry(2, 0.75, 3, 1, 1, 2);
     const bodyMaterial = new MeshStandardMaterial({
       color: this.tankColor || 4881497,
-      roughness: 0.7,
-      metalness: 0.3
+      roughness: 0.3,
+      metalness: 0.8,
+      envMapIntensity: 1.2
     });
     this.tankBody = new Mesh(bodyGeometry, bodyMaterial);
     this.tankBody.position.y = 0.75 / 2;
@@ -29659,8 +29660,9 @@ class Tank {
     const frontPlateGeometry = new BoxGeometry(1.9, 0.4, 0.2);
     const armorMaterial = new MeshStandardMaterial({
       color: this.tankColor || 4881497,
-      roughness: 0.6,
-      metalness: 0.4
+      roughness: 0.25,
+      metalness: 0.85,
+      envMapIntensity: 1.3
     });
     const frontPlate = new Mesh(frontPlateGeometry, armorMaterial);
     frontPlate.position.set(0, 0.5, -1.4);
@@ -29680,9 +29682,10 @@ class Tank {
   createDetailedTracks() {
     const trackBaseGeometry = new BoxGeometry(0.4, 0.5, 3.2);
     const trackMaterial = new MeshStandardMaterial({
-      color: 3355443,
-      roughness: 0.9,
-      metalness: 0.2
+      color: 1710618,
+      roughness: 0.6,
+      metalness: 0.7,
+      envMapIntensity: 0.8
     });
     const leftTrack = new Mesh(trackBaseGeometry, trackMaterial);
     leftTrack.position.set(-1, 0.25, 0);
@@ -29695,11 +29698,12 @@ class Tank {
     rightTrack.receiveShadow = true;
     this.tank.add(rightTrack);
     const treadsPerSide = this.TRACK_SEGMENT_COUNT;
-    const treadSegmentGeometry = new BoxGeometry(0.5, 0.08, 0.3);
+    const treadSegmentGeometry = new BoxGeometry(0.5, 0.1, 0.32);
     const treadMaterial = new MeshStandardMaterial({
-      color: 2236962,
-      roughness: 1,
-      metalness: 0.1
+      color: 1118481,
+      roughness: 0.6,
+      metalness: 0.65,
+      envMapIntensity: 0.7
     });
     for (let i = 0;i < treadsPerSide; i++) {
       const leftTread = new Mesh(treadSegmentGeometry, treadMaterial);
@@ -29713,11 +29717,12 @@ class Tank {
       this.tank.add(rightTread);
       this.trackSegments.push(rightTread);
     }
-    const wheelGeometry = new CylinderGeometry(0.3, 0.3, 0.1, 12);
+    const wheelGeometry = new CylinderGeometry(0.3, 0.3, 0.1, 18);
     const wheelMaterial = new MeshStandardMaterial({
-      color: 4473924,
-      roughness: 0.8,
-      metalness: 0.5
+      color: 2236962,
+      roughness: 0.4,
+      metalness: 0.8,
+      envMapIntensity: 1.2
     });
     const leftFrontWheel = new Mesh(wheelGeometry, wheelMaterial);
     leftFrontWheel.rotation.z = Math.PI / 2;
@@ -29780,11 +29785,12 @@ class Tank {
     });
   }
   createDetailedTurret() {
-    const turretGeometry = new CylinderGeometry(0.8, 0.8, 0.5, 16);
+    const turretGeometry = new CylinderGeometry(0.8, 0.8, 0.5, 24);
     const turretMaterial = new MeshStandardMaterial({
-      color: this.tankColor ? new Color(this.tankColor).multiplyScalar(0.9).getHex() : 4152905,
-      roughness: 0.7,
-      metalness: 0.3
+      color: this.tankColor ? new Color(this.tankColor).multiplyScalar(0.85).getHex() : 4152905,
+      roughness: 0.2,
+      metalness: 0.9,
+      envMapIntensity: 1.4
     });
     this.turret = new Mesh(turretGeometry, turretMaterial);
     this.turret.castShadow = true;
@@ -29810,11 +29816,12 @@ class Tank {
     antenna.position.set(-0.5, 0.6, -0.2);
     antenna.castShadow = true;
     this.turretPivot.add(antenna);
-    const mantletGeometry = new BoxGeometry(0.7, 0.5, 0.3);
+    const mantletGeometry = new BoxGeometry(0.8, 0.6, 0.35);
     const mantletMaterial = new MeshStandardMaterial({
-      color: 3355443,
-      roughness: 0.7,
-      metalness: 0.4
+      color: 1710618,
+      roughness: 0.2,
+      metalness: 0.9,
+      envMapIntensity: 1.5
     });
     const mantlet = new Mesh(mantletGeometry, mantletMaterial);
     mantlet.position.set(0, 0, 0.8);
@@ -29822,22 +29829,24 @@ class Tank {
     this.turretPivot.add(mantlet);
   }
   createDetailedBarrel(barrelGroup) {
-    const barrelGeometry = new CylinderGeometry(0.2, 0.15, 2.2, 12);
+    const barrelGeometry = new CylinderGeometry(0.2, 0.15, 2.2, 16);
     const barrelMaterial = new MeshStandardMaterial({
-      color: 3355443,
-      roughness: 0.7,
-      metalness: 0.5
+      color: 2236962,
+      roughness: 0.1,
+      metalness: 0.95,
+      envMapIntensity: 1.6
     });
     this.barrel = new Mesh(barrelGeometry, barrelMaterial);
     this.barrel.rotation.x = Math.PI / 2;
     this.barrel.position.set(0, 0, 1.1);
     this.barrel.castShadow = true;
     barrelGroup.add(this.barrel);
-    const muzzleBrakeGeometry = new CylinderGeometry(0.2, 0.2, 0.3, 12);
+    const muzzleBrakeGeometry = new CylinderGeometry(0.25, 0.25, 0.35, 16);
     const muzzleBrakeMaterial = new MeshStandardMaterial({
-      color: 2236962,
-      roughness: 0.6,
-      metalness: 0.6
+      color: 1118481,
+      roughness: 0.15,
+      metalness: 0.98,
+      envMapIntensity: 1.8
     });
     const muzzleBrake = new Mesh(muzzleBrakeGeometry, muzzleBrakeMaterial);
     muzzleBrake.rotation.x = Math.PI / 2;
