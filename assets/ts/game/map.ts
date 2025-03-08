@@ -630,8 +630,10 @@ export class MapGenerator {
   }
   
   createCityCenter() {
-    // Create a city center with buildings arranged in a grid
-    const cityRadius = 80; // City size
+    // Create a city center with buildings arranged on a grid with roads between them
+    const cityRadius = 160; // Larger city size to accommodate road spacing
+    const blockSize = 40; // Size of each city block
+    const roadWidth = 15; // Width of roads
     
     // Define building properties for deterministic generation
     const buildingTypes = [
@@ -640,78 +642,35 @@ export class MapGenerator {
       { height: 160, width: 20, depth: 20, materialIndex: 2 },
       { height: 140, width: 18, depth: 18, materialIndex: 3 },
       { height: 120, width: 22, depth: 22, materialIndex: 4 },
-      { height: 100, width: 28, depth: 15, materialIndex: 0 },
-      { height: 90, width: 15, depth: 28, materialIndex: 1 },
+      { height: 100, width: 25, depth: 15, materialIndex: 0 },
+      { height: 90, width: 15, depth: 25, materialIndex: 1 },
       { height: 80, width: 20, depth: 20, materialIndex: 2 },
       // Medium buildings
-      { height: 70, width: 25, depth: 15, materialIndex: 3 },
-      { height: 60, width: 15, depth: 25, materialIndex: 4 },
+      { height: 70, width: 22, depth: 15, materialIndex: 3 },
+      { height: 60, width: 15, depth: 22, materialIndex: 4 },
       { height: 55, width: 20, depth: 20, materialIndex: 0 },
-      { height: 50, width: 30, depth: 15, materialIndex: 1 },
+      { height: 50, width: 25, depth: 15, materialIndex: 1 },
       // Smaller buildings
-      { height: 45, width: 15, depth: 30, materialIndex: 2 },
-      { height: 40, width: 20, depth: 25, materialIndex: 3 },
-      { height: 35, width: 25, depth: 20, materialIndex: 4 },
-      { height: 30, width: 18, depth: 18, materialIndex: 0 },
-      { height: 25, width: 22, depth: 22, materialIndex: 1 },
-      { height: 20, width: 25, depth: 25, materialIndex: 2 }
+      { height: 45, width: 15, depth: 25, materialIndex: 2 },
+      { height: 40, width: 20, depth: 22, materialIndex: 3 },
+      { height: 35, width: 22, depth: 20, materialIndex: 4 },
+      { height: 30, width: 18, depth: 18, materialIndex: 0 }
     ];
     
-    // Create a central high-rise building
-    const centralBuilding = buildingTypes[0];
-    this.createSkyscraper(0, 0, centralBuilding.height, centralBuilding.width, centralBuilding.depth, centralBuilding.materialIndex);
-    
-    // Create skyscrapers in a circular arrangement
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2;
-      const distance = 50; // Distance from center
-      const x = Math.cos(angle) * distance;
-      const z = Math.sin(angle) * distance;
-      
-      // Use pre-defined building properties (1-8)
-      const buildingType = buildingTypes[i + 1];
-      this.createSkyscraper(x, z, buildingType.height, buildingType.width, buildingType.depth, buildingType.materialIndex);
+    // First create the city roads as a grid
+    // North-South Roads (avenues)
+    for (let x = -cityRadius; x <= cityRadius; x += blockSize) {
+      this.createRoad(x, -cityRadius, x, cityRadius, roadWidth);
     }
     
-    // Create additional buildings in a deterministic pattern
-    // Inner ring of medium buildings
-    for (let i = 0; i < 6; i++) {
-      const angle = (i / 6) * Math.PI * 2 + Math.PI / 12; // Offset to avoid overlapping with skyscrapers
-      const distance = 30; // Closer to center
-      const x = Math.cos(angle) * distance;
-      const z = Math.sin(angle) * distance;
-      
-      // Use pre-defined building properties (9-14)
-      const buildingType = buildingTypes[i + 9];
-      this.createSkyscraper(x, z, buildingType.height, buildingType.width, buildingType.depth, buildingType.materialIndex);
-    }
-    
-    // Outer ring of smaller buildings
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2 + Math.PI / 16; // Offset for variety
-      const distance = 70; // Further from center
-      const x = Math.cos(angle) * distance;
-      const z = Math.sin(angle) * distance;
-      
-      // Use last building types for outer ring (or loop back to beginning)
-      const buildingIndex = (i + 15) % buildingTypes.length;
-      const buildingType = buildingTypes[buildingIndex];
-      this.createSkyscraper(x, z, buildingType.height, buildingType.width, buildingType.depth, buildingType.materialIndex);
-    }
-    
-    // Create roads in a grid pattern
-    // North-South Roads
-    for (let x = -cityRadius; x <= cityRadius; x += 30) {
-      this.createRoad(x, -cityRadius, x, cityRadius, 10);
-    }
-    
-    // East-West Roads
-    for (let z = -cityRadius; z <= cityRadius; z += 30) {
-      this.createRoad(-cityRadius, z, cityRadius, z, 10);
+    // East-West Roads (streets)
+    for (let z = -cityRadius; z <= cityRadius; z += blockSize) {
+      this.createRoad(-cityRadius, z, cityRadius, z, roadWidth);
     }
     
     // Add central plaza
-    const plazaGeometry = new THREE.CircleGeometry(15, 32);
+    const plazaRadius = 20;
+    const plazaGeometry = new THREE.CircleGeometry(plazaRadius, 32);
     const plazaMaterial = new THREE.MeshStandardMaterial({
       color: 0xCCCCCC, // Light gray
       roughness: 0.9,
@@ -721,6 +680,59 @@ export class MapGenerator {
     plaza.rotation.x = -Math.PI / 2; // Lay flat
     plaza.position.set(0, 0.2, 0); // Slightly above ground
     this.scene.add(plaza);
+    
+    // Now place buildings inside each city block with margin to avoid roads
+    // Use a fixed 3x3 grid of blocks centered at the origin
+    const gridSize = 3; // 3x3 grid
+    const gridOffset = -blockSize * (gridSize - 1) / 2; // Center grid at origin
+    
+    let buildingIndex = 0; // For cycling through building types
+    
+    // Create buildings in a grid pattern, leaving space for roads
+    for (let gridX = 0; gridX < gridSize; gridX++) {
+      for (let gridZ = 0; gridZ < gridSize; gridZ++) {
+        // Calculate the center of this block
+        const blockCenterX = gridOffset + gridX * blockSize;
+        const blockCenterZ = gridOffset + gridZ * blockSize;
+        
+        // Skip the center block (already has the plaza)
+        if (gridX === 1 && gridZ === 1) continue;
+        
+        // Get building type and ensure we don't exceed the available types
+        const buildingType = buildingTypes[buildingIndex % buildingTypes.length];
+        buildingIndex++;
+        
+        // Buildings should be smaller than the block to leave space for roads
+        const safeMargin = 3; // Extra margin from road
+        const maxBuildingSize = blockSize - roadWidth - safeMargin * 2;
+        
+        // Make sure building fits within the block
+        const buildingWidth = Math.min(buildingType.width, maxBuildingSize);
+        const buildingDepth = Math.min(buildingType.depth, maxBuildingSize);
+        
+        // Create the building
+        this.createSkyscraper(
+          blockCenterX,
+          blockCenterZ,
+          buildingType.height,
+          buildingWidth,
+          buildingDepth,
+          buildingType.materialIndex
+        );
+      }
+    }
+    
+    // Create central high-rise at 0,0
+    const centralBuilding = buildingTypes[0];
+    // Ensure central building doesn't exceed plaza size
+    const centerBuildingSize = Math.min(plazaRadius - 5, 15); // Smaller than plaza with margin
+    this.createSkyscraper(
+      0, 0,
+      centralBuilding.height, 
+      centerBuildingSize, 
+      centerBuildingSize, 
+      centralBuilding.materialIndex
+    );
   }
   
   // Methods to get colliders for collision detection

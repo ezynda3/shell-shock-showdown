@@ -2,4 +2,4 @@
 pb_data/
 bin/
 .aider*
-views/*.txt
+**/*.txt

@@ -46,12 +46,12 @@ func Login(configs []core.OAuth2ProviderConfig) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex min-h-[80vh]\"><!-- Gradient Side --><div class=\"hidden lg:block w-1/2 bg-gradient-to-br from-violet-500 to-purple-800 p-12\"><div class=\"flex h-full items-center justify-center\"><div class=\"text-center text-white\"><h1 class=\"text-4xl font-bold\">Welcome Back</h1><p class=\"mt-4 text-lg text-violet-200\">Sign in to your account to continue your journey</p></div></div></div><!-- Form Side --><div class=\"w-full lg:w-1/2 flex items-center justify-center p-8\"><div class=\"w-full max-w-md\"><div class=\"text-center mb-8\"><h2 class=\"text-2xl font-bold leading-9 tracking-tight\">Sign in to your account</h2><p class=\"mt-2 text-sm text-muted-foreground\">Don't have an account? <a href=\"/register\" class=\"font-medium text-primary hover:text-primary/90\">Start a 14 day free trial</a></p></div><div class=\"uk-card\"><div class=\"uk-card-body\"><form class=\"space-y-6\" action=\"#\" method=\"POST\"><div><label for=\"email\" class=\"uk-form-label\">Email address</label><div class=\"mt-2\"><input id=\"email\" name=\"email\" type=\"email\" autocomplete=\"email\" required class=\"uk-input\" placeholder=\"name@example.com\"></div></div><div><label for=\"password\" class=\"uk-form-label\">Password</label><div class=\"mt-2\"><input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required class=\"uk-input\"></div></div><div class=\"flex items-center justify-between\"><div class=\"flex items-center\"><input id=\"remember-me\" name=\"remember-me\" type=\"checkbox\" class=\"uk-checkbox\"> <label for=\"remember-me\" class=\"ml-3 block text-sm leading-6\">Remember me</label></div><div class=\"text-sm leading-6\"><a href=\"/forgot-password\" class=\"text-primary hover:text-primary/90\">Forgot password?</a></div></div><div><button type=\"submit\" class=\"uk-btn uk-btn-primary w-full\">Sign in</button></div></form><div class=\"mt-6\"><div class=\"relative\"><div class=\"absolute inset-0 flex items-center\"><div class=\"w-full border-t border-border\"></div></div><div class=\"relative flex justify-center text-sm font-medium leading-6\"><span class=\"bg-background px-6 text-muted-foreground\">Or continue with</span></div></div><div class=\"mt-6 grid grid-cols-2 gap-4\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex min-h-[80vh]\"><!-- Gradient Side --><div class=\"hidden lg:block w-1/2 bg-gradient-to-br from-violet-500 to-purple-800 p-12\"><div class=\"flex h-full items-center justify-center\"><div class=\"text-center text-white\"><h1 class=\"text-4xl font-bold\">Welcome Back</h1><p class=\"mt-4 text-lg text-violet-200\">Sign in to your account to continue your journey</p></div></div></div><!-- Form Side --><div class=\"w-full lg:w-1/2 flex items-center justify-center p-8\"><div class=\"w-full max-w-md\"><div class=\"text-center mb-8\"><h2 class=\"text-2xl font-bold leading-9 tracking-tight\">Sign in to your account</h2></div><div class=\"uk-card\"><div class=\"uk-card-body\"><div class=\"mt-6\"><div class=\"relative\"><div class=\"absolute inset-0 flex items-center\"><div class=\"w-full border-t border-border\"></div></div><div class=\"relative flex justify-center text-sm font-medium leading-6\"><span class=\"bg-background px-6 text-muted-foreground\">Sign-in with</span></div></div><div class=\"mt-6 grid grid-cols-2 gap-4\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			for _, c := range configs {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<a type=\"button\" class=\"uk-btn uk-btn-default w-full\" href=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<a type=\"button\" class=\"uk-btn uk-btn-default w-full capitalize\" href=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -67,7 +67,7 @@ func Login(configs []core.OAuth2ProviderConfig) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/login.templ`, Line: 99, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/login.templ`, Line: 42, Col: 46}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -80,7 +80,7 @@ func Login(configs []core.OAuth2ProviderConfig) templ.Component {
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/login.templ`, Line: 100, Col: 19}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/login.templ`, Line: 43, Col: 19}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 				if templ_7745c5c3_Err != nil {

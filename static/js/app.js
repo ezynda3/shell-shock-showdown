@@ -26630,61 +26630,35 @@ class MapGenerator {
     this.scene.add(roadMesh);
   }
   createCityCenter() {
-    const cityRadius = 80;
+    const cityRadius = 160;
+    const blockSize = 40;
+    const roadWidth = 15;
     const buildingTypes = [
       { height: 200, width: 20, depth: 20, materialIndex: 0 },
       { height: 180, width: 25, depth: 25, materialIndex: 1 },
       { height: 160, width: 20, depth: 20, materialIndex: 2 },
       { height: 140, width: 18, depth: 18, materialIndex: 3 },
       { height: 120, width: 22, depth: 22, materialIndex: 4 },
-      { height: 100, width: 28, depth: 15, materialIndex: 0 },
-      { height: 90, width: 15, depth: 28, materialIndex: 1 },
+      { height: 100, width: 25, depth: 15, materialIndex: 0 },
+      { height: 90, width: 15, depth: 25, materialIndex: 1 },
       { height: 80, width: 20, depth: 20, materialIndex: 2 },
-      { height: 70, width: 25, depth: 15, materialIndex: 3 },
-      { height: 60, width: 15, depth: 25, materialIndex: 4 },
+      { height: 70, width: 22, depth: 15, materialIndex: 3 },
+      { height: 60, width: 15, depth: 22, materialIndex: 4 },
       { height: 55, width: 20, depth: 20, materialIndex: 0 },
-      { height: 50, width: 30, depth: 15, materialIndex: 1 },
-      { height: 45, width: 15, depth: 30, materialIndex: 2 },
-      { height: 40, width: 20, depth: 25, materialIndex: 3 },
-      { height: 35, width: 25, depth: 20, materialIndex: 4 },
-      { height: 30, width: 18, depth: 18, materialIndex: 0 },
-      { height: 25, width: 22, depth: 22, materialIndex: 1 },
-      { height: 20, width: 25, depth: 25, materialIndex: 2 }
+      { height: 50, width: 25, depth: 15, materialIndex: 1 },
+      { height: 45, width: 15, depth: 25, materialIndex: 2 },
+      { height: 40, width: 20, depth: 22, materialIndex: 3 },
+      { height: 35, width: 22, depth: 20, materialIndex: 4 },
+      { height: 30, width: 18, depth: 18, materialIndex: 0 }
     ];
-    const centralBuilding = buildingTypes[0];
-    this.createSkyscraper(0, 0, centralBuilding.height, centralBuilding.width, centralBuilding.depth, centralBuilding.materialIndex);
-    for (let i = 0;i < 8; i++) {
-      const angle = i / 8 * Math.PI * 2;
-      const distance = 50;
-      const x = Math.cos(angle) * distance;
-      const z = Math.sin(angle) * distance;
-      const buildingType = buildingTypes[i + 1];
-      this.createSkyscraper(x, z, buildingType.height, buildingType.width, buildingType.depth, buildingType.materialIndex);
+    for (let x = -cityRadius;x <= cityRadius; x += blockSize) {
+      this.createRoad(x, -cityRadius, x, cityRadius, roadWidth);
     }
-    for (let i = 0;i < 6; i++) {
-      const angle = i / 6 * Math.PI * 2 + Math.PI / 12;
-      const distance = 30;
-      const x = Math.cos(angle) * distance;
-      const z = Math.sin(angle) * distance;
-      const buildingType = buildingTypes[i + 9];
-      this.createSkyscraper(x, z, buildingType.height, buildingType.width, buildingType.depth, buildingType.materialIndex);
+    for (let z = -cityRadius;z <= cityRadius; z += blockSize) {
+      this.createRoad(-cityRadius, z, cityRadius, z, roadWidth);
     }
-    for (let i = 0;i < 8; i++) {
-      const angle = i / 8 * Math.PI * 2 + Math.PI / 16;
-      const distance = 70;
-      const x = Math.cos(angle) * distance;
-      const z = Math.sin(angle) * distance;
-      const buildingIndex = (i + 15) % buildingTypes.length;
-      const buildingType = buildingTypes[buildingIndex];
-      this.createSkyscraper(x, z, buildingType.height, buildingType.width, buildingType.depth, buildingType.materialIndex);
-    }
-    for (let x = -cityRadius;x <= cityRadius; x += 30) {
-      this.createRoad(x, -cityRadius, x, cityRadius, 10);
-    }
-    for (let z = -cityRadius;z <= cityRadius; z += 30) {
-      this.createRoad(-cityRadius, z, cityRadius, z, 10);
-    }
-    const plazaGeometry = new CircleGeometry(15, 32);
+    const plazaRadius = 20;
+    const plazaGeometry = new CircleGeometry(plazaRadius, 32);
     const plazaMaterial = new MeshStandardMaterial({
       color: 13421772,
       roughness: 0.9,
@@ -26694,6 +26668,27 @@ class MapGenerator {
     plaza.rotation.x = -Math.PI / 2;
     plaza.position.set(0, 0.2, 0);
     this.scene.add(plaza);
+    const gridSize = 3;
+    const gridOffset = -blockSize * (gridSize - 1) / 2;
+    let buildingIndex = 0;
+    for (let gridX = 0;gridX < gridSize; gridX++) {
+      for (let gridZ = 0;gridZ < gridSize; gridZ++) {
+        const blockCenterX = gridOffset + gridX * blockSize;
+        const blockCenterZ = gridOffset + gridZ * blockSize;
+        if (gridX === 1 && gridZ === 1)
+          continue;
+        const buildingType = buildingTypes[buildingIndex % buildingTypes.length];
+        buildingIndex++;
+        const safeMargin = 3;
+        const maxBuildingSize = blockSize - roadWidth - safeMargin * 2;
+        const buildingWidth = Math.min(buildingType.width, maxBuildingSize);
+        const buildingDepth = Math.min(buildingType.depth, maxBuildingSize);
+        this.createSkyscraper(blockCenterX, blockCenterZ, buildingType.height, buildingWidth, buildingDepth, buildingType.materialIndex);
+      }
+    }
+    const centralBuilding = buildingTypes[0];
+    const centerBuildingSize = Math.min(plazaRadius - 5, 15);
+    this.createSkyscraper(0, 0, centralBuilding.height, centerBuildingSize, centerBuildingSize, centralBuilding.materialIndex);
   }
   getAllColliders() {
     return [...this.treeColliders, ...this.rockColliders, ...this.buildingColliders];

@@ -1,4 +1,0 @@
-<div class=\"flex flex-col items-center justify-center space-y-12\" id=\"clock-body\"><div class=\"text-8xl font-bold tabular-nums\" id=\"clock\"><span class=\"hours\">
-</span> <span class=\"text-muted-foreground\">:</span> <span class=\"minutes\">
-</span> <span class=\"text-muted-foreground\">:</span> <span class=\"seconds\">
-</span></div><p class=\"text-muted-foreground\">Current Time</p></div>
