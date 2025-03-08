@@ -2,10 +2,13 @@ import { LitElement, html, css } from 'lit';
 import { customElement, query, property } from 'lit/decorators.js';
 import * as THREE from 'three';
 import { MapGenerator } from './map';
-import { Tank, NPCTank, ITank, ICollidable } from './tank';
+import { Tank, NPCTank, ITank, ICollidable, SpatialAudio } from './tank';
 import { CollisionSystem } from './collision';
 import { Shell } from './shell';
 import './stats'; // Import stats component
+
+// Make SpatialAudio accessible from window for global use
+(window as any).SpatialAudio = SpatialAudio;
 
 // Interface for player state
 interface PlayerState {
@@ -1529,9 +1532,14 @@ export class GameComponent extends LitElement {
       this.lowPerformanceMode = fps < 30;
     }
     
-    // Store camera position for health bar billboarding
+    // Store camera position for health bar billboarding and audio
     if (this.camera) {
       (window as any).cameraPosition = this.camera.position;
+      
+      // Update audio listener position for all spatial audio
+      if (typeof window.SpatialAudio?.setGlobalListener === 'function') {
+        window.SpatialAudio.setGlobalListener(this.camera.position);
+      }
     }
     
     // Process any pending game state updates in the animation loop

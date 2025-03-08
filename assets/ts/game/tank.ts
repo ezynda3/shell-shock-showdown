@@ -1,6 +1,94 @@
 import * as THREE from 'three';
 import { Shell } from './shell';
 
+// Audio helper for tank sounds with spatial awareness
+export class SpatialAudio {
+  private audio: HTMLAudioElement;
+  private isPlaying: boolean = false;
+  private sourcePosition: THREE.Vector3;
+  private maxDistance: number = 100;
+  private baseVolume: number = 1.0;
+  
+  // Shared listener position for all spatial audio
+  private static globalListener: THREE.Vector3 | null = null;
+
+  constructor(src: string, loop: boolean = false, volume: number = 1.0, maxDistance: number = 100) {
+    this.audio = new Audio(src);
+    this.audio.loop = loop;
+    this.baseVolume = Math.max(0, Math.min(1, volume));
+    this.audio.volume = this.baseVolume;
+    this.maxDistance = maxDistance;
+    this.sourcePosition = new THREE.Vector3();
+  }
+
+  setSourcePosition(position: THREE.Vector3) {
+    this.sourcePosition.copy(position);
+    this.updateVolume();
+  }
+
+  setListenerPosition(position: THREE.Vector3 | null) {
+    SpatialAudio.globalListener = position ? position.clone() : null;
+    this.updateVolume();
+  }
+  
+  // Set the global listener position for all spatial audio objects
+  static setGlobalListener(position: THREE.Vector3 | null) {
+    SpatialAudio.globalListener = position ? position.clone() : null;
+  }
+
+  play() {
+    if (!this.isPlaying) {
+      // Need to create a new Audio element each time for overlapping sounds
+      if (!this.audio.loop) {
+        this.audio = new Audio(this.audio.src);
+        this.audio.volume = this.baseVolume;
+      }
+      
+      this.audio.play().catch(e => console.warn('Audio play failed:', e));
+      this.isPlaying = true;
+    }
+  }
+
+  stop() {
+    if (this.isPlaying) {
+      this.audio.pause();
+      if (!this.audio.loop) {
+        this.audio.currentTime = 0;
+      }
+      this.isPlaying = false;
+    }
+  }
+
+  updateVolume() {
+    if (!SpatialAudio.globalListener) {
+      this.audio.volume = this.baseVolume;
+      return;
+    }
+
+    // Calculate distance-based volume reduction
+    const distance = this.sourcePosition.distanceTo(SpatialAudio.globalListener);
+    const volumeFactor = Math.max(0, 1 - (distance / this.maxDistance));
+    this.audio.volume = this.baseVolume * volumeFactor * volumeFactor; // Squared for more realistic falloff
+  }
+
+  isActive(): boolean {
+    return this.isPlaying;
+  }
+
+  setVolume(volume: number) {
+    this.baseVolume = Math.max(0, Math.min(1, volume));
+    this.updateVolume();
+  }
+
+  // For one-shot sounds, clone the audio to allow multiple overlapping sounds
+  cloneAndPlay(): SpatialAudio {
+    const clone = new SpatialAudio(this.audio.src, false, this.baseVolume, this.maxDistance);
+    clone.setSourcePosition(this.sourcePosition);
+    clone.play();
+    return clone;
+  }
+}
+
 // Interface for objects that can be collided with
 export interface ICollidable {
   getCollider(): THREE.Sphere | THREE.Box3;
@@ -33,6 +121,12 @@ export class Tank implements ITank {
   turretPivot: THREE.Group;
   barrel?: THREE.Mesh;
   barrelPivot: THREE.Group;
+  
+  // Audio components
+  protected moveSound: SpatialAudio;
+  protected fireSound: SpatialAudio;
+  protected explodeSound: SpatialAudio;
+  protected lastMoveSoundState: boolean = false;
   
   // Tank properties
   private tankSpeed = 0.15;
@@ -103,6 +197,11 @@ export class Tank implements ITank {
     this.lastPosition = this.tank.position.clone();
     
     // No health bar for player tank - it's shown in the UI
+    
+    // Initialize sound effects
+    this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.4, 120);
+    this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.7, 150);
+    this.explodeSound = new SpatialAudio('/static/js/assets/sounds/tank-explode.mp3', false, 0.8, 200);
     
     // Add to scene
     scene.add(this.tank);
@@ -206,6 +305,9 @@ export class Tank implements ITank {
     // Store the current position before movement
     this.lastPosition.copy(this.tank.position);
     
+    // Update sound source positions
+    this.updateSoundPositions();
+    
     // Handle reloading
     if (!this.canFire) {
       this.reloadCounter++;
@@ -245,6 +347,17 @@ export class Tank implements ITank {
     if (keys['d'] || keys['D']) {
       this.tank.rotation.y -= this.tankRotationSpeed;
       this.isCurrentlyMoving = true;
+    }
+    
+    // Update movement sound based on movement status
+    if (this.isCurrentlyMoving) {
+      if (!this.lastMoveSoundState) {
+        this.moveSound.play();
+        this.lastMoveSoundState = true;
+      }
+    } else if (this.lastMoveSoundState) {
+      this.moveSound.stop();
+      this.lastMoveSoundState = false;
     }
     
     // Turret rotation (independent of tank rotation)
@@ -294,6 +407,10 @@ export class Tank implements ITank {
     
     // Handle firing - use space, 'f', or left mouse button
     if ((keys['space'] || keys[' '] || keys['f'] || keys['mousefire']) && this.canFire) {
+      // Play firing sound
+      this.fireSound.setSourcePosition(this.tank.position);
+      this.fireSound.cloneAndPlay();
+      
       // Create a unique shell ID
       const shellId = `shell_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
@@ -589,6 +706,17 @@ export class Tank implements ITank {
       this.health = 0;
       this.isDestroyed = true;
       this.createDestroyedEffect();
+      
+      // Play explosion sound
+      this.explodeSound.setSourcePosition(this.tank.position);
+      this.explodeSound.cloneAndPlay();
+      
+      // Stop movement sound if it was playing
+      if (this.lastMoveSoundState) {
+        this.moveSound.stop();
+        this.lastMoveSoundState = false;
+      }
+      
       return true;
     }
     
@@ -1247,6 +1375,14 @@ export class Tank implements ITank {
   getVelocity(): number {
     return this.velocity;
   }
+  
+  // Update all sound positions based on tank position
+  protected updateSoundPositions(): void {
+    const position = this.tank.position;
+    this.moveSound.setSourcePosition(position);
+    this.fireSound.setSourcePosition(position);
+    this.explodeSound.setSourcePosition(position);
+  }
 }
 
 // Helper function to generate random tank names
@@ -1393,6 +1529,11 @@ export class NPCTank implements ITank {
     if (this.movementPattern === 'patrol') {
       this.setupPatrolPoints();
     }
+    
+    // Initialize sound effects (at lower volume than player tank)
+    this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.3, 120);
+    this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.5, 150);
+    this.explodeSound = new SpatialAudio('/static/js/assets/sounds/tank-explode.mp3', false, 0.6, 200);
     
     // Create health bar with tank name
     this.createHealthBar();
@@ -1614,6 +1755,9 @@ export class NPCTank implements ITank {
     // Store the current position before movement
     this.lastPosition.copy(this.tank.position);
     
+    // Update sound positions
+    this.updateSoundPositions();
+    
     // Reset movement state
     this.isCurrentlyMoving = false;
     this.velocity = 0;
@@ -1656,6 +1800,17 @@ export class NPCTank implements ITank {
         break;
     }
     
+    // Update movement sound based on movement status
+    if (this.isCurrentlyMoving) {
+      if (!this.lastMoveSoundState) {
+        this.moveSound.play();
+        this.lastMoveSoundState = true;
+      }
+    } else if (this.lastMoveSoundState) {
+      this.moveSound.stop();
+      this.lastMoveSoundState = false;
+    }
+    
     // Look for player tank to target
     let playerTank: ICollidable | null = null;
     if (colliders) {
@@ -1681,6 +1836,10 @@ export class NPCTank implements ITank {
         
         // Decide whether to fire
         if (this.canFire && Math.random() < this.FIRE_PROBABILITY) {
+          // Play firing sound
+          this.fireSound.setSourcePosition(this.tank.position);
+          this.fireSound.cloneAndPlay();
+          
           return this.fireShell();
         }
       } else {
@@ -1997,6 +2156,17 @@ export class NPCTank implements ITank {
       this.health = 0;
       this.isDestroyed = true;
       this.createDestroyedEffect();
+      
+      // Play explosion sound
+      this.explodeSound.setSourcePosition(this.tank.position);
+      this.explodeSound.cloneAndPlay();
+      
+      // Stop movement sound if it was playing
+      if (this.lastMoveSoundState) {
+        this.moveSound.stop();
+        this.lastMoveSoundState = false;
+      }
+      
       return true;
     }
     

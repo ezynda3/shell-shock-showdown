@@ -26935,6 +26935,75 @@ class Shell {
 }
 
 // assets/ts/game/tank.ts
+class SpatialAudio {
+  audio;
+  isPlaying = false;
+  sourcePosition;
+  maxDistance = 100;
+  baseVolume = 1;
+  static globalListener = null;
+  constructor(src, loop = false, volume = 1, maxDistance = 100) {
+    this.audio = new Audio(src);
+    this.audio.loop = loop;
+    this.baseVolume = Math.max(0, Math.min(1, volume));
+    this.audio.volume = this.baseVolume;
+    this.maxDistance = maxDistance;
+    this.sourcePosition = new Vector3;
+  }
+  setSourcePosition(position) {
+    this.sourcePosition.copy(position);
+    this.updateVolume();
+  }
+  setListenerPosition(position) {
+    SpatialAudio.globalListener = position ? position.clone() : null;
+    this.updateVolume();
+  }
+  static setGlobalListener(position) {
+    SpatialAudio.globalListener = position ? position.clone() : null;
+  }
+  play() {
+    if (!this.isPlaying) {
+      if (!this.audio.loop) {
+        this.audio = new Audio(this.audio.src);
+        this.audio.volume = this.baseVolume;
+      }
+      this.audio.play().catch((e) => console.warn("Audio play failed:", e));
+      this.isPlaying = true;
+    }
+  }
+  stop() {
+    if (this.isPlaying) {
+      this.audio.pause();
+      if (!this.audio.loop) {
+        this.audio.currentTime = 0;
+      }
+      this.isPlaying = false;
+    }
+  }
+  updateVolume() {
+    if (!SpatialAudio.globalListener) {
+      this.audio.volume = this.baseVolume;
+      return;
+    }
+    const distance = this.sourcePosition.distanceTo(SpatialAudio.globalListener);
+    const volumeFactor = Math.max(0, 1 - distance / this.maxDistance);
+    this.audio.volume = this.baseVolume * volumeFactor * volumeFactor;
+  }
+  isActive() {
+    return this.isPlaying;
+  }
+  setVolume(volume) {
+    this.baseVolume = Math.max(0, Math.min(1, volume));
+    this.updateVolume();
+  }
+  cloneAndPlay() {
+    const clone = new SpatialAudio(this.audio.src, false, this.baseVolume, this.maxDistance);
+    clone.setSourcePosition(this.sourcePosition);
+    clone.play();
+    return clone;
+  }
+}
+
 class Tank {
   tank;
   tankBody;
@@ -26942,6 +27011,10 @@ class Tank {
   turretPivot;
   barrel;
   barrelPivot;
+  moveSound;
+  fireSound;
+  explodeSound;
+  lastMoveSoundState = false;
   tankSpeed = 0.15;
   tankRotationSpeed = 0.05;
   turretRotationSpeed = 0.04;
@@ -26985,6 +27058,9 @@ class Tank {
     this.createTank();
     this.collider = new Sphere(this.tank.position.clone(), this.collisionRadius);
     this.lastPosition = this.tank.position.clone();
+    this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.4, 120);
+    this.fireSound = new SpatialAudio("/static/js/assets/sounds/tank-fire.mp3", false, 0.7, 150);
+    this.explodeSound = new SpatialAudio("/static/js/assets/sounds/tank-explode.mp3", false, 0.8, 200);
     scene.add(this.tank);
   }
   createTank() {
@@ -27051,6 +27127,7 @@ class Tank {
       return null;
     }
     this.lastPosition.copy(this.tank.position);
+    this.updateSoundPositions();
     if (!this.canFire) {
       this.reloadCounter++;
       if (this.reloadCounter >= this.RELOAD_TIME) {
@@ -27080,6 +27157,15 @@ class Tank {
       this.tank.rotation.y -= this.tankRotationSpeed;
       this.isCurrentlyMoving = true;
     }
+    if (this.isCurrentlyMoving) {
+      if (!this.lastMoveSoundState) {
+        this.moveSound.play();
+        this.lastMoveSoundState = true;
+      }
+    } else if (this.lastMoveSoundState) {
+      this.moveSound.stop();
+      this.lastMoveSoundState = false;
+    }
     if (keys["arrowleft"] || keys["ArrowLeft"]) {
       this.turretPivot.rotation.y += this.turretRotationSpeed;
     }
@@ -27105,6 +27191,8 @@ class Tank {
       }
     }
     if ((keys["space"] || keys[" "] || keys["f"] || keys["mousefire"]) && this.canFire) {
+      this.fireSound.setSourcePosition(this.tank.position);
+      this.fireSound.cloneAndPlay();
       const shellId = `shell_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const newShell = this.fireShell(shellId);
       const fireEventId = `fire_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -27258,6 +27346,12 @@ class Tank {
       this.health = 0;
       this.isDestroyed = true;
       this.createDestroyedEffect();
+      this.explodeSound.setSourcePosition(this.tank.position);
+      this.explodeSound.cloneAndPlay();
+      if (this.lastMoveSoundState) {
+        this.moveSound.stop();
+        this.lastMoveSoundState = false;
+      }
       return true;
     }
     return false;
@@ -27690,6 +27784,12 @@ class Tank {
   getVelocity() {
     return this.velocity;
   }
+  updateSoundPositions() {
+    const position = this.tank.position;
+    this.moveSound.setSourcePosition(position);
+    this.fireSound.setSourcePosition(position);
+    this.explodeSound.setSourcePosition(position);
+  }
 }
 function generateRandomTankName() {
   const adjectives = [
@@ -27841,6 +27941,9 @@ class NPCTank {
     if (this.movementPattern === "patrol") {
       this.setupPatrolPoints();
     }
+    this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.3, 120);
+    this.fireSound = new SpatialAudio("/static/js/assets/sounds/tank-fire.mp3", false, 0.5, 150);
+    this.explodeSound = new SpatialAudio("/static/js/assets/sounds/tank-explode.mp3", false, 0.6, 200);
     this.createHealthBar();
     scene.add(this.tank);
   }
@@ -27976,6 +28079,7 @@ class NPCTank {
       return null;
     }
     this.lastPosition.copy(this.tank.position);
+    this.updateSoundPositions();
     this.isCurrentlyMoving = false;
     this.velocity = 0;
     if (!this.canFire) {
@@ -28006,6 +28110,15 @@ class NPCTank {
         this.moveInPatrol();
         break;
     }
+    if (this.isCurrentlyMoving) {
+      if (!this.lastMoveSoundState) {
+        this.moveSound.play();
+        this.lastMoveSoundState = true;
+      }
+    } else if (this.lastMoveSoundState) {
+      this.moveSound.stop();
+      this.lastMoveSoundState = false;
+    }
     let playerTank = null;
     if (colliders) {
       for (const collider of colliders) {
@@ -28022,6 +28135,8 @@ class NPCTank {
       if (distanceToPlayer < this.TARGETING_DISTANCE) {
         this.aimAtTarget(playerTank.getPosition());
         if (this.canFire && Math.random() < this.FIRE_PROBABILITY) {
+          this.fireSound.setSourcePosition(this.tank.position);
+          this.fireSound.cloneAndPlay();
           return this.fireShell();
         }
       } else {
@@ -28181,6 +28296,12 @@ class NPCTank {
       this.health = 0;
       this.isDestroyed = true;
       this.createDestroyedEffect();
+      this.explodeSound.setSourcePosition(this.tank.position);
+      this.explodeSound.cloneAndPlay();
+      if (this.lastMoveSoundState) {
+        this.moveSound.stop();
+        this.lastMoveSoundState = false;
+      }
       return true;
     }
     this.updateHealthBar();
@@ -28834,6 +28955,8 @@ GameStats = __legacyDecorateClassTS([
 ], GameStats);
 
 // assets/ts/game/index.ts
+window.SpatialAudio = SpatialAudio;
+
 class GameComponent extends LitElement {
   constructor() {
     super(...arguments);
@@ -29777,6 +29900,9 @@ class GameComponent extends LitElement {
     }
     if (this.camera) {
       window.cameraPosition = this.camera.position;
+      if (typeof window.SpatialAudio?.setGlobalListener === "function") {
+        window.SpatialAudio.setGlobalListener(this.camera.position);
+      }
     }
     if (this.multiplayerState && this.scene && this.gameStateInitialized) {
       const frameCount = this.renderer?.info.render.frame || 0;
