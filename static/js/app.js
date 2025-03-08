@@ -29164,14 +29164,25 @@ class GameComponent extends LitElement {
         tank.barrelPivot.rotation.x = this.lerpAngle(tank.barrelPivot.rotation.x, playerData.barrelElevation, 0.2);
       }
       if (typeof playerData.health === "number") {
-        if (typeof tank.setHealth === "function") {
-          tank.setHealth(playerData.health);
-        }
-        if (playerData.health > 0) {
-          if (!tank.tank.visible) {
-            console.log("Making remote tank visible again after respawn");
-            tank.tank.visible = true;
+        const currentHealth = playerData.health;
+        const previousHealth = tank.getHealth();
+        if (previousHealth <= 0 && currentHealth > 0) {
+          console.log("Remote player respawned - recreating tank at new position");
+          this.collisionSystem.removeCollider(tank);
+          tank.dispose();
+          this.remoteTanks.delete(tank.getOwnerId());
+          const tankOwnerId = tank.getOwnerId();
+          if (tankOwnerId) {
+            this.createRemoteTank(tankOwnerId, playerData);
           }
+          return;
+        }
+        if (typeof tank.setHealth === "function") {
+          tank.setHealth(currentHealth);
+        }
+        if (currentHealth > 0 && !tank.tank.visible) {
+          console.log("Making remote tank visible");
+          tank.tank.visible = true;
         }
       }
     } catch (error) {

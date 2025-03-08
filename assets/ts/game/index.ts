@@ -615,15 +615,40 @@ export class GameComponent extends LitElement {
         continue;
       }
       
-      // If we already have this player, update their position
-      if (this.remoteTanks.has(playerId)) {
-        const remoteTank = this.remoteTanks.get(playerId);
-        if (remoteTank) {
-          this.updateRemoteTankPosition(remoteTank, playerData);
+      // Death and respawn handling:
+      // Check if player has died (health = 0) but we still have a tank for them
+      if (playerData.health <= 0 && this.remoteTanks.has(playerId)) {
+        const tank = this.remoteTanks.get(playerId);
+        // Only handle death if the tank is not already destroyed
+        if (tank && tank.getHealth() > 0) {
+          console.log(`Remote player ${playerId} died, updating tank health to 0`);
+          tank.setHealth(0); // This will trigger the death effects
         }
-      } else {
-        // Create a new remote tank for this player
-        this.createRemoteTank(playerId, playerData);
+      }
+      // Check if player respawned - player in state with health>0 but tank is destroyed or missing
+      else if (playerData.health > 0) {
+        const existingTank = this.remoteTanks.get(playerId);
+        
+        // Case 1: Tank doesn't exist - create a new one
+        if (!existingTank) {
+          this.createRemoteTank(playerId, playerData);
+        }
+        // Case 2: Tank exists but is destroyed - remove it and create a new one
+        else if (existingTank.getHealth() <= 0) {
+          console.log(`Remote player ${playerId} respawned - replacing tank instance`);
+          
+          // Clean up old tank
+          this.collisionSystem.removeCollider(existingTank);
+          existingTank.dispose();
+          this.remoteTanks.delete(playerId);
+          
+          // Create completely new tank at the respawn position
+          this.createRemoteTank(playerId, playerData);
+        }
+        // Case 3: Tank exists and is not destroyed - normal position update
+        else {
+          this.updateRemoteTankPosition(existingTank, playerData);
+        }
       }
     }
     
@@ -803,21 +828,9 @@ export class GameComponent extends LitElement {
         tank.barrelPivot.rotation.x = this.lerpAngle(tank.barrelPivot.rotation.x, playerData.barrelElevation, 0.2);
       }
       
-      // Update health if provided
-      if (typeof playerData.health === 'number') {
-        // Make sure the tank has a setHealth method
-        if (typeof tank.setHealth === 'function') {
-          tank.setHealth(playerData.health);
-        }
-        
-        // If player is alive (health > 0), make sure tank is visible
-        if (playerData.health > 0) {
-          // Make tank visible if it wasn't already
-          if (!tank.tank.visible) {
-            console.log('Making remote tank visible again after respawn');
-            tank.tank.visible = true;
-          }
-        }
+      // Handle normal health updates for alive tanks
+      if (typeof playerData.health === 'number' && typeof tank.setHealth === 'function') {
+        tank.setHealth(playerData.health);
       }
       
       // Position updates happen frequently - don't log them
