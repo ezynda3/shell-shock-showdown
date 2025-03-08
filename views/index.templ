@@ -11,7 +11,7 @@ templ Index() {
 		>
 			<game-component
 				data-on-player-movement__case.kebab="$update = JSON.stringify(evt.detail); @post('/update')"
-				data-on-shell-fired__case.kebab="$shellFired = JSON.stringify(evt.detail); @post('/update')"
+				data-on-shell-fired-sync__case.kebab="$shellFired = JSON.stringify(evt.detail); @post('/update')"
 				data-on-tank-hit-sync__case.kebab="$tankHit = JSON.stringify(evt.detail); @post('/update')"
 				data-on-tank-death-sync__case.kebab="$tankDeath = JSON.stringify(evt.detail); @post('/update')"
 				data-on-tank-respawn-sync__case.kebab="$tankRespawn = JSON.stringify(evt.detail); @post('/update')"

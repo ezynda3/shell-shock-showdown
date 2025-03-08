@@ -13,6 +13,9 @@ export class Shell implements ICollidable {
   private readonly GRAVITY: number = 0.01; // Reduced gravity for much longer arcs
   private readonly COLLISION_RADIUS: number = 0.2;
   
+  // Unique shell ID for tracking and deduplication
+  private shellId: string;
+  
   // Reference to the tank that fired this shell
   private source: ITank;
   
@@ -35,11 +38,15 @@ export class Shell implements ICollidable {
     position: THREE.Vector3,
     direction: THREE.Vector3,
     velocity: number,
-    owner: ICollidable
+    owner: ICollidable,
+    shellId?: string
   ) {
     this.scene = scene;
     this.owner = owner;
     this.source = owner as ITank;
+    
+    // Set shell ID (generate one if not provided)
+    this.shellId = shellId || `shell_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     // Store initial direction (normalized)
     this.direction = direction.clone().normalize();
@@ -75,8 +82,14 @@ export class Shell implements ICollidable {
     return this.direction.clone();
   }
   
+  // Get the shell's unique ID
+  getShellId(): string {
+    return this.shellId;
+  }
+  
   update(): boolean {
-    if (!this.isActive) return false;
+    // If shell is inactive or has already processed a collision, return false
+    if (!this.isActive || this.hasProcessedCollision) return false;
     
     // Increment lifetime counter
     this.lifeTime++;
@@ -157,12 +170,17 @@ export class Shell implements ICollidable {
     return 'shell';
   }
   
+  // Track if we've already processed a collision to avoid duplication
+  private hasProcessedCollision = false;
+  
   onCollision(other: ICollidable): void {
     // Don't collide with the tank that fired it, or if already inactive
-    if (other === this.owner || !this.isActive) return;
+    // or if we've already processed a collision for this shell
+    if (other === this.owner || !this.isActive || this.hasProcessedCollision) return;
     
-    // Immediately mark shell as inactive to prevent multiple collisions
+    // Immediately mark shell as inactive and that we've processed a collision
     this.isActive = false;
+    this.hasProcessedCollision = true;
     
     // Immediately remove shell mesh from the scene
     this.scene.remove(this.mesh);
@@ -235,8 +253,9 @@ export class Shell implements ICollidable {
   }
   
   private destroy(): void {
-    // Set isActive to false
+    // Set isActive to false and mark as processed
     this.isActive = false;
+    this.hasProcessedCollision = true;
     
     // Remove from scene if not already removed
     if (this.mesh.parent) {

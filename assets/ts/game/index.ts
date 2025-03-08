@@ -525,6 +525,11 @@ export class GameComponent extends LitElement {
   
   // Handle shell fired events from player tank
   private handleShellFired(event: CustomEvent) {
+    // Skip if this is not a player-initiated event (to prevent loops)
+    if (event.detail.isNetworkEvent) {
+      return;
+    }
+    
     // Get shell data from event
     const position = event.detail.position;
     const direction = event.detail.direction;
@@ -536,9 +541,14 @@ export class GameComponent extends LitElement {
       return;
     }
     
-    // Create a custom event for DataStar to send to server
-    const shellFiredEvent = new CustomEvent('shell-fired', { 
+    // Create a unique shell ID if not already present
+    const shellId = event.detail.shellId || `shell_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Create a custom event for DataStar to send to server - with a different name
+    const shellFiredSyncEvent = new CustomEvent('shell-fired-sync', { 
       detail: {
+        shellId: shellId,
+        playerId: this.playerId,
         position: {
           x: position.x,
           y: position.y,
@@ -549,14 +559,15 @@ export class GameComponent extends LitElement {
           y: direction.y,
           z: direction.z
         },
-        speed: speed
+        speed: speed,
+        isNetworkEvent: true // Mark as a network event
       },
       bubbles: true,
       composed: true // Allows the event to cross shadow DOM boundaries
     });
     
-    // Dispatch the event to be sent to the server
-    this.dispatchEvent(shellFiredEvent);
+    // Dispatch the sync event to be sent to the server
+    this.dispatchEvent(shellFiredSyncEvent);
   }
   
   // Only handling other property changes
@@ -827,9 +838,9 @@ export class GameComponent extends LitElement {
     
     const currentTime = Date.now();
     
-    // Only process shells once every 100ms to avoid creating duplicates
-    // This acts as a rate limiter for shell processing
-    if (currentTime - this.lastShellProcessTime < 100) {
+    // Only process shells once every 300ms to avoid creating duplicates
+    // This acts as a stronger rate limiter for shell processing
+    if (currentTime - this.lastShellProcessTime < 300) {
       return;
     }
     
@@ -879,13 +890,14 @@ export class GameComponent extends LitElement {
         shellState.direction.z
       ).normalize(); // Make sure it's normalized
       
-      // Create a new shell with the source tank
+      // Create a new shell with the source tank and the shell ID
       const shell = new Shell(
         this.scene,
         position,
         direction,
         shellState.speed,
-        sourceTank
+        sourceTank,
+        shellState.id // Pass the shell ID from the state
       );
       
       // Add the shell to active shells

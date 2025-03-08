@@ -26062,16 +26062,22 @@ class CollisionSystem {
   }
   checkCollisions() {
     const currentColliders = [...this.colliders];
-    for (let i = 0;i < currentColliders.length; i++) {
-      const objA = currentColliders[i];
-      if (objA.getType() === "shell" && objA.isAlive && !objA.isAlive()) {
-        continue;
-      }
-      for (let j = i + 1;j < currentColliders.length; j++) {
-        const objB = currentColliders[j];
-        if (objB.getType() === "shell" && objB.isAlive && !objB.isAlive()) {
-          continue;
+    const activeColliders = currentColliders.filter((collider) => {
+      if (collider.getType() === "shell") {
+        const shell = collider;
+        if (shell.isAlive && !shell.isAlive()) {
+          return false;
         }
+        if (shell.hasProcessedCollision) {
+          return false;
+        }
+      }
+      return true;
+    });
+    for (let i = 0;i < activeColliders.length; i++) {
+      const objA = activeColliders[i];
+      for (let j = i + 1;j < activeColliders.length; j++) {
+        const objB = activeColliders[j];
         if (this.shouldSkipCollision(objA, objB)) {
           continue;
         }
@@ -26490,6 +26496,7 @@ class Shell {
   MAX_LIFETIME = 600;
   GRAVITY = 0.01;
   COLLISION_RADIUS = 0.2;
+  shellId;
   source;
   trail;
   trailPositions;
@@ -26499,10 +26506,11 @@ class Shell {
   TRAIL_FADE_RATE = 0.96;
   owner;
   direction;
-  constructor(scene, position, direction, velocity, owner) {
+  constructor(scene, position, direction, velocity, owner, shellId) {
     this.scene = scene;
     this.owner = owner;
     this.source = owner;
+    this.shellId = shellId || `shell_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     this.direction = direction.clone().normalize();
     const geometry = new SphereGeometry(this.COLLISION_RADIUS, 8, 8);
     const material = new MeshStandardMaterial({
@@ -26522,8 +26530,11 @@ class Shell {
   getDirection() {
     return this.direction.clone();
   }
+  getShellId() {
+    return this.shellId;
+  }
   update() {
-    if (!this.isActive)
+    if (!this.isActive || this.hasProcessedCollision)
       return false;
     this.lifeTime++;
     if (this.lifeTime >= this.MAX_LIFETIME) {
@@ -26568,10 +26579,12 @@ class Shell {
   getType() {
     return "shell";
   }
+  hasProcessedCollision = false;
   onCollision(other) {
-    if (other === this.owner || !this.isActive)
+    if (other === this.owner || !this.isActive || this.hasProcessedCollision)
       return;
     this.isActive = false;
+    this.hasProcessedCollision = true;
     this.scene.remove(this.mesh);
     if (this.trail) {
       this.scene.remove(this.trail);
@@ -26621,6 +26634,7 @@ class Shell {
   }
   destroy() {
     this.isActive = false;
+    this.hasProcessedCollision = true;
     if (this.mesh.parent) {
       this.scene.remove(this.mesh);
     }
@@ -26872,7 +26886,8 @@ class Tank {
       }
     }
     if ((keys["space"] || keys[" "] || keys["f"] || keys["mousefire"]) && this.canFire) {
-      const newShell = this.fireShell();
+      const shellId = `shell_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const newShell = this.fireShell(shellId);
       const fireEventId = `fire_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       if (!window._processedFireEvents) {
         window._processedFireEvents = new Set;
@@ -26883,6 +26898,7 @@ class Tank {
           bubbles: true,
           composed: true,
           detail: {
+            shellId: newShell.getShellId(),
             position: {
               x: newShell.mesh.position.x,
               y: newShell.mesh.position.y,
@@ -28973,6 +28989,9 @@ class GameComponent extends LitElement {
     this.dispatchEvent(tankRespawnEvent);
   }
   handleShellFired(event) {
+    if (event.detail.isNetworkEvent) {
+      return;
+    }
     const position = event.detail.position;
     const direction = event.detail.direction;
     const speed = event.detail.speed;
@@ -28980,8 +28999,11 @@ class GameComponent extends LitElement {
       console.error("Invalid shell data:", event.detail);
       return;
     }
-    const shellFiredEvent = new CustomEvent("shell-fired", {
+    const shellId = event.detail.shellId || `shell_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const shellFiredSyncEvent = new CustomEvent("shell-fired-sync", {
       detail: {
+        shellId,
+        playerId: this.playerId,
         position: {
           x: position.x,
           y: position.y,
@@ -28992,12 +29014,13 @@ class GameComponent extends LitElement {
           y: direction.y,
           z: direction.z
         },
-        speed
+        speed,
+        isNetworkEvent: true
       },
       bubbles: true,
       composed: true
     });
-    this.dispatchEvent(shellFiredEvent);
+    this.dispatchEvent(shellFiredSyncEvent);
   }
   updated(changedProperties) {
   }
@@ -29167,7 +29190,7 @@ class GameComponent extends LitElement {
     if (!this.scene || !this.multiplayerState?.shells)
       return;
     const currentTime = Date.now();
-    if (currentTime - this.lastShellProcessTime < 100) {
+    if (currentTime - this.lastShellProcessTime < 300) {
       return;
     }
     this.lastShellProcessTime = currentTime;
@@ -29190,7 +29213,7 @@ class GameComponent extends LitElement {
       }
       const position = new Vector3(shellState.position.x, shellState.position.y, shellState.position.z);
       const direction = new Vector3(shellState.direction.x, shellState.direction.y, shellState.direction.z).normalize();
-      const shell = new Shell(this.scene, position, direction, shellState.speed, sourceTank);
+      const shell = new Shell(this.scene, position, direction, shellState.speed, sourceTank, shellState.id);
       this.addShell(shell);
       GameComponent.processedShellIds.set(shellState.id, currentTime);
     }

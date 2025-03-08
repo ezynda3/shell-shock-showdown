@@ -294,7 +294,11 @@ export class Tank implements ITank {
     
     // Handle firing - use space, 'f', or left mouse button
     if ((keys['space'] || keys[' '] || keys['f'] || keys['mousefire']) && this.canFire) {
-      const newShell = this.fireShell();
+      // Create a unique shell ID
+      const shellId = `shell_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Create the shell with this ID
+      const newShell = this.fireShell(shellId);
       
       // Create a unique ID for this firing event to prevent duplicates
       const fireEventId = `fire_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -313,6 +317,7 @@ export class Tank implements ITank {
           bubbles: true,
           composed: true,
           detail: {
+            shellId: newShell.getShellId(), // Use the shell's ID from the shell object
             position: {
               x: newShell.mesh.position.x,
               y: newShell.mesh.position.y,

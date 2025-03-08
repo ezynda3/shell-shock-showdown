@@ -25,22 +25,26 @@ export class CollisionSystem {
     // Get a copy of the array to avoid issues if colliders are removed during iteration
     const currentColliders = [...this.colliders];
     
-    // For each pair of objects, check for collisions
-    for (let i = 0; i < currentColliders.length; i++) {
-      const objA = currentColliders[i];
-      
-      // Skip inactive shells
-      if (objA.getType() === 'shell' && (objA as any).isAlive && !(objA as any).isAlive()) {
-        continue;
-      }
-      
-      for (let j = i + 1; j < currentColliders.length; j++) {
-        const objB = currentColliders[j];
-        
-        // Skip inactive shells
-        if (objB.getType() === 'shell' && (objB as any).isAlive && !(objB as any).isAlive()) {
-          continue;
+    // Filter out inactive shells before processing collisions
+    const activeColliders = currentColliders.filter(collider => {
+      if (collider.getType() === 'shell') {
+        const shell = collider as any;
+        if (shell.isAlive && !shell.isAlive()) {
+          return false; // Skip inactive shells
         }
+        if (shell.hasProcessedCollision) {
+          return false; // Skip shells that have already processed a collision
+        }
+      }
+      return true;
+    });
+    
+    // For each pair of objects, check for collisions
+    for (let i = 0; i < activeColliders.length; i++) {
+      const objA = activeColliders[i];
+      
+      for (let j = i + 1; j < activeColliders.length; j++) {
+        const objB = activeColliders[j];
         
         // Skip collision detection between certain object types
         // For example, tree-tree or rock-rock collisions
