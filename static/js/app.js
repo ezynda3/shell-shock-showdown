@@ -10231,54 +10231,983 @@ class DepthTexture extends Texture {
     return data;
   }
 }
-class CircleGeometry extends BufferGeometry {
-  constructor(radius = 1, segments = 32, thetaStart = 0, thetaLength = Math.PI * 2) {
-    super();
-    this.type = "CircleGeometry";
-    this.parameters = {
-      radius,
-      segments,
-      thetaStart,
-      thetaLength
-    };
-    segments = Math.max(3, segments);
-    const indices = [];
-    const vertices = [];
+
+class Curve {
+  constructor() {
+    this.type = "Curve";
+    this.arcLengthDivisions = 200;
+    this.needsUpdate = false;
+    this.cacheArcLengths = null;
+  }
+  getPoint() {
+    console.warn("THREE.Curve: .getPoint() not implemented.");
+  }
+  getPointAt(u, optionalTarget) {
+    const t = this.getUtoTmapping(u);
+    return this.getPoint(t, optionalTarget);
+  }
+  getPoints(divisions = 5) {
+    const points = [];
+    for (let d2 = 0;d2 <= divisions; d2++) {
+      points.push(this.getPoint(d2 / divisions));
+    }
+    return points;
+  }
+  getSpacedPoints(divisions = 5) {
+    const points = [];
+    for (let d2 = 0;d2 <= divisions; d2++) {
+      points.push(this.getPointAt(d2 / divisions));
+    }
+    return points;
+  }
+  getLength() {
+    const lengths = this.getLengths();
+    return lengths[lengths.length - 1];
+  }
+  getLengths(divisions = this.arcLengthDivisions) {
+    if (this.cacheArcLengths && this.cacheArcLengths.length === divisions + 1 && !this.needsUpdate) {
+      return this.cacheArcLengths;
+    }
+    this.needsUpdate = false;
+    const cache = [];
+    let current, last = this.getPoint(0);
+    let sum = 0;
+    cache.push(0);
+    for (let p = 1;p <= divisions; p++) {
+      current = this.getPoint(p / divisions);
+      sum += current.distanceTo(last);
+      cache.push(sum);
+      last = current;
+    }
+    this.cacheArcLengths = cache;
+    return cache;
+  }
+  updateArcLengths() {
+    this.needsUpdate = true;
+    this.getLengths();
+  }
+  getUtoTmapping(u, distance = null) {
+    const arcLengths = this.getLengths();
+    let i = 0;
+    const il = arcLengths.length;
+    let targetArcLength;
+    if (distance) {
+      targetArcLength = distance;
+    } else {
+      targetArcLength = u * arcLengths[il - 1];
+    }
+    let low = 0, high = il - 1, comparison;
+    while (low <= high) {
+      i = Math.floor(low + (high - low) / 2);
+      comparison = arcLengths[i] - targetArcLength;
+      if (comparison < 0) {
+        low = i + 1;
+      } else if (comparison > 0) {
+        high = i - 1;
+      } else {
+        high = i;
+        break;
+      }
+    }
+    i = high;
+    if (arcLengths[i] === targetArcLength) {
+      return i / (il - 1);
+    }
+    const lengthBefore = arcLengths[i];
+    const lengthAfter = arcLengths[i + 1];
+    const segmentLength = lengthAfter - lengthBefore;
+    const segmentFraction = (targetArcLength - lengthBefore) / segmentLength;
+    const t = (i + segmentFraction) / (il - 1);
+    return t;
+  }
+  getTangent(t, optionalTarget) {
+    const delta = 0.0001;
+    let t1 = t - delta;
+    let t2 = t + delta;
+    if (t1 < 0)
+      t1 = 0;
+    if (t2 > 1)
+      t2 = 1;
+    const pt1 = this.getPoint(t1);
+    const pt2 = this.getPoint(t2);
+    const tangent = optionalTarget || (pt1.isVector2 ? new Vector2 : new Vector3);
+    tangent.copy(pt2).sub(pt1).normalize();
+    return tangent;
+  }
+  getTangentAt(u, optionalTarget) {
+    const t = this.getUtoTmapping(u);
+    return this.getTangent(t, optionalTarget);
+  }
+  computeFrenetFrames(segments, closed = false) {
+    const normal = new Vector3;
+    const tangents = [];
     const normals = [];
-    const uvs = [];
-    const vertex = new Vector3;
-    const uv = new Vector2;
-    vertices.push(0, 0, 0);
-    normals.push(0, 0, 1);
-    uvs.push(0.5, 0.5);
-    for (let s = 0, i = 3;s <= segments; s++, i += 3) {
-      const segment = thetaStart + s / segments * thetaLength;
-      vertex.x = radius * Math.cos(segment);
-      vertex.y = radius * Math.sin(segment);
-      vertices.push(vertex.x, vertex.y, vertex.z);
-      normals.push(0, 0, 1);
-      uv.x = (vertices[i] / radius + 1) / 2;
-      uv.y = (vertices[i + 1] / radius + 1) / 2;
-      uvs.push(uv.x, uv.y);
+    const binormals = [];
+    const vec = new Vector3;
+    const mat = new Matrix4;
+    for (let i = 0;i <= segments; i++) {
+      const u = i / segments;
+      tangents[i] = this.getTangentAt(u, new Vector3);
     }
+    normals[0] = new Vector3;
+    binormals[0] = new Vector3;
+    let min = Number.MAX_VALUE;
+    const tx = Math.abs(tangents[0].x);
+    const ty = Math.abs(tangents[0].y);
+    const tz = Math.abs(tangents[0].z);
+    if (tx <= min) {
+      min = tx;
+      normal.set(1, 0, 0);
+    }
+    if (ty <= min) {
+      min = ty;
+      normal.set(0, 1, 0);
+    }
+    if (tz <= min) {
+      normal.set(0, 0, 1);
+    }
+    vec.crossVectors(tangents[0], normal).normalize();
+    normals[0].crossVectors(tangents[0], vec);
+    binormals[0].crossVectors(tangents[0], normals[0]);
     for (let i = 1;i <= segments; i++) {
-      indices.push(i, i + 1, 0);
+      normals[i] = normals[i - 1].clone();
+      binormals[i] = binormals[i - 1].clone();
+      vec.crossVectors(tangents[i - 1], tangents[i]);
+      if (vec.length() > Number.EPSILON) {
+        vec.normalize();
+        const theta = Math.acos(clamp(tangents[i - 1].dot(tangents[i]), -1, 1));
+        normals[i].applyMatrix4(mat.makeRotationAxis(vec, theta));
+      }
+      binormals[i].crossVectors(tangents[i], normals[i]);
     }
-    this.setIndex(indices);
-    this.setAttribute("position", new Float32BufferAttribute(vertices, 3));
-    this.setAttribute("normal", new Float32BufferAttribute(normals, 3));
-    this.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+    if (closed === true) {
+      let theta = Math.acos(clamp(normals[0].dot(normals[segments]), -1, 1));
+      theta /= segments;
+      if (tangents[0].dot(vec.crossVectors(normals[0], normals[segments])) > 0) {
+        theta = -theta;
+      }
+      for (let i = 1;i <= segments; i++) {
+        normals[i].applyMatrix4(mat.makeRotationAxis(tangents[i], theta * i));
+        binormals[i].crossVectors(tangents[i], normals[i]);
+      }
+    }
+    return {
+      tangents,
+      normals,
+      binormals
+    };
+  }
+  clone() {
+    return new this.constructor().copy(this);
   }
   copy(source) {
-    super.copy(source);
-    this.parameters = Object.assign({}, source.parameters);
+    this.arcLengthDivisions = source.arcLengthDivisions;
     return this;
   }
-  static fromJSON(data) {
-    return new CircleGeometry(data.radius, data.segments, data.thetaStart, data.thetaLength);
+  toJSON() {
+    const data = {
+      metadata: {
+        version: 4.6,
+        type: "Curve",
+        generator: "Curve.toJSON"
+      }
+    };
+    data.arcLengthDivisions = this.arcLengthDivisions;
+    data.type = this.type;
+    return data;
+  }
+  fromJSON(json) {
+    this.arcLengthDivisions = json.arcLengthDivisions;
+    return this;
   }
 }
 
+class EllipseCurve extends Curve {
+  constructor(aX = 0, aY = 0, xRadius = 1, yRadius = 1, aStartAngle = 0, aEndAngle = Math.PI * 2, aClockwise = false, aRotation = 0) {
+    super();
+    this.isEllipseCurve = true;
+    this.type = "EllipseCurve";
+    this.aX = aX;
+    this.aY = aY;
+    this.xRadius = xRadius;
+    this.yRadius = yRadius;
+    this.aStartAngle = aStartAngle;
+    this.aEndAngle = aEndAngle;
+    this.aClockwise = aClockwise;
+    this.aRotation = aRotation;
+  }
+  getPoint(t, optionalTarget = new Vector2) {
+    const point = optionalTarget;
+    const twoPi = Math.PI * 2;
+    let deltaAngle = this.aEndAngle - this.aStartAngle;
+    const samePoints = Math.abs(deltaAngle) < Number.EPSILON;
+    while (deltaAngle < 0)
+      deltaAngle += twoPi;
+    while (deltaAngle > twoPi)
+      deltaAngle -= twoPi;
+    if (deltaAngle < Number.EPSILON) {
+      if (samePoints) {
+        deltaAngle = 0;
+      } else {
+        deltaAngle = twoPi;
+      }
+    }
+    if (this.aClockwise === true && !samePoints) {
+      if (deltaAngle === twoPi) {
+        deltaAngle = -twoPi;
+      } else {
+        deltaAngle = deltaAngle - twoPi;
+      }
+    }
+    const angle = this.aStartAngle + t * deltaAngle;
+    let x = this.aX + this.xRadius * Math.cos(angle);
+    let y = this.aY + this.yRadius * Math.sin(angle);
+    if (this.aRotation !== 0) {
+      const cos = Math.cos(this.aRotation);
+      const sin = Math.sin(this.aRotation);
+      const tx = x - this.aX;
+      const ty = y - this.aY;
+      x = tx * cos - ty * sin + this.aX;
+      y = tx * sin + ty * cos + this.aY;
+    }
+    return point.set(x, y);
+  }
+  copy(source) {
+    super.copy(source);
+    this.aX = source.aX;
+    this.aY = source.aY;
+    this.xRadius = source.xRadius;
+    this.yRadius = source.yRadius;
+    this.aStartAngle = source.aStartAngle;
+    this.aEndAngle = source.aEndAngle;
+    this.aClockwise = source.aClockwise;
+    this.aRotation = source.aRotation;
+    return this;
+  }
+  toJSON() {
+    const data = super.toJSON();
+    data.aX = this.aX;
+    data.aY = this.aY;
+    data.xRadius = this.xRadius;
+    data.yRadius = this.yRadius;
+    data.aStartAngle = this.aStartAngle;
+    data.aEndAngle = this.aEndAngle;
+    data.aClockwise = this.aClockwise;
+    data.aRotation = this.aRotation;
+    return data;
+  }
+  fromJSON(json) {
+    super.fromJSON(json);
+    this.aX = json.aX;
+    this.aY = json.aY;
+    this.xRadius = json.xRadius;
+    this.yRadius = json.yRadius;
+    this.aStartAngle = json.aStartAngle;
+    this.aEndAngle = json.aEndAngle;
+    this.aClockwise = json.aClockwise;
+    this.aRotation = json.aRotation;
+    return this;
+  }
+}
+
+class ArcCurve extends EllipseCurve {
+  constructor(aX, aY, aRadius, aStartAngle, aEndAngle, aClockwise) {
+    super(aX, aY, aRadius, aRadius, aStartAngle, aEndAngle, aClockwise);
+    this.isArcCurve = true;
+    this.type = "ArcCurve";
+  }
+}
+function CubicPoly() {
+  let c0 = 0, c1 = 0, c2 = 0, c3 = 0;
+  function init(x0, x1, t0, t1) {
+    c0 = x0;
+    c1 = t0;
+    c2 = -3 * x0 + 3 * x1 - 2 * t0 - t1;
+    c3 = 2 * x0 - 2 * x1 + t0 + t1;
+  }
+  return {
+    initCatmullRom: function(x0, x1, x2, x3, tension) {
+      init(x1, x2, tension * (x2 - x0), tension * (x3 - x1));
+    },
+    initNonuniformCatmullRom: function(x0, x1, x2, x3, dt0, dt1, dt2) {
+      let t1 = (x1 - x0) / dt0 - (x2 - x0) / (dt0 + dt1) + (x2 - x1) / dt1;
+      let t2 = (x2 - x1) / dt1 - (x3 - x1) / (dt1 + dt2) + (x3 - x2) / dt2;
+      t1 *= dt1;
+      t2 *= dt1;
+      init(x1, x2, t1, t2);
+    },
+    calc: function(t) {
+      const t2 = t * t;
+      const t3 = t2 * t;
+      return c0 + c1 * t + c2 * t2 + c3 * t3;
+    }
+  };
+}
+var tmp = /* @__PURE__ */ new Vector3;
+var px = /* @__PURE__ */ new CubicPoly;
+var py = /* @__PURE__ */ new CubicPoly;
+var pz = /* @__PURE__ */ new CubicPoly;
+
+class CatmullRomCurve3 extends Curve {
+  constructor(points = [], closed = false, curveType = "centripetal", tension = 0.5) {
+    super();
+    this.isCatmullRomCurve3 = true;
+    this.type = "CatmullRomCurve3";
+    this.points = points;
+    this.closed = closed;
+    this.curveType = curveType;
+    this.tension = tension;
+  }
+  getPoint(t, optionalTarget = new Vector3) {
+    const point = optionalTarget;
+    const points = this.points;
+    const l = points.length;
+    const p = (l - (this.closed ? 0 : 1)) * t;
+    let intPoint = Math.floor(p);
+    let weight = p - intPoint;
+    if (this.closed) {
+      intPoint += intPoint > 0 ? 0 : (Math.floor(Math.abs(intPoint) / l) + 1) * l;
+    } else if (weight === 0 && intPoint === l - 1) {
+      intPoint = l - 2;
+      weight = 1;
+    }
+    let p0, p3;
+    if (this.closed || intPoint > 0) {
+      p0 = points[(intPoint - 1) % l];
+    } else {
+      tmp.subVectors(points[0], points[1]).add(points[0]);
+      p0 = tmp;
+    }
+    const p1 = points[intPoint % l];
+    const p2 = points[(intPoint + 1) % l];
+    if (this.closed || intPoint + 2 < l) {
+      p3 = points[(intPoint + 2) % l];
+    } else {
+      tmp.subVectors(points[l - 1], points[l - 2]).add(points[l - 1]);
+      p3 = tmp;
+    }
+    if (this.curveType === "centripetal" || this.curveType === "chordal") {
+      const pow = this.curveType === "chordal" ? 0.5 : 0.25;
+      let dt0 = Math.pow(p0.distanceToSquared(p1), pow);
+      let dt1 = Math.pow(p1.distanceToSquared(p2), pow);
+      let dt2 = Math.pow(p2.distanceToSquared(p3), pow);
+      if (dt1 < 0.0001)
+        dt1 = 1;
+      if (dt0 < 0.0001)
+        dt0 = dt1;
+      if (dt2 < 0.0001)
+        dt2 = dt1;
+      px.initNonuniformCatmullRom(p0.x, p1.x, p2.x, p3.x, dt0, dt1, dt2);
+      py.initNonuniformCatmullRom(p0.y, p1.y, p2.y, p3.y, dt0, dt1, dt2);
+      pz.initNonuniformCatmullRom(p0.z, p1.z, p2.z, p3.z, dt0, dt1, dt2);
+    } else if (this.curveType === "catmullrom") {
+      px.initCatmullRom(p0.x, p1.x, p2.x, p3.x, this.tension);
+      py.initCatmullRom(p0.y, p1.y, p2.y, p3.y, this.tension);
+      pz.initCatmullRom(p0.z, p1.z, p2.z, p3.z, this.tension);
+    }
+    point.set(px.calc(weight), py.calc(weight), pz.calc(weight));
+    return point;
+  }
+  copy(source) {
+    super.copy(source);
+    this.points = [];
+    for (let i = 0, l = source.points.length;i < l; i++) {
+      const point = source.points[i];
+      this.points.push(point.clone());
+    }
+    this.closed = source.closed;
+    this.curveType = source.curveType;
+    this.tension = source.tension;
+    return this;
+  }
+  toJSON() {
+    const data = super.toJSON();
+    data.points = [];
+    for (let i = 0, l = this.points.length;i < l; i++) {
+      const point = this.points[i];
+      data.points.push(point.toArray());
+    }
+    data.closed = this.closed;
+    data.curveType = this.curveType;
+    data.tension = this.tension;
+    return data;
+  }
+  fromJSON(json) {
+    super.fromJSON(json);
+    this.points = [];
+    for (let i = 0, l = json.points.length;i < l; i++) {
+      const point = json.points[i];
+      this.points.push(new Vector3().fromArray(point));
+    }
+    this.closed = json.closed;
+    this.curveType = json.curveType;
+    this.tension = json.tension;
+    return this;
+  }
+}
+function CatmullRom(t, p0, p1, p2, p3) {
+  const v0 = (p2 - p0) * 0.5;
+  const v1 = (p3 - p1) * 0.5;
+  const t2 = t * t;
+  const t3 = t * t2;
+  return (2 * p1 - 2 * p2 + v0 + v1) * t3 + (-3 * p1 + 3 * p2 - 2 * v0 - v1) * t2 + v0 * t + p1;
+}
+function QuadraticBezierP0(t, p) {
+  const k = 1 - t;
+  return k * k * p;
+}
+function QuadraticBezierP1(t, p) {
+  return 2 * (1 - t) * t * p;
+}
+function QuadraticBezierP2(t, p) {
+  return t * t * p;
+}
+function QuadraticBezier(t, p0, p1, p2) {
+  return QuadraticBezierP0(t, p0) + QuadraticBezierP1(t, p1) + QuadraticBezierP2(t, p2);
+}
+function CubicBezierP0(t, p) {
+  const k = 1 - t;
+  return k * k * k * p;
+}
+function CubicBezierP1(t, p) {
+  const k = 1 - t;
+  return 3 * k * k * t * p;
+}
+function CubicBezierP2(t, p) {
+  return 3 * (1 - t) * t * t * p;
+}
+function CubicBezierP3(t, p) {
+  return t * t * t * p;
+}
+function CubicBezier(t, p0, p1, p2, p3) {
+  return CubicBezierP0(t, p0) + CubicBezierP1(t, p1) + CubicBezierP2(t, p2) + CubicBezierP3(t, p3);
+}
+
+class CubicBezierCurve extends Curve {
+  constructor(v0 = new Vector2, v1 = new Vector2, v2 = new Vector2, v3 = new Vector2) {
+    super();
+    this.isCubicBezierCurve = true;
+    this.type = "CubicBezierCurve";
+    this.v0 = v0;
+    this.v1 = v1;
+    this.v2 = v2;
+    this.v3 = v3;
+  }
+  getPoint(t, optionalTarget = new Vector2) {
+    const point = optionalTarget;
+    const v0 = this.v0, v1 = this.v1, v2 = this.v2, v3 = this.v3;
+    point.set(CubicBezier(t, v0.x, v1.x, v2.x, v3.x), CubicBezier(t, v0.y, v1.y, v2.y, v3.y));
+    return point;
+  }
+  copy(source) {
+    super.copy(source);
+    this.v0.copy(source.v0);
+    this.v1.copy(source.v1);
+    this.v2.copy(source.v2);
+    this.v3.copy(source.v3);
+    return this;
+  }
+  toJSON() {
+    const data = super.toJSON();
+    data.v0 = this.v0.toArray();
+    data.v1 = this.v1.toArray();
+    data.v2 = this.v2.toArray();
+    data.v3 = this.v3.toArray();
+    return data;
+  }
+  fromJSON(json) {
+    super.fromJSON(json);
+    this.v0.fromArray(json.v0);
+    this.v1.fromArray(json.v1);
+    this.v2.fromArray(json.v2);
+    this.v3.fromArray(json.v3);
+    return this;
+  }
+}
+
+class CubicBezierCurve3 extends Curve {
+  constructor(v0 = new Vector3, v1 = new Vector3, v2 = new Vector3, v3 = new Vector3) {
+    super();
+    this.isCubicBezierCurve3 = true;
+    this.type = "CubicBezierCurve3";
+    this.v0 = v0;
+    this.v1 = v1;
+    this.v2 = v2;
+    this.v3 = v3;
+  }
+  getPoint(t, optionalTarget = new Vector3) {
+    const point = optionalTarget;
+    const v0 = this.v0, v1 = this.v1, v2 = this.v2, v3 = this.v3;
+    point.set(CubicBezier(t, v0.x, v1.x, v2.x, v3.x), CubicBezier(t, v0.y, v1.y, v2.y, v3.y), CubicBezier(t, v0.z, v1.z, v2.z, v3.z));
+    return point;
+  }
+  copy(source) {
+    super.copy(source);
+    this.v0.copy(source.v0);
+    this.v1.copy(source.v1);
+    this.v2.copy(source.v2);
+    this.v3.copy(source.v3);
+    return this;
+  }
+  toJSON() {
+    const data = super.toJSON();
+    data.v0 = this.v0.toArray();
+    data.v1 = this.v1.toArray();
+    data.v2 = this.v2.toArray();
+    data.v3 = this.v3.toArray();
+    return data;
+  }
+  fromJSON(json) {
+    super.fromJSON(json);
+    this.v0.fromArray(json.v0);
+    this.v1.fromArray(json.v1);
+    this.v2.fromArray(json.v2);
+    this.v3.fromArray(json.v3);
+    return this;
+  }
+}
+
+class LineCurve extends Curve {
+  constructor(v1 = new Vector2, v2 = new Vector2) {
+    super();
+    this.isLineCurve = true;
+    this.type = "LineCurve";
+    this.v1 = v1;
+    this.v2 = v2;
+  }
+  getPoint(t, optionalTarget = new Vector2) {
+    const point = optionalTarget;
+    if (t === 1) {
+      point.copy(this.v2);
+    } else {
+      point.copy(this.v2).sub(this.v1);
+      point.multiplyScalar(t).add(this.v1);
+    }
+    return point;
+  }
+  getPointAt(u, optionalTarget) {
+    return this.getPoint(u, optionalTarget);
+  }
+  getTangent(t, optionalTarget = new Vector2) {
+    return optionalTarget.subVectors(this.v2, this.v1).normalize();
+  }
+  getTangentAt(u, optionalTarget) {
+    return this.getTangent(u, optionalTarget);
+  }
+  copy(source) {
+    super.copy(source);
+    this.v1.copy(source.v1);
+    this.v2.copy(source.v2);
+    return this;
+  }
+  toJSON() {
+    const data = super.toJSON();
+    data.v1 = this.v1.toArray();
+    data.v2 = this.v2.toArray();
+    return data;
+  }
+  fromJSON(json) {
+    super.fromJSON(json);
+    this.v1.fromArray(json.v1);
+    this.v2.fromArray(json.v2);
+    return this;
+  }
+}
+
+class LineCurve3 extends Curve {
+  constructor(v1 = new Vector3, v2 = new Vector3) {
+    super();
+    this.isLineCurve3 = true;
+    this.type = "LineCurve3";
+    this.v1 = v1;
+    this.v2 = v2;
+  }
+  getPoint(t, optionalTarget = new Vector3) {
+    const point = optionalTarget;
+    if (t === 1) {
+      point.copy(this.v2);
+    } else {
+      point.copy(this.v2).sub(this.v1);
+      point.multiplyScalar(t).add(this.v1);
+    }
+    return point;
+  }
+  getPointAt(u, optionalTarget) {
+    return this.getPoint(u, optionalTarget);
+  }
+  getTangent(t, optionalTarget = new Vector3) {
+    return optionalTarget.subVectors(this.v2, this.v1).normalize();
+  }
+  getTangentAt(u, optionalTarget) {
+    return this.getTangent(u, optionalTarget);
+  }
+  copy(source) {
+    super.copy(source);
+    this.v1.copy(source.v1);
+    this.v2.copy(source.v2);
+    return this;
+  }
+  toJSON() {
+    const data = super.toJSON();
+    data.v1 = this.v1.toArray();
+    data.v2 = this.v2.toArray();
+    return data;
+  }
+  fromJSON(json) {
+    super.fromJSON(json);
+    this.v1.fromArray(json.v1);
+    this.v2.fromArray(json.v2);
+    return this;
+  }
+}
+
+class QuadraticBezierCurve extends Curve {
+  constructor(v0 = new Vector2, v1 = new Vector2, v2 = new Vector2) {
+    super();
+    this.isQuadraticBezierCurve = true;
+    this.type = "QuadraticBezierCurve";
+    this.v0 = v0;
+    this.v1 = v1;
+    this.v2 = v2;
+  }
+  getPoint(t, optionalTarget = new Vector2) {
+    const point = optionalTarget;
+    const v0 = this.v0, v1 = this.v1, v2 = this.v2;
+    point.set(QuadraticBezier(t, v0.x, v1.x, v2.x), QuadraticBezier(t, v0.y, v1.y, v2.y));
+    return point;
+  }
+  copy(source) {
+    super.copy(source);
+    this.v0.copy(source.v0);
+    this.v1.copy(source.v1);
+    this.v2.copy(source.v2);
+    return this;
+  }
+  toJSON() {
+    const data = super.toJSON();
+    data.v0 = this.v0.toArray();
+    data.v1 = this.v1.toArray();
+    data.v2 = this.v2.toArray();
+    return data;
+  }
+  fromJSON(json) {
+    super.fromJSON(json);
+    this.v0.fromArray(json.v0);
+    this.v1.fromArray(json.v1);
+    this.v2.fromArray(json.v2);
+    return this;
+  }
+}
+
+class QuadraticBezierCurve3 extends Curve {
+  constructor(v0 = new Vector3, v1 = new Vector3, v2 = new Vector3) {
+    super();
+    this.isQuadraticBezierCurve3 = true;
+    this.type = "QuadraticBezierCurve3";
+    this.v0 = v0;
+    this.v1 = v1;
+    this.v2 = v2;
+  }
+  getPoint(t, optionalTarget = new Vector3) {
+    const point = optionalTarget;
+    const v0 = this.v0, v1 = this.v1, v2 = this.v2;
+    point.set(QuadraticBezier(t, v0.x, v1.x, v2.x), QuadraticBezier(t, v0.y, v1.y, v2.y), QuadraticBezier(t, v0.z, v1.z, v2.z));
+    return point;
+  }
+  copy(source) {
+    super.copy(source);
+    this.v0.copy(source.v0);
+    this.v1.copy(source.v1);
+    this.v2.copy(source.v2);
+    return this;
+  }
+  toJSON() {
+    const data = super.toJSON();
+    data.v0 = this.v0.toArray();
+    data.v1 = this.v1.toArray();
+    data.v2 = this.v2.toArray();
+    return data;
+  }
+  fromJSON(json) {
+    super.fromJSON(json);
+    this.v0.fromArray(json.v0);
+    this.v1.fromArray(json.v1);
+    this.v2.fromArray(json.v2);
+    return this;
+  }
+}
+
+class SplineCurve extends Curve {
+  constructor(points = []) {
+    super();
+    this.isSplineCurve = true;
+    this.type = "SplineCurve";
+    this.points = points;
+  }
+  getPoint(t, optionalTarget = new Vector2) {
+    const point = optionalTarget;
+    const points = this.points;
+    const p = (points.length - 1) * t;
+    const intPoint = Math.floor(p);
+    const weight = p - intPoint;
+    const p0 = points[intPoint === 0 ? intPoint : intPoint - 1];
+    const p1 = points[intPoint];
+    const p2 = points[intPoint > points.length - 2 ? points.length - 1 : intPoint + 1];
+    const p3 = points[intPoint > points.length - 3 ? points.length - 1 : intPoint + 2];
+    point.set(CatmullRom(weight, p0.x, p1.x, p2.x, p3.x), CatmullRom(weight, p0.y, p1.y, p2.y, p3.y));
+    return point;
+  }
+  copy(source) {
+    super.copy(source);
+    this.points = [];
+    for (let i = 0, l = source.points.length;i < l; i++) {
+      const point = source.points[i];
+      this.points.push(point.clone());
+    }
+    return this;
+  }
+  toJSON() {
+    const data = super.toJSON();
+    data.points = [];
+    for (let i = 0, l = this.points.length;i < l; i++) {
+      const point = this.points[i];
+      data.points.push(point.toArray());
+    }
+    return data;
+  }
+  fromJSON(json) {
+    super.fromJSON(json);
+    this.points = [];
+    for (let i = 0, l = json.points.length;i < l; i++) {
+      const point = json.points[i];
+      this.points.push(new Vector2().fromArray(point));
+    }
+    return this;
+  }
+}
+var Curves = /* @__PURE__ */ Object.freeze({
+  __proto__: null,
+  ArcCurve,
+  CatmullRomCurve3,
+  CubicBezierCurve,
+  CubicBezierCurve3,
+  EllipseCurve,
+  LineCurve,
+  LineCurve3,
+  QuadraticBezierCurve,
+  QuadraticBezierCurve3,
+  SplineCurve
+});
+
+class CurvePath extends Curve {
+  constructor() {
+    super();
+    this.type = "CurvePath";
+    this.curves = [];
+    this.autoClose = false;
+  }
+  add(curve) {
+    this.curves.push(curve);
+  }
+  closePath() {
+    const startPoint = this.curves[0].getPoint(0);
+    const endPoint = this.curves[this.curves.length - 1].getPoint(1);
+    if (!startPoint.equals(endPoint)) {
+      const lineType = startPoint.isVector2 === true ? "LineCurve" : "LineCurve3";
+      this.curves.push(new Curves[lineType](endPoint, startPoint));
+    }
+    return this;
+  }
+  getPoint(t, optionalTarget) {
+    const d2 = t * this.getLength();
+    const curveLengths = this.getCurveLengths();
+    let i = 0;
+    while (i < curveLengths.length) {
+      if (curveLengths[i] >= d2) {
+        const diff = curveLengths[i] - d2;
+        const curve = this.curves[i];
+        const segmentLength = curve.getLength();
+        const u = segmentLength === 0 ? 0 : 1 - diff / segmentLength;
+        return curve.getPointAt(u, optionalTarget);
+      }
+      i++;
+    }
+    return null;
+  }
+  getLength() {
+    const lens = this.getCurveLengths();
+    return lens[lens.length - 1];
+  }
+  updateArcLengths() {
+    this.needsUpdate = true;
+    this.cacheLengths = null;
+    this.getCurveLengths();
+  }
+  getCurveLengths() {
+    if (this.cacheLengths && this.cacheLengths.length === this.curves.length) {
+      return this.cacheLengths;
+    }
+    const lengths = [];
+    let sums = 0;
+    for (let i = 0, l = this.curves.length;i < l; i++) {
+      sums += this.curves[i].getLength();
+      lengths.push(sums);
+    }
+    this.cacheLengths = lengths;
+    return lengths;
+  }
+  getSpacedPoints(divisions = 40) {
+    const points = [];
+    for (let i = 0;i <= divisions; i++) {
+      points.push(this.getPoint(i / divisions));
+    }
+    if (this.autoClose) {
+      points.push(points[0]);
+    }
+    return points;
+  }
+  getPoints(divisions = 12) {
+    const points = [];
+    let last;
+    for (let i = 0, curves = this.curves;i < curves.length; i++) {
+      const curve = curves[i];
+      const resolution = curve.isEllipseCurve ? divisions * 2 : curve.isLineCurve || curve.isLineCurve3 ? 1 : curve.isSplineCurve ? divisions * curve.points.length : divisions;
+      const pts = curve.getPoints(resolution);
+      for (let j = 0;j < pts.length; j++) {
+        const point = pts[j];
+        if (last && last.equals(point))
+          continue;
+        points.push(point);
+        last = point;
+      }
+    }
+    if (this.autoClose && points.length > 1 && !points[points.length - 1].equals(points[0])) {
+      points.push(points[0]);
+    }
+    return points;
+  }
+  copy(source) {
+    super.copy(source);
+    this.curves = [];
+    for (let i = 0, l = source.curves.length;i < l; i++) {
+      const curve = source.curves[i];
+      this.curves.push(curve.clone());
+    }
+    this.autoClose = source.autoClose;
+    return this;
+  }
+  toJSON() {
+    const data = super.toJSON();
+    data.autoClose = this.autoClose;
+    data.curves = [];
+    for (let i = 0, l = this.curves.length;i < l; i++) {
+      const curve = this.curves[i];
+      data.curves.push(curve.toJSON());
+    }
+    return data;
+  }
+  fromJSON(json) {
+    super.fromJSON(json);
+    this.autoClose = json.autoClose;
+    this.curves = [];
+    for (let i = 0, l = json.curves.length;i < l; i++) {
+      const curve = json.curves[i];
+      this.curves.push(new Curves[curve.type]().fromJSON(curve));
+    }
+    return this;
+  }
+}
+
+class Path extends CurvePath {
+  constructor(points) {
+    super();
+    this.type = "Path";
+    this.currentPoint = new Vector2;
+    if (points) {
+      this.setFromPoints(points);
+    }
+  }
+  setFromPoints(points) {
+    this.moveTo(points[0].x, points[0].y);
+    for (let i = 1, l = points.length;i < l; i++) {
+      this.lineTo(points[i].x, points[i].y);
+    }
+    return this;
+  }
+  moveTo(x, y) {
+    this.currentPoint.set(x, y);
+    return this;
+  }
+  lineTo(x, y) {
+    const curve = new LineCurve(this.currentPoint.clone(), new Vector2(x, y));
+    this.curves.push(curve);
+    this.currentPoint.set(x, y);
+    return this;
+  }
+  quadraticCurveTo(aCPx, aCPy, aX, aY) {
+    const curve = new QuadraticBezierCurve(this.currentPoint.clone(), new Vector2(aCPx, aCPy), new Vector2(aX, aY));
+    this.curves.push(curve);
+    this.currentPoint.set(aX, aY);
+    return this;
+  }
+  bezierCurveTo(aCP1x, aCP1y, aCP2x, aCP2y, aX, aY) {
+    const curve = new CubicBezierCurve(this.currentPoint.clone(), new Vector2(aCP1x, aCP1y), new Vector2(aCP2x, aCP2y), new Vector2(aX, aY));
+    this.curves.push(curve);
+    this.currentPoint.set(aX, aY);
+    return this;
+  }
+  splineThru(pts) {
+    const npts = [this.currentPoint.clone()].concat(pts);
+    const curve = new SplineCurve(npts);
+    this.curves.push(curve);
+    this.currentPoint.copy(pts[pts.length - 1]);
+    return this;
+  }
+  arc(aX, aY, aRadius, aStartAngle, aEndAngle, aClockwise) {
+    const x0 = this.currentPoint.x;
+    const y0 = this.currentPoint.y;
+    this.absarc(aX + x0, aY + y0, aRadius, aStartAngle, aEndAngle, aClockwise);
+    return this;
+  }
+  absarc(aX, aY, aRadius, aStartAngle, aEndAngle, aClockwise) {
+    this.absellipse(aX, aY, aRadius, aRadius, aStartAngle, aEndAngle, aClockwise);
+    return this;
+  }
+  ellipse(aX, aY, xRadius, yRadius, aStartAngle, aEndAngle, aClockwise, aRotation) {
+    const x0 = this.currentPoint.x;
+    const y0 = this.currentPoint.y;
+    this.absellipse(aX + x0, aY + y0, xRadius, yRadius, aStartAngle, aEndAngle, aClockwise, aRotation);
+    return this;
+  }
+  absellipse(aX, aY, xRadius, yRadius, aStartAngle, aEndAngle, aClockwise, aRotation) {
+    const curve = new EllipseCurve(aX, aY, xRadius, yRadius, aStartAngle, aEndAngle, aClockwise, aRotation);
+    if (this.curves.length > 0) {
+      const firstPoint = curve.getPoint(0);
+      if (!firstPoint.equals(this.currentPoint)) {
+        this.lineTo(firstPoint.x, firstPoint.y);
+      }
+    }
+    this.curves.push(curve);
+    const lastPoint = curve.getPoint(1);
+    this.currentPoint.copy(lastPoint);
+    return this;
+  }
+  copy(source) {
+    super.copy(source);
+    this.currentPoint.copy(source.currentPoint);
+    return this;
+  }
+  toJSON() {
+    const data = super.toJSON();
+    data.currentPoint = this.currentPoint.toArray();
+    return data;
+  }
+  fromJSON(json) {
+    super.fromJSON(json);
+    this.currentPoint.fromArray(json.currentPoint);
+    return this;
+  }
+}
 class CylinderGeometry extends BufferGeometry {
   constructor(radiusTop = 1, radiusBottom = 1, height = 1, radialSegments = 32, heightSegments = 1, openEnded = false, thetaStart = 0, thetaLength = Math.PI * 2) {
     super();
@@ -10781,6 +11710,920 @@ class DodecahedronGeometry extends PolyhedronGeometry {
     return new DodecahedronGeometry(data.radius, data.detail);
   }
 }
+class Shape extends Path {
+  constructor(points) {
+    super(points);
+    this.uuid = generateUUID();
+    this.type = "Shape";
+    this.holes = [];
+  }
+  getPointsHoles(divisions) {
+    const holesPts = [];
+    for (let i = 0, l = this.holes.length;i < l; i++) {
+      holesPts[i] = this.holes[i].getPoints(divisions);
+    }
+    return holesPts;
+  }
+  extractPoints(divisions) {
+    return {
+      shape: this.getPoints(divisions),
+      holes: this.getPointsHoles(divisions)
+    };
+  }
+  copy(source) {
+    super.copy(source);
+    this.holes = [];
+    for (let i = 0, l = source.holes.length;i < l; i++) {
+      const hole = source.holes[i];
+      this.holes.push(hole.clone());
+    }
+    return this;
+  }
+  toJSON() {
+    const data = super.toJSON();
+    data.uuid = this.uuid;
+    data.holes = [];
+    for (let i = 0, l = this.holes.length;i < l; i++) {
+      const hole = this.holes[i];
+      data.holes.push(hole.toJSON());
+    }
+    return data;
+  }
+  fromJSON(json) {
+    super.fromJSON(json);
+    this.uuid = json.uuid;
+    this.holes = [];
+    for (let i = 0, l = json.holes.length;i < l; i++) {
+      const hole = json.holes[i];
+      this.holes.push(new Path().fromJSON(hole));
+    }
+    return this;
+  }
+}
+
+class Earcut {
+  static triangulate(data, holeIndices, dim = 2) {
+    const hasHoles = holeIndices && holeIndices.length;
+    const outerLen = hasHoles ? holeIndices[0] * dim : data.length;
+    let outerNode = linkedList(data, 0, outerLen, dim, true);
+    const triangles = [];
+    if (!outerNode || outerNode.next === outerNode.prev)
+      return triangles;
+    let minX, minY, maxX, maxY, x, y, invSize;
+    if (hasHoles)
+      outerNode = eliminateHoles(data, holeIndices, outerNode, dim);
+    if (data.length > 80 * dim) {
+      minX = maxX = data[0];
+      minY = maxY = data[1];
+      for (let i = dim;i < outerLen; i += dim) {
+        x = data[i];
+        y = data[i + 1];
+        if (x < minX)
+          minX = x;
+        if (y < minY)
+          minY = y;
+        if (x > maxX)
+          maxX = x;
+        if (y > maxY)
+          maxY = y;
+      }
+      invSize = Math.max(maxX - minX, maxY - minY);
+      invSize = invSize !== 0 ? 32767 / invSize : 0;
+    }
+    earcutLinked(outerNode, triangles, dim, minX, minY, invSize, 0);
+    return triangles;
+  }
+}
+function linkedList(data, start, end, dim, clockwise) {
+  let i, last;
+  if (clockwise === signedArea(data, start, end, dim) > 0) {
+    for (i = start;i < end; i += dim)
+      last = insertNode(i, data[i], data[i + 1], last);
+  } else {
+    for (i = end - dim;i >= start; i -= dim)
+      last = insertNode(i, data[i], data[i + 1], last);
+  }
+  if (last && equals(last, last.next)) {
+    removeNode(last);
+    last = last.next;
+  }
+  return last;
+}
+function filterPoints(start, end) {
+  if (!start)
+    return start;
+  if (!end)
+    end = start;
+  let p = start, again;
+  do {
+    again = false;
+    if (!p.steiner && (equals(p, p.next) || area(p.prev, p, p.next) === 0)) {
+      removeNode(p);
+      p = end = p.prev;
+      if (p === p.next)
+        break;
+      again = true;
+    } else {
+      p = p.next;
+    }
+  } while (again || p !== end);
+  return end;
+}
+function earcutLinked(ear, triangles, dim, minX, minY, invSize, pass) {
+  if (!ear)
+    return;
+  if (!pass && invSize)
+    indexCurve(ear, minX, minY, invSize);
+  let stop = ear, prev, next;
+  while (ear.prev !== ear.next) {
+    prev = ear.prev;
+    next = ear.next;
+    if (invSize ? isEarHashed(ear, minX, minY, invSize) : isEar(ear)) {
+      triangles.push(prev.i / dim | 0);
+      triangles.push(ear.i / dim | 0);
+      triangles.push(next.i / dim | 0);
+      removeNode(ear);
+      ear = next.next;
+      stop = next.next;
+      continue;
+    }
+    ear = next;
+    if (ear === stop) {
+      if (!pass) {
+        earcutLinked(filterPoints(ear), triangles, dim, minX, minY, invSize, 1);
+      } else if (pass === 1) {
+        ear = cureLocalIntersections(filterPoints(ear), triangles, dim);
+        earcutLinked(ear, triangles, dim, minX, minY, invSize, 2);
+      } else if (pass === 2) {
+        splitEarcut(ear, triangles, dim, minX, minY, invSize);
+      }
+      break;
+    }
+  }
+}
+function isEar(ear) {
+  const a = ear.prev, b = ear, c = ear.next;
+  if (area(a, b, c) >= 0)
+    return false;
+  const ax = a.x, bx = b.x, cx = c.x, ay = a.y, by = b.y, cy = c.y;
+  const x0 = ax < bx ? ax < cx ? ax : cx : bx < cx ? bx : cx, y0 = ay < by ? ay < cy ? ay : cy : by < cy ? by : cy, x1 = ax > bx ? ax > cx ? ax : cx : bx > cx ? bx : cx, y1 = ay > by ? ay > cy ? ay : cy : by > cy ? by : cy;
+  let p = c.next;
+  while (p !== a) {
+    if (p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 && pointInTriangle(ax, ay, bx, by, cx, cy, p.x, p.y) && area(p.prev, p, p.next) >= 0)
+      return false;
+    p = p.next;
+  }
+  return true;
+}
+function isEarHashed(ear, minX, minY, invSize) {
+  const a = ear.prev, b = ear, c = ear.next;
+  if (area(a, b, c) >= 0)
+    return false;
+  const ax = a.x, bx = b.x, cx = c.x, ay = a.y, by = b.y, cy = c.y;
+  const x0 = ax < bx ? ax < cx ? ax : cx : bx < cx ? bx : cx, y0 = ay < by ? ay < cy ? ay : cy : by < cy ? by : cy, x1 = ax > bx ? ax > cx ? ax : cx : bx > cx ? bx : cx, y1 = ay > by ? ay > cy ? ay : cy : by > cy ? by : cy;
+  const minZ = zOrder(x0, y0, minX, minY, invSize), maxZ = zOrder(x1, y1, minX, minY, invSize);
+  let { prevZ: p, nextZ: n } = ear;
+  while (p && p.z >= minZ && n && n.z <= maxZ) {
+    if (p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 && p !== a && p !== c && pointInTriangle(ax, ay, bx, by, cx, cy, p.x, p.y) && area(p.prev, p, p.next) >= 0)
+      return false;
+    p = p.prevZ;
+    if (n.x >= x0 && n.x <= x1 && n.y >= y0 && n.y <= y1 && n !== a && n !== c && pointInTriangle(ax, ay, bx, by, cx, cy, n.x, n.y) && area(n.prev, n, n.next) >= 0)
+      return false;
+    n = n.nextZ;
+  }
+  while (p && p.z >= minZ) {
+    if (p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 && p !== a && p !== c && pointInTriangle(ax, ay, bx, by, cx, cy, p.x, p.y) && area(p.prev, p, p.next) >= 0)
+      return false;
+    p = p.prevZ;
+  }
+  while (n && n.z <= maxZ) {
+    if (n.x >= x0 && n.x <= x1 && n.y >= y0 && n.y <= y1 && n !== a && n !== c && pointInTriangle(ax, ay, bx, by, cx, cy, n.x, n.y) && area(n.prev, n, n.next) >= 0)
+      return false;
+    n = n.nextZ;
+  }
+  return true;
+}
+function cureLocalIntersections(start, triangles, dim) {
+  let p = start;
+  do {
+    const a = p.prev, b = p.next.next;
+    if (!equals(a, b) && intersects(a, p, p.next, b) && locallyInside(a, b) && locallyInside(b, a)) {
+      triangles.push(a.i / dim | 0);
+      triangles.push(p.i / dim | 0);
+      triangles.push(b.i / dim | 0);
+      removeNode(p);
+      removeNode(p.next);
+      p = start = b;
+    }
+    p = p.next;
+  } while (p !== start);
+  return filterPoints(p);
+}
+function splitEarcut(start, triangles, dim, minX, minY, invSize) {
+  let a = start;
+  do {
+    let b = a.next.next;
+    while (b !== a.prev) {
+      if (a.i !== b.i && isValidDiagonal(a, b)) {
+        let c = splitPolygon(a, b);
+        a = filterPoints(a, a.next);
+        c = filterPoints(c, c.next);
+        earcutLinked(a, triangles, dim, minX, minY, invSize, 0);
+        earcutLinked(c, triangles, dim, minX, minY, invSize, 0);
+        return;
+      }
+      b = b.next;
+    }
+    a = a.next;
+  } while (a !== start);
+}
+function eliminateHoles(data, holeIndices, outerNode, dim) {
+  const queue = [];
+  let i, len, start, end, list;
+  for (i = 0, len = holeIndices.length;i < len; i++) {
+    start = holeIndices[i] * dim;
+    end = i < len - 1 ? holeIndices[i + 1] * dim : data.length;
+    list = linkedList(data, start, end, dim, false);
+    if (list === list.next)
+      list.steiner = true;
+    queue.push(getLeftmost(list));
+  }
+  queue.sort(compareX);
+  for (i = 0;i < queue.length; i++) {
+    outerNode = eliminateHole(queue[i], outerNode);
+  }
+  return outerNode;
+}
+function compareX(a, b) {
+  return a.x - b.x;
+}
+function eliminateHole(hole, outerNode) {
+  const bridge = findHoleBridge(hole, outerNode);
+  if (!bridge) {
+    return outerNode;
+  }
+  const bridgeReverse = splitPolygon(bridge, hole);
+  filterPoints(bridgeReverse, bridgeReverse.next);
+  return filterPoints(bridge, bridge.next);
+}
+function findHoleBridge(hole, outerNode) {
+  let p = outerNode, qx = -Infinity, m;
+  const { x: hx, y: hy } = hole;
+  do {
+    if (hy <= p.y && hy >= p.next.y && p.next.y !== p.y) {
+      const x = p.x + (hy - p.y) * (p.next.x - p.x) / (p.next.y - p.y);
+      if (x <= hx && x > qx) {
+        qx = x;
+        m = p.x < p.next.x ? p : p.next;
+        if (x === hx)
+          return m;
+      }
+    }
+    p = p.next;
+  } while (p !== outerNode);
+  if (!m)
+    return null;
+  const stop = m, mx = m.x, my = m.y;
+  let tanMin = Infinity, tan;
+  p = m;
+  do {
+    if (hx >= p.x && p.x >= mx && hx !== p.x && pointInTriangle(hy < my ? hx : qx, hy, mx, my, hy < my ? qx : hx, hy, p.x, p.y)) {
+      tan = Math.abs(hy - p.y) / (hx - p.x);
+      if (locallyInside(p, hole) && (tan < tanMin || tan === tanMin && (p.x > m.x || p.x === m.x && sectorContainsSector(m, p)))) {
+        m = p;
+        tanMin = tan;
+      }
+    }
+    p = p.next;
+  } while (p !== stop);
+  return m;
+}
+function sectorContainsSector(m, p) {
+  return area(m.prev, m, p.prev) < 0 && area(p.next, m, m.next) < 0;
+}
+function indexCurve(start, minX, minY, invSize) {
+  let p = start;
+  do {
+    if (p.z === 0)
+      p.z = zOrder(p.x, p.y, minX, minY, invSize);
+    p.prevZ = p.prev;
+    p.nextZ = p.next;
+    p = p.next;
+  } while (p !== start);
+  p.prevZ.nextZ = null;
+  p.prevZ = null;
+  sortLinked(p);
+}
+function sortLinked(list) {
+  let i, p, q, e, tail, numMerges, pSize, qSize, inSize = 1;
+  do {
+    p = list;
+    list = null;
+    tail = null;
+    numMerges = 0;
+    while (p) {
+      numMerges++;
+      q = p;
+      pSize = 0;
+      for (i = 0;i < inSize; i++) {
+        pSize++;
+        q = q.nextZ;
+        if (!q)
+          break;
+      }
+      qSize = inSize;
+      while (pSize > 0 || qSize > 0 && q) {
+        if (pSize !== 0 && (qSize === 0 || !q || p.z <= q.z)) {
+          e = p;
+          p = p.nextZ;
+          pSize--;
+        } else {
+          e = q;
+          q = q.nextZ;
+          qSize--;
+        }
+        if (tail)
+          tail.nextZ = e;
+        else
+          list = e;
+        e.prevZ = tail;
+        tail = e;
+      }
+      p = q;
+    }
+    tail.nextZ = null;
+    inSize *= 2;
+  } while (numMerges > 1);
+  return list;
+}
+function zOrder(x, y, minX, minY, invSize) {
+  x = (x - minX) * invSize | 0;
+  y = (y - minY) * invSize | 0;
+  x = (x | x << 8) & 16711935;
+  x = (x | x << 4) & 252645135;
+  x = (x | x << 2) & 858993459;
+  x = (x | x << 1) & 1431655765;
+  y = (y | y << 8) & 16711935;
+  y = (y | y << 4) & 252645135;
+  y = (y | y << 2) & 858993459;
+  y = (y | y << 1) & 1431655765;
+  return x | y << 1;
+}
+function getLeftmost(start) {
+  let p = start, leftmost = start;
+  do {
+    if (p.x < leftmost.x || p.x === leftmost.x && p.y < leftmost.y)
+      leftmost = p;
+    p = p.next;
+  } while (p !== start);
+  return leftmost;
+}
+function pointInTriangle(ax, ay, bx, by, cx, cy, px2, py2) {
+  return (cx - px2) * (ay - py2) >= (ax - px2) * (cy - py2) && (ax - px2) * (by - py2) >= (bx - px2) * (ay - py2) && (bx - px2) * (cy - py2) >= (cx - px2) * (by - py2);
+}
+function isValidDiagonal(a, b) {
+  return a.next.i !== b.i && a.prev.i !== b.i && !intersectsPolygon(a, b) && (locallyInside(a, b) && locallyInside(b, a) && middleInside(a, b) && (area(a.prev, a, b.prev) || area(a, b.prev, b)) || equals(a, b) && area(a.prev, a, a.next) > 0 && area(b.prev, b, b.next) > 0);
+}
+function area(p, q, r) {
+  return (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+}
+function equals(p1, p2) {
+  return p1.x === p2.x && p1.y === p2.y;
+}
+function intersects(p1, q1, p2, q2) {
+  const o1 = sign(area(p1, q1, p2));
+  const o2 = sign(area(p1, q1, q2));
+  const o3 = sign(area(p2, q2, p1));
+  const o4 = sign(area(p2, q2, q1));
+  if (o1 !== o2 && o3 !== o4)
+    return true;
+  if (o1 === 0 && onSegment(p1, p2, q1))
+    return true;
+  if (o2 === 0 && onSegment(p1, q2, q1))
+    return true;
+  if (o3 === 0 && onSegment(p2, p1, q2))
+    return true;
+  if (o4 === 0 && onSegment(p2, q1, q2))
+    return true;
+  return false;
+}
+function onSegment(p, q, r) {
+  return q.x <= Math.max(p.x, r.x) && q.x >= Math.min(p.x, r.x) && q.y <= Math.max(p.y, r.y) && q.y >= Math.min(p.y, r.y);
+}
+function sign(num) {
+  return num > 0 ? 1 : num < 0 ? -1 : 0;
+}
+function intersectsPolygon(a, b) {
+  let p = a;
+  do {
+    if (p.i !== a.i && p.next.i !== a.i && p.i !== b.i && p.next.i !== b.i && intersects(p, p.next, a, b))
+      return true;
+    p = p.next;
+  } while (p !== a);
+  return false;
+}
+function locallyInside(a, b) {
+  return area(a.prev, a, a.next) < 0 ? area(a, b, a.next) >= 0 && area(a, a.prev, b) >= 0 : area(a, b, a.prev) < 0 || area(a, a.next, b) < 0;
+}
+function middleInside(a, b) {
+  let p = a, inside = false;
+  const px2 = (a.x + b.x) / 2, py2 = (a.y + b.y) / 2;
+  do {
+    if (p.y > py2 !== p.next.y > py2 && p.next.y !== p.y && px2 < (p.next.x - p.x) * (py2 - p.y) / (p.next.y - p.y) + p.x)
+      inside = !inside;
+    p = p.next;
+  } while (p !== a);
+  return inside;
+}
+function splitPolygon(a, b) {
+  const a2 = new Node(a.i, a.x, a.y), b2 = new Node(b.i, b.x, b.y), an = a.next, bp = b.prev;
+  a.next = b;
+  b.prev = a;
+  a2.next = an;
+  an.prev = a2;
+  b2.next = a2;
+  a2.prev = b2;
+  bp.next = b2;
+  b2.prev = bp;
+  return b2;
+}
+function insertNode(i, x, y, last) {
+  const p = new Node(i, x, y);
+  if (!last) {
+    p.prev = p;
+    p.next = p;
+  } else {
+    p.next = last.next;
+    p.prev = last;
+    last.next.prev = p;
+    last.next = p;
+  }
+  return p;
+}
+function removeNode(p) {
+  p.next.prev = p.prev;
+  p.prev.next = p.next;
+  if (p.prevZ)
+    p.prevZ.nextZ = p.nextZ;
+  if (p.nextZ)
+    p.nextZ.prevZ = p.prevZ;
+}
+function Node(i, x, y) {
+  this.i = i;
+  this.x = x;
+  this.y = y;
+  this.prev = null;
+  this.next = null;
+  this.z = 0;
+  this.prevZ = null;
+  this.nextZ = null;
+  this.steiner = false;
+}
+function signedArea(data, start, end, dim) {
+  let sum = 0;
+  for (let i = start, j = end - dim;i < end; i += dim) {
+    sum += (data[j] - data[i]) * (data[i + 1] + data[j + 1]);
+    j = i;
+  }
+  return sum;
+}
+
+class ShapeUtils {
+  static area(contour) {
+    const n = contour.length;
+    let a = 0;
+    for (let p = n - 1, q = 0;q < n; p = q++) {
+      a += contour[p].x * contour[q].y - contour[q].x * contour[p].y;
+    }
+    return a * 0.5;
+  }
+  static isClockWise(pts) {
+    return ShapeUtils.area(pts) < 0;
+  }
+  static triangulateShape(contour, holes) {
+    const vertices = [];
+    const holeIndices = [];
+    const faces = [];
+    removeDupEndPts(contour);
+    addContour(vertices, contour);
+    let holeIndex = contour.length;
+    holes.forEach(removeDupEndPts);
+    for (let i = 0;i < holes.length; i++) {
+      holeIndices.push(holeIndex);
+      holeIndex += holes[i].length;
+      addContour(vertices, holes[i]);
+    }
+    const triangles = Earcut.triangulate(vertices, holeIndices);
+    for (let i = 0;i < triangles.length; i += 3) {
+      faces.push(triangles.slice(i, i + 3));
+    }
+    return faces;
+  }
+}
+function removeDupEndPts(points) {
+  const l = points.length;
+  if (l > 2 && points[l - 1].equals(points[0])) {
+    points.pop();
+  }
+}
+function addContour(vertices, contour) {
+  for (let i = 0;i < contour.length; i++) {
+    vertices.push(contour[i].x);
+    vertices.push(contour[i].y);
+  }
+}
+
+class ExtrudeGeometry extends BufferGeometry {
+  constructor(shapes = new Shape([new Vector2(0.5, 0.5), new Vector2(-0.5, 0.5), new Vector2(-0.5, -0.5), new Vector2(0.5, -0.5)]), options = {}) {
+    super();
+    this.type = "ExtrudeGeometry";
+    this.parameters = {
+      shapes,
+      options
+    };
+    shapes = Array.isArray(shapes) ? shapes : [shapes];
+    const scope = this;
+    const verticesArray = [];
+    const uvArray = [];
+    for (let i = 0, l = shapes.length;i < l; i++) {
+      const shape = shapes[i];
+      addShape(shape);
+    }
+    this.setAttribute("position", new Float32BufferAttribute(verticesArray, 3));
+    this.setAttribute("uv", new Float32BufferAttribute(uvArray, 2));
+    this.computeVertexNormals();
+    function addShape(shape) {
+      const placeholder = [];
+      const curveSegments = options.curveSegments !== undefined ? options.curveSegments : 12;
+      const steps = options.steps !== undefined ? options.steps : 1;
+      const depth = options.depth !== undefined ? options.depth : 1;
+      let bevelEnabled = options.bevelEnabled !== undefined ? options.bevelEnabled : true;
+      let bevelThickness = options.bevelThickness !== undefined ? options.bevelThickness : 0.2;
+      let bevelSize = options.bevelSize !== undefined ? options.bevelSize : bevelThickness - 0.1;
+      let bevelOffset = options.bevelOffset !== undefined ? options.bevelOffset : 0;
+      let bevelSegments = options.bevelSegments !== undefined ? options.bevelSegments : 3;
+      const extrudePath = options.extrudePath;
+      const uvgen = options.UVGenerator !== undefined ? options.UVGenerator : WorldUVGenerator;
+      let extrudePts, extrudeByPath = false;
+      let splineTube, binormal, normal, position2;
+      if (extrudePath) {
+        extrudePts = extrudePath.getSpacedPoints(steps);
+        extrudeByPath = true;
+        bevelEnabled = false;
+        splineTube = extrudePath.computeFrenetFrames(steps, false);
+        binormal = new Vector3;
+        normal = new Vector3;
+        position2 = new Vector3;
+      }
+      if (!bevelEnabled) {
+        bevelSegments = 0;
+        bevelThickness = 0;
+        bevelSize = 0;
+        bevelOffset = 0;
+      }
+      const shapePoints = shape.extractPoints(curveSegments);
+      let vertices = shapePoints.shape;
+      const holes = shapePoints.holes;
+      const reverse = !ShapeUtils.isClockWise(vertices);
+      if (reverse) {
+        vertices = vertices.reverse();
+        for (let h = 0, hl = holes.length;h < hl; h++) {
+          const ahole = holes[h];
+          if (ShapeUtils.isClockWise(ahole)) {
+            holes[h] = ahole.reverse();
+          }
+        }
+      }
+      const faces = ShapeUtils.triangulateShape(vertices, holes);
+      const contour = vertices;
+      for (let h = 0, hl = holes.length;h < hl; h++) {
+        const ahole = holes[h];
+        vertices = vertices.concat(ahole);
+      }
+      function scalePt2(pt, vec, size) {
+        if (!vec)
+          console.error("THREE.ExtrudeGeometry: vec does not exist");
+        return pt.clone().addScaledVector(vec, size);
+      }
+      const vlen = vertices.length, flen = faces.length;
+      function getBevelVec(inPt, inPrev, inNext) {
+        let v_trans_x, v_trans_y, shrink_by;
+        const v_prev_x = inPt.x - inPrev.x, v_prev_y = inPt.y - inPrev.y;
+        const v_next_x = inNext.x - inPt.x, v_next_y = inNext.y - inPt.y;
+        const v_prev_lensq = v_prev_x * v_prev_x + v_prev_y * v_prev_y;
+        const collinear0 = v_prev_x * v_next_y - v_prev_y * v_next_x;
+        if (Math.abs(collinear0) > Number.EPSILON) {
+          const v_prev_len = Math.sqrt(v_prev_lensq);
+          const v_next_len = Math.sqrt(v_next_x * v_next_x + v_next_y * v_next_y);
+          const ptPrevShift_x = inPrev.x - v_prev_y / v_prev_len;
+          const ptPrevShift_y = inPrev.y + v_prev_x / v_prev_len;
+          const ptNextShift_x = inNext.x - v_next_y / v_next_len;
+          const ptNextShift_y = inNext.y + v_next_x / v_next_len;
+          const sf = ((ptNextShift_x - ptPrevShift_x) * v_next_y - (ptNextShift_y - ptPrevShift_y) * v_next_x) / (v_prev_x * v_next_y - v_prev_y * v_next_x);
+          v_trans_x = ptPrevShift_x + v_prev_x * sf - inPt.x;
+          v_trans_y = ptPrevShift_y + v_prev_y * sf - inPt.y;
+          const v_trans_lensq = v_trans_x * v_trans_x + v_trans_y * v_trans_y;
+          if (v_trans_lensq <= 2) {
+            return new Vector2(v_trans_x, v_trans_y);
+          } else {
+            shrink_by = Math.sqrt(v_trans_lensq / 2);
+          }
+        } else {
+          let direction_eq = false;
+          if (v_prev_x > Number.EPSILON) {
+            if (v_next_x > Number.EPSILON) {
+              direction_eq = true;
+            }
+          } else {
+            if (v_prev_x < -Number.EPSILON) {
+              if (v_next_x < -Number.EPSILON) {
+                direction_eq = true;
+              }
+            } else {
+              if (Math.sign(v_prev_y) === Math.sign(v_next_y)) {
+                direction_eq = true;
+              }
+            }
+          }
+          if (direction_eq) {
+            v_trans_x = -v_prev_y;
+            v_trans_y = v_prev_x;
+            shrink_by = Math.sqrt(v_prev_lensq);
+          } else {
+            v_trans_x = v_prev_x;
+            v_trans_y = v_prev_y;
+            shrink_by = Math.sqrt(v_prev_lensq / 2);
+          }
+        }
+        return new Vector2(v_trans_x / shrink_by, v_trans_y / shrink_by);
+      }
+      const contourMovements = [];
+      for (let i = 0, il = contour.length, j = il - 1, k = i + 1;i < il; i++, j++, k++) {
+        if (j === il)
+          j = 0;
+        if (k === il)
+          k = 0;
+        contourMovements[i] = getBevelVec(contour[i], contour[j], contour[k]);
+      }
+      const holesMovements = [];
+      let oneHoleMovements, verticesMovements = contourMovements.concat();
+      for (let h = 0, hl = holes.length;h < hl; h++) {
+        const ahole = holes[h];
+        oneHoleMovements = [];
+        for (let i = 0, il = ahole.length, j = il - 1, k = i + 1;i < il; i++, j++, k++) {
+          if (j === il)
+            j = 0;
+          if (k === il)
+            k = 0;
+          oneHoleMovements[i] = getBevelVec(ahole[i], ahole[j], ahole[k]);
+        }
+        holesMovements.push(oneHoleMovements);
+        verticesMovements = verticesMovements.concat(oneHoleMovements);
+      }
+      for (let b = 0;b < bevelSegments; b++) {
+        const t = b / bevelSegments;
+        const z = bevelThickness * Math.cos(t * Math.PI / 2);
+        const bs2 = bevelSize * Math.sin(t * Math.PI / 2) + bevelOffset;
+        for (let i = 0, il = contour.length;i < il; i++) {
+          const vert = scalePt2(contour[i], contourMovements[i], bs2);
+          v(vert.x, vert.y, -z);
+        }
+        for (let h = 0, hl = holes.length;h < hl; h++) {
+          const ahole = holes[h];
+          oneHoleMovements = holesMovements[h];
+          for (let i = 0, il = ahole.length;i < il; i++) {
+            const vert = scalePt2(ahole[i], oneHoleMovements[i], bs2);
+            v(vert.x, vert.y, -z);
+          }
+        }
+      }
+      const bs = bevelSize + bevelOffset;
+      for (let i = 0;i < vlen; i++) {
+        const vert = bevelEnabled ? scalePt2(vertices[i], verticesMovements[i], bs) : vertices[i];
+        if (!extrudeByPath) {
+          v(vert.x, vert.y, 0);
+        } else {
+          normal.copy(splineTube.normals[0]).multiplyScalar(vert.x);
+          binormal.copy(splineTube.binormals[0]).multiplyScalar(vert.y);
+          position2.copy(extrudePts[0]).add(normal).add(binormal);
+          v(position2.x, position2.y, position2.z);
+        }
+      }
+      for (let s = 1;s <= steps; s++) {
+        for (let i = 0;i < vlen; i++) {
+          const vert = bevelEnabled ? scalePt2(vertices[i], verticesMovements[i], bs) : vertices[i];
+          if (!extrudeByPath) {
+            v(vert.x, vert.y, depth / steps * s);
+          } else {
+            normal.copy(splineTube.normals[s]).multiplyScalar(vert.x);
+            binormal.copy(splineTube.binormals[s]).multiplyScalar(vert.y);
+            position2.copy(extrudePts[s]).add(normal).add(binormal);
+            v(position2.x, position2.y, position2.z);
+          }
+        }
+      }
+      for (let b = bevelSegments - 1;b >= 0; b--) {
+        const t = b / bevelSegments;
+        const z = bevelThickness * Math.cos(t * Math.PI / 2);
+        const bs2 = bevelSize * Math.sin(t * Math.PI / 2) + bevelOffset;
+        for (let i = 0, il = contour.length;i < il; i++) {
+          const vert = scalePt2(contour[i], contourMovements[i], bs2);
+          v(vert.x, vert.y, depth + z);
+        }
+        for (let h = 0, hl = holes.length;h < hl; h++) {
+          const ahole = holes[h];
+          oneHoleMovements = holesMovements[h];
+          for (let i = 0, il = ahole.length;i < il; i++) {
+            const vert = scalePt2(ahole[i], oneHoleMovements[i], bs2);
+            if (!extrudeByPath) {
+              v(vert.x, vert.y, depth + z);
+            } else {
+              v(vert.x, vert.y + extrudePts[steps - 1].y, extrudePts[steps - 1].x + z);
+            }
+          }
+        }
+      }
+      buildLidFaces();
+      buildSideFaces();
+      function buildLidFaces() {
+        const start = verticesArray.length / 3;
+        if (bevelEnabled) {
+          let layer = 0;
+          let offset = vlen * layer;
+          for (let i = 0;i < flen; i++) {
+            const face = faces[i];
+            f3(face[2] + offset, face[1] + offset, face[0] + offset);
+          }
+          layer = steps + bevelSegments * 2;
+          offset = vlen * layer;
+          for (let i = 0;i < flen; i++) {
+            const face = faces[i];
+            f3(face[0] + offset, face[1] + offset, face[2] + offset);
+          }
+        } else {
+          for (let i = 0;i < flen; i++) {
+            const face = faces[i];
+            f3(face[2], face[1], face[0]);
+          }
+          for (let i = 0;i < flen; i++) {
+            const face = faces[i];
+            f3(face[0] + vlen * steps, face[1] + vlen * steps, face[2] + vlen * steps);
+          }
+        }
+        scope.addGroup(start, verticesArray.length / 3 - start, 0);
+      }
+      function buildSideFaces() {
+        const start = verticesArray.length / 3;
+        let layeroffset = 0;
+        sidewalls(contour, layeroffset);
+        layeroffset += contour.length;
+        for (let h = 0, hl = holes.length;h < hl; h++) {
+          const ahole = holes[h];
+          sidewalls(ahole, layeroffset);
+          layeroffset += ahole.length;
+        }
+        scope.addGroup(start, verticesArray.length / 3 - start, 1);
+      }
+      function sidewalls(contour2, layeroffset) {
+        let i = contour2.length;
+        while (--i >= 0) {
+          const j = i;
+          let k = i - 1;
+          if (k < 0)
+            k = contour2.length - 1;
+          for (let s = 0, sl = steps + bevelSegments * 2;s < sl; s++) {
+            const slen1 = vlen * s;
+            const slen2 = vlen * (s + 1);
+            const a = layeroffset + j + slen1, b = layeroffset + k + slen1, c = layeroffset + k + slen2, d2 = layeroffset + j + slen2;
+            f4(a, b, c, d2);
+          }
+        }
+      }
+      function v(x, y, z) {
+        placeholder.push(x);
+        placeholder.push(y);
+        placeholder.push(z);
+      }
+      function f3(a, b, c) {
+        addVertex(a);
+        addVertex(b);
+        addVertex(c);
+        const nextIndex = verticesArray.length / 3;
+        const uvs = uvgen.generateTopUV(scope, verticesArray, nextIndex - 3, nextIndex - 2, nextIndex - 1);
+        addUV(uvs[0]);
+        addUV(uvs[1]);
+        addUV(uvs[2]);
+      }
+      function f4(a, b, c, d2) {
+        addVertex(a);
+        addVertex(b);
+        addVertex(d2);
+        addVertex(b);
+        addVertex(c);
+        addVertex(d2);
+        const nextIndex = verticesArray.length / 3;
+        const uvs = uvgen.generateSideWallUV(scope, verticesArray, nextIndex - 6, nextIndex - 3, nextIndex - 2, nextIndex - 1);
+        addUV(uvs[0]);
+        addUV(uvs[1]);
+        addUV(uvs[3]);
+        addUV(uvs[1]);
+        addUV(uvs[2]);
+        addUV(uvs[3]);
+      }
+      function addVertex(index) {
+        verticesArray.push(placeholder[index * 3 + 0]);
+        verticesArray.push(placeholder[index * 3 + 1]);
+        verticesArray.push(placeholder[index * 3 + 2]);
+      }
+      function addUV(vector2) {
+        uvArray.push(vector2.x);
+        uvArray.push(vector2.y);
+      }
+    }
+  }
+  copy(source) {
+    super.copy(source);
+    this.parameters = Object.assign({}, source.parameters);
+    return this;
+  }
+  toJSON() {
+    const data = super.toJSON();
+    const shapes = this.parameters.shapes;
+    const options = this.parameters.options;
+    return toJSON$1(shapes, options, data);
+  }
+  static fromJSON(data, shapes) {
+    const geometryShapes = [];
+    for (let j = 0, jl = data.shapes.length;j < jl; j++) {
+      const shape = shapes[data.shapes[j]];
+      geometryShapes.push(shape);
+    }
+    const extrudePath = data.options.extrudePath;
+    if (extrudePath !== undefined) {
+      data.options.extrudePath = new Curves[extrudePath.type]().fromJSON(extrudePath);
+    }
+    return new ExtrudeGeometry(geometryShapes, data.options);
+  }
+}
+var WorldUVGenerator = {
+  generateTopUV: function(geometry, vertices, indexA, indexB, indexC) {
+    const a_x = vertices[indexA * 3];
+    const a_y = vertices[indexA * 3 + 1];
+    const b_x = vertices[indexB * 3];
+    const b_y = vertices[indexB * 3 + 1];
+    const c_x = vertices[indexC * 3];
+    const c_y = vertices[indexC * 3 + 1];
+    return [
+      new Vector2(a_x, a_y),
+      new Vector2(b_x, b_y),
+      new Vector2(c_x, c_y)
+    ];
+  },
+  generateSideWallUV: function(geometry, vertices, indexA, indexB, indexC, indexD) {
+    const a_x = vertices[indexA * 3];
+    const a_y = vertices[indexA * 3 + 1];
+    const a_z = vertices[indexA * 3 + 2];
+    const b_x = vertices[indexB * 3];
+    const b_y = vertices[indexB * 3 + 1];
+    const b_z = vertices[indexB * 3 + 2];
+    const c_x = vertices[indexC * 3];
+    const c_y = vertices[indexC * 3 + 1];
+    const c_z = vertices[indexC * 3 + 2];
+    const d_x = vertices[indexD * 3];
+    const d_y = vertices[indexD * 3 + 1];
+    const d_z = vertices[indexD * 3 + 2];
+    if (Math.abs(a_y - b_y) < Math.abs(a_x - b_x)) {
+      return [
+        new Vector2(a_x, 1 - a_z),
+        new Vector2(b_x, 1 - b_z),
+        new Vector2(c_x, 1 - c_z),
+        new Vector2(d_x, 1 - d_z)
+      ];
+    } else {
+      return [
+        new Vector2(a_y, 1 - a_z),
+        new Vector2(b_y, 1 - b_z),
+        new Vector2(c_y, 1 - c_z),
+        new Vector2(d_y, 1 - d_z)
+      ];
+    }
+  }
+};
+function toJSON$1(shapes, options, data) {
+  data.shapes = [];
+  if (Array.isArray(shapes)) {
+    for (let i = 0, l = shapes.length;i < l; i++) {
+      const shape = shapes[i];
+      data.shapes.push(shape.uuid);
+    }
+  } else {
+    data.shapes.push(shapes.uuid);
+  }
+  data.options = Object.assign({}, options);
+  if (options.extrudePath !== undefined)
+    data.options.extrudePath = options.extrudePath.toJSON();
+  return data;
+}
 class PlaneGeometry extends BufferGeometry {
   constructor(width = 1, height = 1, widthSegments = 1, heightSegments = 1) {
     super();
@@ -10969,6 +12812,66 @@ class SphereGeometry extends BufferGeometry {
   }
   static fromJSON(data) {
     return new SphereGeometry(data.radius, data.widthSegments, data.heightSegments, data.phiStart, data.phiLength, data.thetaStart, data.thetaLength);
+  }
+}
+class TorusGeometry extends BufferGeometry {
+  constructor(radius = 1, tube = 0.4, radialSegments = 12, tubularSegments = 48, arc = Math.PI * 2) {
+    super();
+    this.type = "TorusGeometry";
+    this.parameters = {
+      radius,
+      tube,
+      radialSegments,
+      tubularSegments,
+      arc
+    };
+    radialSegments = Math.floor(radialSegments);
+    tubularSegments = Math.floor(tubularSegments);
+    const indices = [];
+    const vertices = [];
+    const normals = [];
+    const uvs = [];
+    const center = new Vector3;
+    const vertex = new Vector3;
+    const normal = new Vector3;
+    for (let j = 0;j <= radialSegments; j++) {
+      for (let i = 0;i <= tubularSegments; i++) {
+        const u = i / tubularSegments * arc;
+        const v = j / radialSegments * Math.PI * 2;
+        vertex.x = (radius + tube * Math.cos(v)) * Math.cos(u);
+        vertex.y = (radius + tube * Math.cos(v)) * Math.sin(u);
+        vertex.z = tube * Math.sin(v);
+        vertices.push(vertex.x, vertex.y, vertex.z);
+        center.x = radius * Math.cos(u);
+        center.y = radius * Math.sin(u);
+        normal.subVectors(vertex, center).normalize();
+        normals.push(normal.x, normal.y, normal.z);
+        uvs.push(i / tubularSegments);
+        uvs.push(j / radialSegments);
+      }
+    }
+    for (let j = 1;j <= radialSegments; j++) {
+      for (let i = 1;i <= tubularSegments; i++) {
+        const a = (tubularSegments + 1) * j + i - 1;
+        const b = (tubularSegments + 1) * (j - 1) + i - 1;
+        const c = (tubularSegments + 1) * (j - 1) + i;
+        const d2 = (tubularSegments + 1) * j + i;
+        indices.push(a, b, d2);
+        indices.push(b, c, d2);
+      }
+    }
+    this.setIndex(indices);
+    this.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+    this.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+    this.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+  }
+  copy(source) {
+    super.copy(source);
+    this.parameters = Object.assign({}, source.parameters);
+    return this;
+  }
+  static fromJSON(data) {
+    return new TorusGeometry(data.radius, data.tube, data.radialSegments, data.tubularSegments, data.arc);
   }
 }
 class MeshStandardMaterial extends Material {
@@ -26517,6 +28420,383 @@ class MapGenerator {
       this.createRockCluster(x, z, seed + i);
     }
   }
+  createRockSpire(x, z, height, seed) {
+    const spireGroup = new Group;
+    const segments = 8;
+    const baseSize = 2;
+    for (let i = 0;i < segments; i++) {
+      const segmentSize = baseSize * (1 - i / segments * 0.7);
+      const segmentHeight = height / segments;
+      const y = i * segmentHeight;
+      const xOffset = Math.cos(seed + i * 0.5) * segmentSize * 0.3;
+      const zOffset = Math.sin(seed + i * 1.2) * segmentSize * 0.3;
+      const material = i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial;
+      const rock = this.createRock(segmentSize, seed + i, xOffset, y, zOffset, new Vector3(Math.sin(i * 0.3 + seed) * Math.PI, Math.sin(i * 0.7 + seed) * Math.PI * 2, Math.sin(i * 0.5 + seed) * Math.PI), new Vector3(1, 0.8, 1), material);
+      spireGroup.add(rock);
+    }
+    const topRock = this.createRock(baseSize * 0.3, seed + 100, 0, height, 0, new Vector3(0, 0, 0), new Vector3(2, 1.5, 2), this.rockMaterial);
+    spireGroup.add(topRock);
+    spireGroup.position.set(x, 0, z);
+    this.scene.add(spireGroup);
+    const colliderPosition = new Vector3(x, height / 2, z);
+    const rockCollider = new StaticCollider(colliderPosition, "rock", baseSize * 2.5);
+    this.rockColliders.push(rockCollider);
+  }
+  createRockArch(x, z, width, height, depth, rotation, seed) {
+    const archGroup = new Group;
+    const pillarWidth = width * 0.15;
+    const pillarDepth = depth * 0.3;
+    const leftPillar = new BoxGeometry(pillarWidth, height * 0.8, pillarDepth);
+    const leftPillarMesh = new Mesh(leftPillar, this.rockMaterial);
+    leftPillarMesh.position.set(-width / 2 + pillarWidth / 2, height * 0.4, 0);
+    archGroup.add(leftPillarMesh);
+    const rightPillar = new BoxGeometry(pillarWidth, height * 0.8, pillarDepth);
+    const rightPillarMesh = new Mesh(rightPillar, this.rockMaterial);
+    rightPillarMesh.position.set(width / 2 - pillarWidth / 2, height * 0.4, 0);
+    archGroup.add(rightPillarMesh);
+    const archCurve = new Shape;
+    const segments = 10;
+    const archWidth = width - pillarWidth;
+    for (let i = 0;i <= segments; i++) {
+      const angle = Math.PI - i / segments * Math.PI;
+      const x2 = Math.cos(angle) * (archWidth / 2);
+      const y = Math.sin(angle) * (height * 0.2) + height * 0.8;
+      if (i === 0) {
+        archCurve.moveTo(x2, y);
+      } else {
+        archCurve.lineTo(x2, y);
+      }
+    }
+    archCurve.lineTo(archWidth / 2, height * 0.8);
+    archCurve.lineTo(-archWidth / 2, height * 0.8);
+    const extrudeSettings = {
+      steps: 1,
+      depth: pillarDepth,
+      bevelEnabled: true,
+      bevelThickness: 0.2,
+      bevelSize: 0.1,
+      bevelSegments: 2
+    };
+    const archGeometry = new ExtrudeGeometry(archCurve, extrudeSettings);
+    const archMesh = new Mesh(archGeometry, this.darkRockMaterial);
+    archMesh.position.z = -pillarDepth / 2;
+    archGroup.add(archMesh);
+    for (let i = 0;i < 5; i++) {
+      const decorationPosition = new Vector3((Math.sin(seed + i) - 0.5) * width, height * 1.1 + Math.sin(seed + i * 2) * height * 0.2, (Math.cos(seed + i) - 0.5) * depth);
+      const rock = this.createRock(0.4 + Math.sin(seed + i * 3) * 0.2, seed + i * 10, decorationPosition.x, decorationPosition.y, decorationPosition.z, new Vector3(Math.sin(seed + i * 4) * Math.PI, Math.sin(seed + i * 5) * Math.PI, Math.sin(seed + i * 6) * Math.PI), new Vector3(1, 1, 1), i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial);
+      archGroup.add(rock);
+    }
+    archGroup.position.set(x, 0, z);
+    archGroup.rotation.y = rotation;
+    this.scene.add(archGroup);
+    const leftColliderPos = new Vector3(x - Math.cos(rotation) * (width / 2 - pillarWidth / 2), height * 0.4, z - Math.sin(rotation) * (width / 2 - pillarWidth / 2));
+    const rightColliderPos = new Vector3(x + Math.cos(rotation) * (width / 2 - pillarWidth / 2), height * 0.4, z + Math.sin(rotation) * (width / 2 - pillarWidth / 2));
+    this.rockColliders.push(new StaticCollider(leftColliderPos, "rock", pillarWidth));
+    this.rockColliders.push(new StaticCollider(rightColliderPos, "rock", pillarWidth));
+    const archTopCollider = new StaticCollider(new Vector3(x, height * 0.9, z), "rock", width * 0.4);
+    this.rockColliders.push(archTopCollider);
+  }
+  createBalancedRocks(x, z, height, seed) {
+    const balancedRockGroup = new Group;
+    const baseRock = this.createRock(3, seed, 0, 1.5, 0, new Vector3(0, 0, 0), new Vector3(2, 1, 2), this.darkRockMaterial);
+    balancedRockGroup.add(baseRock);
+    const middleRock = this.createRock(2, seed + 10, Math.sin(seed) * 0.5, 3, Math.cos(seed) * 0.5, new Vector3(Math.sin(seed + 5) * 0.3, Math.sin(seed + 6) * 0.3, Math.sin(seed + 7) * 0.3), new Vector3(1.5, 1.2, 1.5), this.rockMaterial);
+    balancedRockGroup.add(middleRock);
+    const topRock = this.createRock(1.5, seed + 20, Math.sin(seed + 10) * 0.8, 5, Math.cos(seed + 10) * 0.8, new Vector3(Math.sin(seed + 15) * 0.5, Math.sin(seed + 16) * 0.5, Math.sin(seed + 17) * 0.5), new Vector3(1.2, 1, 1.2), this.darkRockMaterial);
+    balancedRockGroup.add(topRock);
+    if (Math.sin(seed + 30) > 0) {
+      const tinyRock = this.createRock(0.7, seed + 30, Math.sin(seed + 20) * 0.3, 6, Math.cos(seed + 20) * 0.3, new Vector3(Math.sin(seed + 25) * 1, Math.sin(seed + 26) * 1, Math.sin(seed + 27) * 1), new Vector3(0.8, 0.8, 0.8), this.rockMaterial);
+      balancedRockGroup.add(tinyRock);
+    }
+    balancedRockGroup.position.set(x, 0, z);
+    this.scene.add(balancedRockGroup);
+    const colliderPosition = new Vector3(x, height / 2, z);
+    const rockCollider = new StaticCollider(colliderPosition, "rock", 3);
+    this.rockColliders.push(rockCollider);
+  }
+  createRockWall(startX, startZ, endX, endZ, height, seed) {
+    const direction = new Vector2(endX - startX, endZ - startZ).normalize();
+    const length = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endZ - startZ, 2));
+    const rockCount = Math.ceil(length / 5);
+    for (let i = 0;i < rockCount; i++) {
+      const t = i / (rockCount - 1);
+      const x = startX + (endX - startX) * t;
+      const z = startZ + (endZ - startZ) * t;
+      const perpX = -direction.y;
+      const perpZ = direction.x;
+      const offset = (Math.sin(seed + i * 5) - 0.5) * 2;
+      const xPos = x + perpX * offset;
+      const zPos = z + perpZ * offset;
+      const yPos = Math.sin(seed + i * 3) * height * 0.4;
+      const size = 1 + Math.sin(seed + i * 7) * 0.5;
+      this.createRock(size, seed + i * 10, 0, yPos, 0, new Vector3(Math.sin(seed + i * 11) * Math.PI, Math.sin(seed + i * 13) * Math.PI, Math.sin(seed + i * 17) * Math.PI), new Vector3(1, height / size, 1), i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial, new Vector3(xPos, height / 2, zPos));
+    }
+    const segments = 4;
+    for (let i = 0;i < segments; i++) {
+      const t = i / segments;
+      const x = startX + (endX - startX) * t;
+      const z = startZ + (endZ - startZ) * t;
+      const colliderPosition = new Vector3(x, height / 2, z);
+      const segmentLength = length / segments;
+      const rockCollider = new StaticCollider(colliderPosition, "rock", segmentLength / 2);
+      this.rockColliders.push(rockCollider);
+    }
+  }
+  createGiantMountain(x, z, seed) {
+    const mountainGroup = new Group;
+    const mountainHeight = 160 + Math.sin(seed) * 40;
+    const mountainWidth = 100 + Math.sin(seed * 1.3) * 30;
+    const mountainDepth = 100 + Math.cos(seed * 0.7) * 30;
+    const baseGeometry = new ConeGeometry(mountainWidth / 2, mountainHeight * 0.7, 8);
+    const baseMesh = new Mesh(baseGeometry, this.darkRockMaterial);
+    baseMesh.position.y = mountainHeight * 0.35;
+    baseMesh.castShadow = true;
+    baseMesh.receiveShadow = true;
+    const middleGeometry = new ConeGeometry(mountainWidth * 0.6 / 2, mountainHeight * 0.5, 7);
+    const middleMesh = new Mesh(middleGeometry, this.rockMaterial);
+    middleMesh.position.y = mountainHeight * 0.65;
+    middleMesh.castShadow = true;
+    middleMesh.receiveShadow = true;
+    const upperGeometry = new ConeGeometry(mountainWidth * 0.4 / 2, mountainHeight * 0.3, 6);
+    const upperMesh = new Mesh(upperGeometry, this.darkRockMaterial);
+    upperMesh.position.y = mountainHeight * 0.9;
+    upperMesh.castShadow = true;
+    upperMesh.receiveShadow = true;
+    const peakGeometry = new ConeGeometry(mountainWidth * 0.2 / 2, mountainHeight * 0.15, 5);
+    const peakMesh = new Mesh(peakGeometry, this.rockMaterial);
+    peakMesh.position.y = mountainHeight * 1.05;
+    peakMesh.castShadow = true;
+    peakMesh.receiveShadow = true;
+    mountainGroup.add(baseMesh);
+    mountainGroup.add(middleMesh);
+    mountainGroup.add(upperMesh);
+    mountainGroup.add(peakMesh);
+    [baseMesh, middleMesh, upperMesh, peakMesh].forEach((mesh, i) => {
+      const positions = mesh.geometry.attributes.position;
+      for (let j = 0;j < positions.count; j++) {
+        const vx = positions.getX(j);
+        const vy = positions.getY(j);
+        const vz = positions.getZ(j);
+        const deformSeed = seed + i * 100;
+        const xFactor = 0.9 + Math.sin(vx * deformSeed * 0.01) * 0.4;
+        const zFactor = 0.9 + Math.cos(vz * deformSeed * 0.01) * 0.4;
+        positions.setX(j, vx * xFactor);
+        positions.setZ(j, vz * zFactor);
+        if (i < 3) {
+          const yFactor = 1 + Math.cos(vx * vz * deformSeed * 0.001) * 0.1;
+          positions.setY(j, vy * yFactor);
+        }
+      }
+      mesh.geometry.attributes.position.needsUpdate = true;
+    });
+    const baseRadius = mountainWidth / 2 * 1.2;
+    const clusterCount = 12;
+    for (let i = 0;i < clusterCount; i++) {
+      const angle = i / clusterCount * Math.PI * 2;
+      const distance = baseRadius * (0.9 + Math.sin(seed + i * 7) * 0.3);
+      const clusterX = Math.cos(angle) * distance;
+      const clusterZ = Math.sin(angle) * distance;
+      const rockCluster = new Group;
+      const rockCount = 3 + Math.floor(Math.abs(Math.sin(seed + i * 13)) * 3);
+      for (let j = 0;j < rockCount; j++) {
+        const offsetAngle = Math.PI * 2 * Math.sin(seed + i * j);
+        const offsetDist = 2 + Math.sin(seed + i * j * 3) * 1.5;
+        const rockX = clusterX + Math.cos(offsetAngle) * offsetDist;
+        const rockZ = clusterZ + Math.sin(offsetAngle) * offsetDist;
+        const rockY = Math.abs(Math.sin(seed + i * j * 5)) * 2;
+        const rockSize = 1 + Math.abs(Math.sin(seed + i * j * 11)) * 2;
+        const rock = this.createRock(rockSize, seed + i * 100 + j, rockX, rockY, rockZ, new Vector3(Math.sin(seed + i * j * 17) * Math.PI, Math.sin(seed + i * j * 19) * Math.PI * 2, Math.sin(seed + i * j * 23) * Math.PI), new Vector3(1 + Math.sin(seed + i * j * 29) * 0.4, 0.7 + Math.abs(Math.sin(seed + i * j * 31)) * 0.6, 1 + Math.sin(seed + i * j * 37) * 0.4), j % 2 === 0 ? this.rockMaterial : this.darkRockMaterial);
+        mountainGroup.add(rock);
+      }
+    }
+    mountainGroup.position.set(x, 0, z);
+    this.scene.add(mountainGroup);
+    const mountainCollider = new StaticCollider(new Vector3(x, mountainHeight * 0.5, z), "rock", mountainWidth * 0.6);
+    this.rockColliders.push(mountainCollider);
+    for (let i = 0;i < 8; i++) {
+      const angle = i / 8 * Math.PI * 2;
+      const distance = mountainWidth * 0.4;
+      const colliderX = x + Math.cos(angle) * distance;
+      const colliderZ = z + Math.sin(angle) * distance;
+      const collider = new StaticCollider(new Vector3(colliderX, mountainHeight * 0.3, colliderZ), "rock", mountainWidth * 0.25);
+      this.rockColliders.push(collider);
+    }
+  }
+  createMountainRange(x, z, height, seed) {
+    const rangeLength = 300;
+    const rangeWidth = 100;
+    const segmentCount = 5;
+    const isHorizontal = Math.abs(x) > Math.abs(z);
+    for (let i = 0;i < segmentCount; i++) {
+      const t = i / (segmentCount - 1) * 2 - 1;
+      const peakX = isHorizontal ? x + t * rangeLength / 2 : x;
+      const peakZ = isHorizontal ? z : z + t * rangeLength / 2;
+      const peakHeight = height * (0.7 + Math.sin(seed + i * 5) * 0.3);
+      this.createMountainPeak(peakX, peakZ, peakHeight, rangeWidth * (0.5 + Math.sin(seed + i * 7) * 0.3), seed + i * 1000);
+      if (i < segmentCount - 1) {
+        const midT = t + 1 / (segmentCount - 1);
+        const midX = isHorizontal ? x + midT * rangeLength / 2 : x;
+        const midZ = isHorizontal ? z : z + midT * rangeLength / 2;
+        this.createMountainPeak(midX, midZ, peakHeight * 0.7, rangeWidth * 0.6, seed + i * 1000 + 500);
+      }
+    }
+    const ridgeSegments = 20;
+    for (let i = 0;i < ridgeSegments; i++) {
+      const t = i / (ridgeSegments - 1) * 2 - 1;
+      const baseX = isHorizontal ? x + t * rangeLength / 2 : x;
+      const baseZ = isHorizontal ? z : z + t * rangeLength / 2;
+      const perpOffset = Math.sin(seed + i * 13) * rangeWidth * 0.3;
+      const finalX = isHorizontal ? baseX : baseX + perpOffset;
+      const finalZ = isHorizontal ? baseZ + perpOffset : baseZ;
+      const hillHeight = height * 0.15 * (1 + Math.sin(t * Math.PI * 3 + seed));
+      this.createRockCluster(finalX, finalZ, seed + i * 100);
+      if (i % 3 === 0) {
+        this.createRockCluster(finalX + (isHorizontal ? 0 : rangeWidth * 0.2 * Math.sin(seed + i)), finalZ + (isHorizontal ? rangeWidth * 0.2 * Math.sin(seed + i) : 0), seed + i * 200);
+      }
+    }
+  }
+  createMountainPeak(x, z, height, width, seed) {
+    const peakGroup = new Group;
+    const coneGeometry = new ConeGeometry(width / 2, height, 8);
+    const coneMesh = new Mesh(coneGeometry, this.darkRockMaterial);
+    coneMesh.position.y = height / 2;
+    coneMesh.castShadow = true;
+    coneMesh.receiveShadow = true;
+    const positions = coneMesh.geometry.attributes.position;
+    for (let i = 0;i < positions.count; i++) {
+      const vx = positions.getX(i);
+      const vy = positions.getY(i);
+      const vz = positions.getZ(i);
+      const xFactor = 0.9 + Math.sin(vx * seed * 0.01 + vz * 0.1) * 0.3;
+      const zFactor = 0.9 + Math.cos(vz * seed * 0.01 + vx * 0.1) * 0.3;
+      positions.setX(i, vx * xFactor);
+      positions.setZ(i, vz * zFactor);
+      if (vy > 0) {
+        const yFactor = 1 + Math.sin(vx * vz * 0.1 + seed) * 0.1;
+        positions.setY(i, vy * yFactor);
+      }
+    }
+    coneMesh.geometry.attributes.position.needsUpdate = true;
+    peakGroup.add(coneMesh);
+    if (height > 30) {
+      const upperGeometry = new ConeGeometry(width * 0.3 / 2, height * 0.3, 6);
+      const upperMesh = new Mesh(upperGeometry, this.rockMaterial);
+      upperMesh.position.y = height * 0.85;
+      upperMesh.castShadow = true;
+      upperMesh.receiveShadow = true;
+      const upperPositions = upperMesh.geometry.attributes.position;
+      for (let i = 0;i < upperPositions.count; i++) {
+        const vx = upperPositions.getX(i);
+        const vz = upperPositions.getZ(i);
+        const xFactor = 0.9 + Math.sin(vx * (seed + 100) * 0.02) * 0.3;
+        const zFactor = 0.9 + Math.cos(vz * (seed + 200) * 0.02) * 0.3;
+        upperPositions.setX(i, vx * xFactor);
+        upperPositions.setZ(i, vz * zFactor);
+      }
+      upperMesh.geometry.attributes.position.needsUpdate = true;
+      peakGroup.add(upperMesh);
+    }
+    const rockCount = 6 + Math.floor(Math.abs(Math.sin(seed) * 6));
+    for (let i = 0;i < rockCount; i++) {
+      const angle = i / rockCount * Math.PI * 2;
+      const distance = width * 0.6 * (0.8 + Math.sin(seed + i * 5) * 0.3);
+      const rockX = Math.cos(angle) * distance;
+      const rockZ = Math.sin(angle) * distance;
+      const rockY = Math.abs(Math.sin(seed + i * 7)) * 4;
+      const rockSize = 1 + Math.abs(Math.sin(seed + i * 11)) * 3;
+      const rock = this.createRock(rockSize, seed + i * 100, rockX, rockY, rockZ, new Vector3(Math.sin(seed + i * 17) * Math.PI, Math.sin(seed + i * 19) * Math.PI * 2, Math.sin(seed + i * 23) * Math.PI), new Vector3(1 + Math.sin(seed + i * 29) * 0.4, 0.7 + Math.abs(Math.sin(seed + i * 31)) * 0.4, 1 + Math.sin(seed + i * 37) * 0.4), i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial);
+      peakGroup.add(rock);
+    }
+    peakGroup.position.set(x, 0, z);
+    this.scene.add(peakGroup);
+    const peakCollider = new StaticCollider(new Vector3(x, height * 0.5, z), "rock", width * 0.5);
+    this.rockColliders.push(peakCollider);
+  }
+  createVolcanicCrater(x, z, seed) {
+    const outerRadius = 80 + Math.sin(seed) * 20;
+    const innerRadius = outerRadius * 0.6;
+    const height = 120 + Math.sin(seed * 1.3) * 30;
+    const craterDepth = height * 0.3;
+    const craterGroup = new Group;
+    const craterGeometry = new TorusGeometry(innerRadius, (outerRadius - innerRadius) / 2, 16, 24);
+    craterGeometry.rotateX(Math.PI / 2);
+    const craterMesh = new Mesh(craterGeometry, this.darkRockMaterial);
+    craterMesh.position.y = height * 0.7;
+    craterMesh.castShadow = true;
+    craterMesh.receiveShadow = true;
+    const baseGeometry = new ConeGeometry(outerRadius, height * 0.9, 20);
+    const basePositions = baseGeometry.attributes.position;
+    for (let i = 0;i < basePositions.count; i++) {
+      const vx = basePositions.getX(i);
+      const vy = basePositions.getY(i);
+      const vz = basePositions.getZ(i);
+      const distFromCenter = Math.sqrt(vx * vx + vz * vz);
+      if (distFromCenter < innerRadius * 0.8 && vy > height * 0.7) {
+        const newY = height * 0.7 - (height * 0.7 - vy) * (craterDepth / height);
+        basePositions.setY(i, newY);
+      }
+      const deformFactor = 0.9 + Math.sin(vx * seed * 0.01 + vz * 0.1) * 0.3;
+      basePositions.setX(i, vx * deformFactor);
+      basePositions.setZ(i, vz * deformFactor);
+    }
+    baseGeometry.attributes.position.needsUpdate = true;
+    const baseMesh = new Mesh(baseGeometry, this.rockMaterial);
+    baseMesh.position.y = height * 0.45;
+    baseMesh.castShadow = true;
+    baseMesh.receiveShadow = true;
+    craterGroup.add(baseMesh);
+    craterGroup.add(craterMesh);
+    const rimRockCount = 16;
+    for (let i = 0;i < rimRockCount; i++) {
+      const angle = i / rimRockCount * Math.PI * 2;
+      const rimX = Math.cos(angle) * innerRadius;
+      const rimZ = Math.sin(angle) * innerRadius;
+      const rimHeight = height * 0.75 + Math.sin(seed + i * 5) * height * 0.1;
+      const rock = this.createRock(4 + Math.abs(Math.sin(seed + i * 11)) * 3, seed + i * 100, rimX, rimHeight - height * 0.45, rimZ, new Vector3(Math.sin(seed + i * 17) * Math.PI, Math.sin(seed + i * 19) * Math.PI * 0.5, Math.sin(seed + i * 23) * Math.PI), new Vector3(1.2 + Math.sin(seed + i * 29) * 0.3, 1.5 + Math.abs(Math.sin(seed + i * 31)) * 0.5, 1.2 + Math.sin(seed + i * 37) * 0.3), i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial);
+      craterGroup.add(rock);
+    }
+    const innerRockCount = 8;
+    for (let i = 0;i < innerRockCount; i++) {
+      const angle = i / innerRockCount * Math.PI * 2;
+      const dist = innerRadius * (0.3 + Math.abs(Math.sin(seed + i * 7)) * 0.3);
+      const innerX = Math.cos(angle) * dist;
+      const innerZ = Math.sin(angle) * dist;
+      const innerY = height * 0.7 - craterDepth + Math.abs(Math.sin(seed + i * 13)) * 5;
+      const rock = this.createRock(2 + Math.abs(Math.sin(seed + i * 19)) * 2, seed + i * 200, innerX, innerY - height * 0.45, innerZ, new Vector3(Math.sin(seed + i * 29) * Math.PI, Math.sin(seed + i * 31) * Math.PI * 2, Math.sin(seed + i * 37) * Math.PI), new Vector3(0.7 + Math.sin(seed + i * 41) * 0.3, 1.8 + Math.abs(Math.sin(seed + i * 43)) * 0.7, 0.7 + Math.sin(seed + i * 47) * 0.3), this.darkRockMaterial);
+      craterGroup.add(rock);
+    }
+    craterGroup.position.set(x, 0, z);
+    this.scene.add(craterGroup);
+    const mainCollider = new StaticCollider(new Vector3(x, height * 0.4, z), "rock", outerRadius * 0.8);
+    this.rockColliders.push(mainCollider);
+    for (let i = 0;i < 8; i++) {
+      const angle = i / 8 * Math.PI * 2;
+      const colliderX = x + Math.cos(angle) * innerRadius;
+      const colliderZ = z + Math.sin(angle) * innerRadius;
+      const rimCollider = new StaticCollider(new Vector3(colliderX, height * 0.7, colliderZ), "rock", 10);
+      this.rockColliders.push(rimCollider);
+    }
+  }
+  createFloatingRocks(x, z, seed) {
+    const floatingRockGroup = new Group;
+    const radius = 10;
+    const rockCount = 10 + Math.floor(Math.abs(Math.sin(seed) * 5));
+    for (let i = 0;i < rockCount; i++) {
+      const angle = i / rockCount * Math.PI * 2;
+      const distance = radius * (0.5 + Math.abs(Math.sin(seed + i * 3)) * 0.5);
+      const xPos = Math.cos(angle) * distance;
+      const yPos = 4 + Math.sin(seed + i * 7) * 3;
+      const zPos = Math.sin(angle) * distance;
+      const size = 0.7 + Math.abs(Math.sin(seed + i * 11)) * 1.3;
+      const rock = this.createRock(size, seed + i * 13, xPos, yPos, zPos, new Vector3(Math.sin(seed + i * 17) * Math.PI, Math.sin(seed + i * 19) * Math.PI, Math.sin(seed + i * 23) * Math.PI), new Vector3(1 + Math.sin(seed + i * 29) * 0.3, 1 + Math.sin(seed + i * 31) * 0.3, 1 + Math.sin(seed + i * 37) * 0.3), i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial);
+      floatingRockGroup.add(rock);
+      const colliderPosition = new Vector3(x + xPos, yPos, z + zPos);
+      const rockCollider = new StaticCollider(colliderPosition, "rock", size * 1.2);
+      this.rockColliders.push(rockCollider);
+    }
+    floatingRockGroup.position.set(x, 0, z);
+    this.scene.add(floatingRockGroup);
+  }
   createRocks() {
     for (let i = 0;i < 8; i++) {
       const angle = i / 8 * Math.PI * 2;
@@ -26564,6 +28844,16 @@ class MapGenerator {
     for (let i = -10;i <= 10; i++) {
       this.createRockCluster(500 - i * 50, -500 + i * 50, i * 5 + 1000);
     }
+    this.createGiantMountain(300, 300, 1234);
+    this.createGiantMountain(-300, 300, 5678);
+    this.createGiantMountain(300, -300, 9012);
+    this.createGiantMountain(-300, -300, 3456);
+    this.createMountainRange(0, 250, 200, 6789);
+    this.createMountainRange(250, 0, 180, 7890);
+    this.createMountainRange(0, -250, 220, 8901);
+    this.createMountainRange(-250, 0, 190, 9012);
+    this.createVolcanicCrater(400, 400, 8765);
+    this.createVolcanicCrater(-400, -400, 4321);
   }
   createSkyscraper(x, z, height, width, depth, materialIndex) {
     let buildingMaterialIndex = materialIndex;
@@ -26629,66 +28919,77 @@ class MapGenerator {
     roadMesh.position.set(midX, 0.1, midZ);
     this.scene.add(roadMesh);
   }
-  createCityCenter() {
-    const cityRadius = 160;
-    const blockSize = 40;
-    const roadWidth = 15;
-    const buildingTypes = [
-      { height: 200, width: 20, depth: 20, materialIndex: 0 },
-      { height: 180, width: 25, depth: 25, materialIndex: 1 },
-      { height: 160, width: 20, depth: 20, materialIndex: 2 },
-      { height: 140, width: 18, depth: 18, materialIndex: 3 },
-      { height: 120, width: 22, depth: 22, materialIndex: 4 },
-      { height: 100, width: 25, depth: 15, materialIndex: 0 },
-      { height: 90, width: 15, depth: 25, materialIndex: 1 },
-      { height: 80, width: 20, depth: 20, materialIndex: 2 },
-      { height: 70, width: 22, depth: 15, materialIndex: 3 },
-      { height: 60, width: 15, depth: 22, materialIndex: 4 },
-      { height: 55, width: 20, depth: 20, materialIndex: 0 },
-      { height: 50, width: 25, depth: 15, materialIndex: 1 },
-      { height: 45, width: 15, depth: 25, materialIndex: 2 },
-      { height: 40, width: 20, depth: 22, materialIndex: 3 },
-      { height: 35, width: 22, depth: 20, materialIndex: 4 },
-      { height: 30, width: 18, depth: 18, materialIndex: 0 }
-    ];
-    for (let x = -cityRadius;x <= cityRadius; x += blockSize) {
-      this.createRoad(x, -cityRadius, x, cityRadius, roadWidth);
-    }
-    for (let z = -cityRadius;z <= cityRadius; z += blockSize) {
-      this.createRoad(-cityRadius, z, cityRadius, z, roadWidth);
-    }
-    const plazaRadius = 20;
-    const plazaGeometry = new CircleGeometry(plazaRadius, 32);
-    const plazaMaterial = new MeshStandardMaterial({
-      color: 13421772,
-      roughness: 0.9,
-      metalness: 0.1
+  createRockFormation() {
+    const formationRadius = 160;
+    const centerRockGroup = new Group;
+    const peakHeight = 180;
+    const peakWidth = 100;
+    const peakDepth = 100;
+    const baseGeometry = new ConeGeometry(peakWidth / 2, peakHeight * 0.8, 8);
+    const base = new Mesh(baseGeometry, this.darkRockMaterial);
+    base.position.y = peakHeight * 0.4;
+    base.castShadow = true;
+    base.receiveShadow = true;
+    centerRockGroup.add(base);
+    const middleGeometry = new ConeGeometry(peakWidth / 3, peakHeight * 0.5, 7);
+    const middle = new Mesh(middleGeometry, this.rockMaterial);
+    middle.position.y = peakHeight * 0.7;
+    middle.castShadow = true;
+    middle.receiveShadow = true;
+    centerRockGroup.add(middle);
+    const topGeometry = new ConeGeometry(peakWidth / 6, peakHeight * 0.3, 6);
+    const top = new Mesh(topGeometry, this.darkRockMaterial);
+    top.position.y = peakHeight * 0.95;
+    top.castShadow = true;
+    top.receiveShadow = true;
+    centerRockGroup.add(top);
+    [base, middle, top].forEach((mesh, i) => {
+      const positions = mesh.geometry.attributes.position;
+      for (let j = 0;j < positions.count; j++) {
+        const vx = positions.getX(j);
+        const vy = positions.getY(j);
+        const vz = positions.getZ(j);
+        const deformSeed = i * 10 + 5;
+        const xFactor = 0.9 + Math.sin(vx * deformSeed * 0.1) * 0.3;
+        const zFactor = 0.9 + Math.cos(vz * deformSeed * 0.1) * 0.3;
+        positions.setX(j, vx * xFactor);
+        positions.setZ(j, vz * zFactor);
+      }
+      mesh.geometry.attributes.position.needsUpdate = true;
     });
-    const plaza = new Mesh(plazaGeometry, plazaMaterial);
-    plaza.rotation.x = -Math.PI / 2;
-    plaza.position.set(0, 0.2, 0);
-    this.scene.add(plaza);
-    const gridSize = 3;
-    const gridOffset = -blockSize * (gridSize - 1) / 2;
-    let buildingIndex = 0;
-    for (let gridX = 0;gridX < gridSize; gridX++) {
-      for (let gridZ = 0;gridZ < gridSize; gridZ++) {
-        const blockCenterX = gridOffset + gridX * blockSize;
-        const blockCenterZ = gridOffset + gridZ * blockSize;
-        if (gridX === 1 && gridZ === 1)
-          continue;
-        const buildingType = buildingTypes[buildingIndex % buildingTypes.length];
-        buildingIndex++;
-        const safeMargin = 3;
-        const maxBuildingSize = blockSize - roadWidth - safeMargin * 2;
-        const buildingWidth = Math.min(buildingType.width, maxBuildingSize);
-        const buildingDepth = Math.min(buildingType.depth, maxBuildingSize);
-        this.createSkyscraper(blockCenterX, blockCenterZ, buildingType.height, buildingWidth, buildingDepth, buildingType.materialIndex);
+    centerRockGroup.position.set(0, 0, 0);
+    this.scene.add(centerRockGroup);
+    const peakCollider = new StaticCollider(new Vector3(0, peakHeight * 0.5, 0), "rock", peakWidth * 0.6);
+    this.rockColliders.push(peakCollider);
+    const clusters = 16;
+    for (let i = 0;i < clusters; i++) {
+      const angle = i / clusters * Math.PI * 2;
+      const distance = formationRadius * 0.5 * (0.8 + 0.4 * Math.sin(i * 3.7));
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      this.createRockCluster(x, z, i * 100);
+      if (i % 2 === 0) {
+        const innerDistance = distance * 0.6;
+        const innerX = Math.cos(angle) * innerDistance;
+        const innerZ = Math.sin(angle) * innerDistance;
+        this.createRockCluster(innerX, innerZ, i * 100 + 50);
+      }
+      if (i % 3 === 0) {
+        const outerDistance = distance * 1.4;
+        const outerX = Math.cos(angle) * outerDistance;
+        const outerZ = Math.sin(angle) * outerDistance;
+        this.createRockCluster(outerX, outerZ, i * 100 + 25);
       }
     }
-    const centralBuilding = buildingTypes[0];
-    const centerBuildingSize = Math.min(plazaRadius - 5, 15);
-    this.createSkyscraper(0, 0, centralBuilding.height, centerBuildingSize, centerBuildingSize, centralBuilding.materialIndex);
+    const pathWidth = 15;
+    for (let z = -formationRadius;z <= formationRadius; z += 20) {
+      this.createRock(0.8, z * 0.1, -pathWidth / 2, 0.4, z, new Vector3(0, z * 0.1, 0), new Vector3(0.8, 0.6, 0.8), this.rockMaterial);
+      this.createRock(0.8, z * 0.1 + 10, pathWidth / 2, 0.4, z, new Vector3(0, z * 0.1 + 1, 0), new Vector3(0.8, 0.6, 0.8), this.darkRockMaterial);
+    }
+    for (let x = -formationRadius;x <= formationRadius; x += 20) {
+      this.createRock(0.8, x * 0.1, x, 0.4, -pathWidth / 2, new Vector3(0, x * 0.1, 0), new Vector3(0.8, 0.6, 0.8), this.rockMaterial);
+      this.createRock(0.8, x * 0.1 + 10, x, 0.4, pathWidth / 2, new Vector3(0, x * 0.1 + 1, 0), new Vector3(0.8, 0.6, 0.8), this.darkRockMaterial);
+    }
   }
   getAllColliders() {
     return [...this.treeColliders, ...this.rockColliders, ...this.buildingColliders];
@@ -29894,7 +32195,7 @@ class GameComponent extends LitElement {
     this.mapGenerator = new MapGenerator(this.scene);
     this.createTrees();
     this.createRocks();
-    this.createCityCenter();
+    this.createRockFormation();
     const spawnPoint = this.findRandomSpawnPoint();
     this.playerTank = new Tank(this.scene, this.camera);
     this.playerTank.respawn(spawnPoint);
@@ -29921,12 +32222,12 @@ class GameComponent extends LitElement {
       this.collisionSystem.addCollider(collider);
     }
   }
-  createCityCenter() {
+  createRockFormation() {
     if (!this.scene || !this.mapGenerator)
       return;
-    this.mapGenerator.createCityCenter();
-    const buildingColliders = this.mapGenerator.getBuildingColliders();
-    for (const collider of buildingColliders) {
+    this.mapGenerator.createRockFormation();
+    const rockColliders = this.mapGenerator.getRockColliders();
+    for (const collider of rockColliders) {
       this.collisionSystem.addCollider(collider);
     }
   }

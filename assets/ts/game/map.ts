@@ -437,6 +437,874 @@ export class MapGenerator {
     }
   }
   
+  // Method to create a tall spire of rocks
+  createRockSpire(x: number, z: number, height: number, seed: number) {
+    const spireGroup = new THREE.Group();
+    
+    // Create a series of stacked rocks with decreasing size
+    const segments = 8;
+    const baseSize = 2.0;
+    
+    for (let i = 0; i < segments; i++) {
+      // Each segment gets smaller as we go up
+      const segmentSize = baseSize * (1 - i / segments * 0.7);
+      const segmentHeight = height / segments;
+      const y = i * segmentHeight;
+      
+      // Add some offset for natural look, but keep it deterministic
+      const xOffset = Math.cos(seed + i * 0.5) * segmentSize * 0.3;
+      const zOffset = Math.sin(seed + i * 1.2) * segmentSize * 0.3;
+      
+      // Alternate materials for visual interest
+      const material = i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial;
+      
+      // Create the rock with deterministic variation
+      const rock = this.createRock(
+        segmentSize, 
+        seed + i,
+        xOffset, y, zOffset,
+        new THREE.Vector3(
+          Math.sin(i * 0.3 + seed) * Math.PI,
+          Math.sin(i * 0.7 + seed) * Math.PI * 2,
+          Math.sin(i * 0.5 + seed) * Math.PI
+        ),
+        new THREE.Vector3(1.0, 0.8, 1.0),
+        material
+      );
+      
+      spireGroup.add(rock);
+    }
+    
+    // Add a distinctive top piece
+    const topRock = this.createRock(
+      baseSize * 0.3,
+      seed + 100,
+      0, height, 0,
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(2.0, 1.5, 2.0),
+      this.rockMaterial
+    );
+    
+    spireGroup.add(topRock);
+    
+    // Position the spire and add to scene
+    spireGroup.position.set(x, 0, z);
+    this.scene.add(spireGroup);
+    
+    // Add a collider for the entire spire
+    const colliderPosition = new THREE.Vector3(x, height/2, z);
+    const rockCollider = new StaticCollider(
+      colliderPosition,
+      'rock',
+      baseSize * 2.5 // Large enough to cover the whole spire
+    );
+    this.rockColliders.push(rockCollider);
+  }
+  
+  // Method to create a rock arch
+  createRockArch(x: number, z: number, width: number, height: number, depth: number, rotation: number, seed: number) {
+    const archGroup = new THREE.Group();
+    
+    // Create pillars
+    const pillarWidth = width * 0.15;
+    const pillarDepth = depth * 0.3;
+    
+    // Left pillar
+    const leftPillar = new THREE.BoxGeometry(pillarWidth, height * 0.8, pillarDepth);
+    const leftPillarMesh = new THREE.Mesh(leftPillar, this.rockMaterial);
+    leftPillarMesh.position.set(-width/2 + pillarWidth/2, height * 0.4, 0);
+    archGroup.add(leftPillarMesh);
+    
+    // Right pillar
+    const rightPillar = new THREE.BoxGeometry(pillarWidth, height * 0.8, pillarDepth);
+    const rightPillarMesh = new THREE.Mesh(rightPillar, this.rockMaterial);
+    rightPillarMesh.position.set(width/2 - pillarWidth/2, height * 0.4, 0);
+    archGroup.add(rightPillarMesh);
+    
+    // Create arch top as a curved shape
+    const archCurve = new THREE.Shape();
+    
+    // Define the curve with 10 segments to form a nice arch
+    const segments = 10;
+    const archWidth = width - pillarWidth;
+    
+    // Create points along a half-circle for the arch
+    for (let i = 0; i <= segments; i++) {
+      const angle = Math.PI - (i / segments) * Math.PI;
+      const x = Math.cos(angle) * (archWidth/2);
+      const y = Math.sin(angle) * (height * 0.2) + height * 0.8;
+      
+      if (i === 0) {
+        archCurve.moveTo(x, y);
+      } else {
+        archCurve.lineTo(x, y);
+      }
+    }
+    
+    // Complete the shape by adding bottom points
+    archCurve.lineTo(archWidth/2, height * 0.8);
+    archCurve.lineTo(-archWidth/2, height * 0.8);
+    
+    // Extrude the shape to create the 3D arch
+    const extrudeSettings = {
+      steps: 1,
+      depth: pillarDepth,
+      bevelEnabled: true,
+      bevelThickness: 0.2,
+      bevelSize: 0.1,
+      bevelSegments: 2
+    };
+    
+    const archGeometry = new THREE.ExtrudeGeometry(archCurve, extrudeSettings);
+    const archMesh = new THREE.Mesh(archGeometry, this.darkRockMaterial);
+    
+    // Center the arch
+    archMesh.position.z = -pillarDepth/2;
+    archGroup.add(archMesh);
+    
+    // Add some rock decorations
+    for (let i = 0; i < 5; i++) {
+      const decorationPosition = new THREE.Vector3(
+        (Math.sin(seed + i) - 0.5) * width,
+        height * 1.1 + Math.sin(seed + i * 2) * height * 0.2,
+        (Math.cos(seed + i) - 0.5) * depth
+      );
+      
+      const rock = this.createRock(
+        0.4 + Math.sin(seed + i * 3) * 0.2,
+        seed + i * 10,
+        decorationPosition.x, decorationPosition.y, decorationPosition.z,
+        new THREE.Vector3(
+          Math.sin(seed + i * 4) * Math.PI,
+          Math.sin(seed + i * 5) * Math.PI,
+          Math.sin(seed + i * 6) * Math.PI
+        ),
+        new THREE.Vector3(1, 1, 1),
+        i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial
+      );
+      
+      archGroup.add(rock);
+    }
+    
+    // Position and rotate the arch
+    archGroup.position.set(x, 0, z);
+    archGroup.rotation.y = rotation;
+    this.scene.add(archGroup);
+    
+    // Add colliders for the pillars
+    const leftColliderPos = new THREE.Vector3(
+      x - Math.cos(rotation) * (width/2 - pillarWidth/2),
+      height * 0.4,
+      z - Math.sin(rotation) * (width/2 - pillarWidth/2)
+    );
+    
+    const rightColliderPos = new THREE.Vector3(
+      x + Math.cos(rotation) * (width/2 - pillarWidth/2),
+      height * 0.4,
+      z + Math.sin(rotation) * (width/2 - pillarWidth/2)
+    );
+    
+    this.rockColliders.push(
+      new StaticCollider(leftColliderPos, 'rock', pillarWidth)
+    );
+    
+    this.rockColliders.push(
+      new StaticCollider(rightColliderPos, 'rock', pillarWidth)
+    );
+    
+    // Add a collider for the arch top
+    const archTopCollider = new StaticCollider(
+      new THREE.Vector3(x, height * 0.9, z),
+      'rock',
+      width * 0.4
+    );
+    this.rockColliders.push(archTopCollider);
+  }
+  
+  // Method to create a balanced rock formation
+  createBalancedRocks(x: number, z: number, height: number, seed: number) {
+    const balancedRockGroup = new THREE.Group();
+    
+    // Base rock - larger, flatter
+    const baseRock = this.createRock(
+      3.0, // Size
+      seed,
+      0, 1.5, 0, // Position
+      new THREE.Vector3(0, 0, 0), // No rotation for stability
+      new THREE.Vector3(2.0, 1.0, 2.0), // Flatter shape
+      this.darkRockMaterial
+    );
+    
+    balancedRockGroup.add(baseRock);
+    
+    // Middle rock - medium sized, slightly offset
+    const middleRock = this.createRock(
+      2.0, // Size
+      seed + 10,
+      Math.sin(seed) * 0.5, 3.0, Math.cos(seed) * 0.5, // Slight offset
+      new THREE.Vector3(Math.sin(seed + 5) * 0.3, Math.sin(seed + 6) * 0.3, Math.sin(seed + 7) * 0.3),
+      new THREE.Vector3(1.5, 1.2, 1.5),
+      this.rockMaterial
+    );
+    
+    balancedRockGroup.add(middleRock);
+    
+    // Top rock - smaller, more precariously balanced
+    const topRock = this.createRock(
+      1.5, // Size
+      seed + 20,
+      Math.sin(seed + 10) * 0.8, 5.0, Math.cos(seed + 10) * 0.8, // More offset
+      new THREE.Vector3(Math.sin(seed + 15) * 0.5, Math.sin(seed + 16) * 0.5, Math.sin(seed + 17) * 0.5),
+      new THREE.Vector3(1.2, 1.0, 1.2),
+      this.darkRockMaterial
+    );
+    
+    balancedRockGroup.add(topRock);
+    
+    // Optional: extremely small rock on very top for dramatic effect
+    if (Math.sin(seed + 30) > 0) { // 50% chance based on seed
+      const tinyRock = this.createRock(
+        0.7, // Size
+        seed + 30,
+        Math.sin(seed + 20) * 0.3, 6.0, Math.cos(seed + 20) * 0.3,
+        new THREE.Vector3(Math.sin(seed + 25) * 1.0, Math.sin(seed + 26) * 1.0, Math.sin(seed + 27) * 1.0),
+        new THREE.Vector3(0.8, 0.8, 0.8),
+        this.rockMaterial
+      );
+      
+      balancedRockGroup.add(tinyRock);
+    }
+    
+    // Position the group
+    balancedRockGroup.position.set(x, 0, z);
+    this.scene.add(balancedRockGroup);
+    
+    // Add a collider for the entire stack
+    const colliderPosition = new THREE.Vector3(x, height/2, z);
+    const rockCollider = new StaticCollider(
+      colliderPosition,
+      'rock',
+      3.0 // Large enough for the whole stack
+    );
+    this.rockColliders.push(rockCollider);
+  }
+  
+  // Method to create a rock wall segment
+  createRockWall(startX: number, startZ: number, endX: number, endZ: number, height: number, seed: number) {
+    // Calculate direction and length
+    const direction = new THREE.Vector2(endX - startX, endZ - startZ).normalize();
+    const length = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endZ - startZ, 2));
+    
+    // Create rocks along the wall
+    const rockCount = Math.ceil(length / 5); // One rock every ~5 units
+    
+    for (let i = 0; i < rockCount; i++) {
+      // Calculate position along the wall
+      const t = i / (rockCount - 1); // 0 to 1
+      const x = startX + (endX - startX) * t;
+      const z = startZ + (endZ - startZ) * t;
+      
+      // Add some variation perpendicular to the wall
+      const perpX = -direction.y; // Perpendicular direction
+      const perpZ = direction.x;
+      
+      const offset = (Math.sin(seed + i * 5) - 0.5) * 2.0;
+      const xPos = x + perpX * offset;
+      const zPos = z + perpZ * offset;
+      
+      // Vary the height
+      const yPos = Math.sin(seed + i * 3) * height * 0.4;
+      
+      // Create a rock with size variation
+      const size = 1.0 + Math.sin(seed + i * 7) * 0.5;
+      
+      this.createRock(
+        size,
+        seed + i * 10,
+        0, yPos, 0,
+        new THREE.Vector3(
+          Math.sin(seed + i * 11) * Math.PI,
+          Math.sin(seed + i * 13) * Math.PI,
+          Math.sin(seed + i * 17) * Math.PI
+        ),
+        new THREE.Vector3(1, height / size, 1),
+        i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial,
+        new THREE.Vector3(xPos, height/2, zPos) // Absolute position for collider
+      );
+    }
+    
+    // Add colliders along the wall
+    const segments = 4; // Number of collider segments
+    for (let i = 0; i < segments; i++) {
+      const t = i / segments;
+      const x = startX + (endX - startX) * t;
+      const z = startZ + (endZ - startZ) * t;
+      
+      const colliderPosition = new THREE.Vector3(x, height/2, z);
+      const segmentLength = length / segments;
+      
+      const rockCollider = new StaticCollider(
+        colliderPosition,
+        'rock',
+        segmentLength/2 // Radius covers half the segment length
+      );
+      this.rockColliders.push(rockCollider);
+    }
+  }
+  
+  // Create a giant mountain similar to the central formation
+  createGiantMountain(x: number, z: number, seed: number) {
+    // Create a mountain group to hold all components
+    const mountainGroup = new THREE.Group();
+    
+    // Mountain dimensions
+    const mountainHeight = 160 + Math.sin(seed) * 40; // 120-200 units tall
+    const mountainWidth = 100 + Math.sin(seed * 1.3) * 30; // 70-130 units wide
+    const mountainDepth = 100 + Math.cos(seed * 0.7) * 30; // 70-130 units deep
+    
+    // Create main mountain structure with multiple layers
+    // Base layer - largest, darkest
+    const baseGeometry = new THREE.ConeGeometry(mountainWidth/2, mountainHeight * 0.7, 8);
+    const baseMesh = new THREE.Mesh(baseGeometry, this.darkRockMaterial);
+    baseMesh.position.y = mountainHeight * 0.35;
+    baseMesh.castShadow = true;
+    baseMesh.receiveShadow = true;
+    
+    // Middle layer
+    const middleGeometry = new THREE.ConeGeometry(mountainWidth * 0.6/2, mountainHeight * 0.5, 7);
+    const middleMesh = new THREE.Mesh(middleGeometry, this.rockMaterial);
+    middleMesh.position.y = mountainHeight * 0.65;
+    middleMesh.castShadow = true;
+    middleMesh.receiveShadow = true;
+    
+    // Upper layer
+    const upperGeometry = new THREE.ConeGeometry(mountainWidth * 0.4/2, mountainHeight * 0.3, 6);
+    const upperMesh = new THREE.Mesh(upperGeometry, this.darkRockMaterial);
+    upperMesh.position.y = mountainHeight * 0.9;
+    upperMesh.castShadow = true;
+    upperMesh.receiveShadow = true;
+    
+    // Peak
+    const peakGeometry = new THREE.ConeGeometry(mountainWidth * 0.2/2, mountainHeight * 0.15, 5);
+    const peakMesh = new THREE.Mesh(peakGeometry, this.rockMaterial);
+    peakMesh.position.y = mountainHeight * 1.05;
+    peakMesh.castShadow = true;
+    peakMesh.receiveShadow = true;
+    
+    // Add all layers to the mountain group
+    mountainGroup.add(baseMesh);
+    mountainGroup.add(middleMesh);
+    mountainGroup.add(upperMesh);
+    mountainGroup.add(peakMesh);
+    
+    // Deform the mountain meshes for more natural look
+    [baseMesh, middleMesh, upperMesh, peakMesh].forEach((mesh, i) => {
+      const positions = mesh.geometry.attributes.position;
+      for (let j = 0; j < positions.count; j++) {
+        const vx = positions.getX(j);
+        const vy = positions.getY(j);
+        const vz = positions.getZ(j);
+        
+        // Use deterministic deformation with the seed
+        const deformSeed = seed + i * 100;
+        const xFactor = 0.9 + Math.sin(vx * deformSeed * 0.01) * 0.4;
+        const zFactor = 0.9 + Math.cos(vz * deformSeed * 0.01) * 0.4;
+        
+        positions.setX(j, vx * xFactor);
+        positions.setZ(j, vz * zFactor);
+        
+        // Add some vertical variation for the non-peak layers
+        if (i < 3) {
+          const yFactor = 1.0 + Math.cos(vx * vz * deformSeed * 0.001) * 0.1;
+          positions.setY(j, vy * yFactor);
+        }
+      }
+      
+      // Update the geometry
+      mesh.geometry.attributes.position.needsUpdate = true;
+    });
+    
+    // Add rock clusters around the base of the mountain
+    const baseRadius = mountainWidth / 2 * 1.2;
+    const clusterCount = 12;
+    
+    for (let i = 0; i < clusterCount; i++) {
+      const angle = (i / clusterCount) * Math.PI * 2;
+      const distance = baseRadius * (0.9 + Math.sin(seed + i * 7) * 0.3);
+      
+      const clusterX = Math.cos(angle) * distance;
+      const clusterZ = Math.sin(angle) * distance;
+      
+      // Create a rock cluster at this position, using the mountain seed
+      const rockCluster = new THREE.Group();
+      
+      // Create 3-5 rocks per cluster
+      const rockCount = 3 + Math.floor(Math.abs(Math.sin(seed + i * 13)) * 3);
+      
+      for (let j = 0; j < rockCount; j++) {
+        // Calculate position within cluster
+        const offsetAngle = Math.PI * 2 * Math.sin(seed + i * j);
+        const offsetDist = 2 + Math.sin(seed + i * j * 3) * 1.5;
+        
+        const rockX = clusterX + Math.cos(offsetAngle) * offsetDist;
+        const rockZ = clusterZ + Math.sin(offsetAngle) * offsetDist;
+        const rockY = Math.abs(Math.sin(seed + i * j * 5)) * 2;
+        
+        // Create rock with size variation
+        const rockSize = 1.0 + Math.abs(Math.sin(seed + i * j * 11)) * 2.0;
+        
+        const rock = this.createRock(
+          rockSize,
+          seed + i * 100 + j,
+          rockX, rockY, rockZ,
+          new THREE.Vector3(
+            Math.sin(seed + i * j * 17) * Math.PI,
+            Math.sin(seed + i * j * 19) * Math.PI * 2,
+            Math.sin(seed + i * j * 23) * Math.PI
+          ),
+          new THREE.Vector3(
+            1.0 + Math.sin(seed + i * j * 29) * 0.4,
+            0.7 + Math.abs(Math.sin(seed + i * j * 31)) * 0.6,
+            1.0 + Math.sin(seed + i * j * 37) * 0.4
+          ),
+          j % 2 === 0 ? this.rockMaterial : this.darkRockMaterial
+        );
+        
+        mountainGroup.add(rock);
+      }
+    }
+    
+    // Position the mountain group
+    mountainGroup.position.set(x, 0, z);
+    
+    // Add to scene
+    this.scene.add(mountainGroup);
+    
+    // Add collision for the mountain core
+    const mountainCollider = new StaticCollider(
+      new THREE.Vector3(x, mountainHeight * 0.5, z),
+      'rock',
+      mountainWidth * 0.6 // Large enough to cover the core
+    );
+    this.rockColliders.push(mountainCollider);
+    
+    // Add additional smaller colliders around the periphery
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const distance = mountainWidth * 0.4;
+      
+      const colliderX = x + Math.cos(angle) * distance;
+      const colliderZ = z + Math.sin(angle) * distance;
+      
+      const collider = new StaticCollider(
+        new THREE.Vector3(colliderX, mountainHeight * 0.3, colliderZ),
+        'rock',
+        mountainWidth * 0.25
+      );
+      this.rockColliders.push(collider);
+    }
+  }
+  
+  // Create a large mountain range that extends along an axis
+  createMountainRange(x: number, z: number, height: number, seed: number) {
+    // Mountain range parameters
+    const rangeLength = 300; // Length of the range
+    const rangeWidth = 100; // Width of the range
+    const segmentCount = 5; // Number of peaks in the range
+    
+    // Determine orientation based on x/z position
+    const isHorizontal = Math.abs(x) > Math.abs(z);
+    
+    // Create peaks along the range
+    for (let i = 0; i < segmentCount; i++) {
+      // Position along the range (-1 to 1)
+      const t = (i / (segmentCount - 1)) * 2 - 1;
+      
+      // Calculate position
+      const peakX = isHorizontal ? x + t * rangeLength / 2 : x;
+      const peakZ = isHorizontal ? z : z + t * rangeLength / 2;
+      
+      // Vary peak height along the range
+      const peakHeight = height * (0.7 + Math.sin(seed + i * 5) * 0.3);
+      
+      // Create individual peaks
+      this.createMountainPeak(
+        peakX, peakZ, peakHeight, 
+        rangeWidth * (0.5 + Math.sin(seed + i * 7) * 0.3), 
+        seed + i * 1000
+      );
+      
+      // Add smaller peaks between main peaks (except for last segment)
+      if (i < segmentCount - 1) {
+        const midT = t + 1 / (segmentCount - 1);
+        const midX = isHorizontal ? x + midT * rangeLength / 2 : x;
+        const midZ = isHorizontal ? z : z + midT * rangeLength / 2;
+        
+        // Create smaller connecting peaks
+        this.createMountainPeak(
+          midX, midZ, 
+          peakHeight * 0.7, 
+          rangeWidth * 0.6, 
+          seed + i * 1000 + 500
+        );
+      }
+    }
+    
+    // Add ridge rocks along the entire range
+    const ridgeSegments = 20;
+    for (let i = 0; i < ridgeSegments; i++) {
+      // Position along range
+      const t = (i / (ridgeSegments - 1)) * 2 - 1;
+      
+      // Base position
+      const baseX = isHorizontal ? x + t * rangeLength / 2 : x;
+      const baseZ = isHorizontal ? z : z + t * rangeLength / 2;
+      
+      // Add some noise perpendicular to the range
+      const perpOffset = Math.sin(seed + i * 13) * rangeWidth * 0.3;
+      const finalX = isHorizontal ? baseX : baseX + perpOffset;
+      const finalZ = isHorizontal ? baseZ + perpOffset : baseZ;
+      
+      // Vary height along the range with a rolling hills effect
+      const hillHeight = height * 0.15 * (1 + Math.sin(t * Math.PI * 3 + seed));
+      
+      // Create rock clusters
+      this.createRockCluster(finalX, finalZ, seed + i * 100);
+      
+      // Every few segments, add a larger formation
+      if (i % 3 === 0) {
+        this.createRockCluster(
+          finalX + (isHorizontal ? 0 : rangeWidth * 0.2 * Math.sin(seed + i)),
+          finalZ + (isHorizontal ? rangeWidth * 0.2 * Math.sin(seed + i) : 0),
+          seed + i * 200
+        );
+      }
+    }
+  }
+  
+  // Helper method to create individual mountain peaks
+  createMountainPeak(x: number, z: number, height: number, width: number, seed: number) {
+    // Create mountain group
+    const peakGroup = new THREE.Group();
+    
+    // Create the main peak cone
+    const coneGeometry = new THREE.ConeGeometry(width / 2, height, 8);
+    const coneMesh = new THREE.Mesh(coneGeometry, this.darkRockMaterial);
+    coneMesh.position.y = height / 2;
+    coneMesh.castShadow = true;
+    coneMesh.receiveShadow = true;
+    
+    // Deform the cone mesh for natural look
+    const positions = coneMesh.geometry.attributes.position;
+    for (let i = 0; i < positions.count; i++) {
+      const vx = positions.getX(i);
+      const vy = positions.getY(i);
+      const vz = positions.getZ(i);
+      
+      // Use deterministic deformation
+      const xFactor = 0.9 + Math.sin(vx * seed * 0.01 + vz * 0.1) * 0.3;
+      const zFactor = 0.9 + Math.cos(vz * seed * 0.01 + vx * 0.1) * 0.3;
+      
+      positions.setX(i, vx * xFactor);
+      positions.setZ(i, vz * zFactor);
+      
+      // Add vertical irregularities
+      if (vy > 0) { // Don't deform the base
+        const yFactor = 1.0 + Math.sin(vx * vz * 0.1 + seed) * 0.1;
+        positions.setY(i, vy * yFactor);
+      }
+    }
+    
+    // Update the geometry
+    coneMesh.geometry.attributes.position.needsUpdate = true;
+    
+    peakGroup.add(coneMesh);
+    
+    // Add a smaller upper peak
+    if (height > 30) {
+      const upperGeometry = new THREE.ConeGeometry(width * 0.3 / 2, height * 0.3, 6);
+      const upperMesh = new THREE.Mesh(upperGeometry, this.rockMaterial);
+      upperMesh.position.y = height * 0.85;
+      upperMesh.castShadow = true;
+      upperMesh.receiveShadow = true;
+      
+      // Deform the upper peak too
+      const upperPositions = upperMesh.geometry.attributes.position;
+      for (let i = 0; i < upperPositions.count; i++) {
+        const vx = upperPositions.getX(i);
+        const vz = upperPositions.getZ(i);
+        
+        // Different deformation pattern for the upper peak
+        const xFactor = 0.9 + Math.sin(vx * (seed + 100) * 0.02) * 0.3;
+        const zFactor = 0.9 + Math.cos(vz * (seed + 200) * 0.02) * 0.3;
+        
+        upperPositions.setX(i, vx * xFactor);
+        upperPositions.setZ(i, vz * zFactor);
+      }
+      
+      upperMesh.geometry.attributes.position.needsUpdate = true;
+      peakGroup.add(upperMesh);
+    }
+    
+    // Add rocks around the base
+    const rockCount = 6 + Math.floor(Math.abs(Math.sin(seed) * 6));
+    for (let i = 0; i < rockCount; i++) {
+      const angle = (i / rockCount) * Math.PI * 2;
+      const distance = width * 0.6 * (0.8 + Math.sin(seed + i * 5) * 0.3);
+      
+      const rockX = Math.cos(angle) * distance;
+      const rockZ = Math.sin(angle) * distance;
+      const rockY = Math.abs(Math.sin(seed + i * 7)) * 4;
+      
+      // Size variation based on seed
+      const rockSize = 1.0 + Math.abs(Math.sin(seed + i * 11)) * 3.0;
+      
+      const rock = this.createRock(
+        rockSize,
+        seed + i * 100,
+        rockX, rockY, rockZ,
+        new THREE.Vector3(
+          Math.sin(seed + i * 17) * Math.PI,
+          Math.sin(seed + i * 19) * Math.PI * 2,
+          Math.sin(seed + i * 23) * Math.PI
+        ),
+        new THREE.Vector3(
+          1.0 + Math.sin(seed + i * 29) * 0.4,
+          0.7 + Math.abs(Math.sin(seed + i * 31)) * 0.4,
+          1.0 + Math.sin(seed + i * 37) * 0.4
+        ),
+        i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial
+      );
+      
+      peakGroup.add(rock);
+    }
+    
+    // Position and add to scene
+    peakGroup.position.set(x, 0, z);
+    this.scene.add(peakGroup);
+    
+    // Add collider for the peak
+    const peakCollider = new StaticCollider(
+      new THREE.Vector3(x, height * 0.5, z),
+      'rock',
+      width * 0.5
+    );
+    this.rockColliders.push(peakCollider);
+  }
+  
+  // Create a volcanic crater mountain
+  createVolcanicCrater(x: number, z: number, seed: number) {
+    // Crater parameters
+    const outerRadius = 80 + Math.sin(seed) * 20; // 60-100 units
+    const innerRadius = outerRadius * 0.6;
+    const height = 120 + Math.sin(seed * 1.3) * 30; // 90-150 units
+    const craterDepth = height * 0.3;
+    
+    // Create mountain group
+    const craterGroup = new THREE.Group();
+    
+    // Create the main crater using a torus geometry
+    const craterGeometry = new THREE.TorusGeometry(
+      innerRadius, // Radius of the entire torus
+      (outerRadius - innerRadius) / 2, // Thickness of the torus
+      16, // Radial segments
+      24  // Tubular segments
+    );
+    
+    // Rotate to make it horizontal
+    craterGeometry.rotateX(Math.PI / 2);
+    
+    const craterMesh = new THREE.Mesh(craterGeometry, this.darkRockMaterial);
+    craterMesh.position.y = height * 0.7;
+    craterMesh.castShadow = true;
+    craterMesh.receiveShadow = true;
+    
+    // Create the base cone
+    const baseGeometry = new THREE.ConeGeometry(outerRadius, height * 0.9, 20);
+    
+    // Cut out the center of the cone to make a crater
+    // We'll do this by moving vertices
+    const basePositions = baseGeometry.attributes.position;
+    for (let i = 0; i < basePositions.count; i++) {
+      const vx = basePositions.getX(i);
+      const vy = basePositions.getY(i);
+      const vz = basePositions.getZ(i);
+      
+      // Calculate distance from center (xz plane)
+      const distFromCenter = Math.sqrt(vx * vx + vz * vz);
+      
+      // If inside the inner radius and near the top
+      if (distFromCenter < innerRadius * 0.8 && vy > height * 0.7) {
+        // Push down to create crater
+        const newY = height * 0.7 - (height * 0.7 - vy) * (craterDepth / height);
+        basePositions.setY(i, newY);
+      }
+      
+      // Add some noise to the surface
+      const deformFactor = 0.9 + Math.sin(vx * seed * 0.01 + vz * 0.1) * 0.3;
+      basePositions.setX(i, vx * deformFactor);
+      basePositions.setZ(i, vz * deformFactor);
+    }
+    
+    // Update the geometry
+    baseGeometry.attributes.position.needsUpdate = true;
+    
+    const baseMesh = new THREE.Mesh(baseGeometry, this.rockMaterial);
+    baseMesh.position.y = height * 0.45;
+    baseMesh.castShadow = true;
+    baseMesh.receiveShadow = true;
+    
+    // Add meshes to group
+    craterGroup.add(baseMesh);
+    craterGroup.add(craterMesh);
+    
+    // Add rocks around the rim
+    const rimRockCount = 16;
+    for (let i = 0; i < rimRockCount; i++) {
+      const angle = (i / rimRockCount) * Math.PI * 2;
+      const rimX = Math.cos(angle) * innerRadius;
+      const rimZ = Math.sin(angle) * innerRadius;
+      
+      // Height variation along the rim
+      const rimHeight = height * 0.75 + Math.sin(seed + i * 5) * height * 0.1;
+      
+      // Create larger, more dramatic rocks
+      const rock = this.createRock(
+        4.0 + Math.abs(Math.sin(seed + i * 11)) * 3.0,
+        seed + i * 100,
+        rimX, rimHeight - height * 0.45, rimZ, // Account for the group's position
+        new THREE.Vector3(
+          Math.sin(seed + i * 17) * Math.PI,
+          Math.sin(seed + i * 19) * Math.PI * 0.5, // Less rotation on Y
+          Math.sin(seed + i * 23) * Math.PI
+        ),
+        new THREE.Vector3(
+          1.2 + Math.sin(seed + i * 29) * 0.3,
+          1.5 + Math.abs(Math.sin(seed + i * 31)) * 0.5, // Taller
+          1.2 + Math.sin(seed + i * 37) * 0.3
+        ),
+        i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial
+      );
+      
+      craterGroup.add(rock);
+    }
+    
+    // Add some "lava rocks" inside the crater
+    const innerRockCount = 8;
+    for (let i = 0; i < innerRockCount; i++) {
+      const angle = (i / innerRockCount) * Math.PI * 2;
+      const dist = innerRadius * (0.3 + Math.abs(Math.sin(seed + i * 7)) * 0.3);
+      
+      const innerX = Math.cos(angle) * dist;
+      const innerZ = Math.sin(angle) * dist;
+      
+      // These rocks are at the bottom of the crater
+      const innerY = height * 0.7 - craterDepth + Math.abs(Math.sin(seed + i * 13)) * 5;
+      
+      // Create spiky "lava" rocks
+      const rock = this.createRock(
+        2.0 + Math.abs(Math.sin(seed + i * 19)) * 2.0,
+        seed + i * 200,
+        innerX, innerY - height * 0.45, innerZ, // Account for the group's position
+        new THREE.Vector3(
+          Math.sin(seed + i * 29) * Math.PI,
+          Math.sin(seed + i * 31) * Math.PI * 2, // More rotation for chaotic look
+          Math.sin(seed + i * 37) * Math.PI
+        ),
+        new THREE.Vector3(
+          0.7 + Math.sin(seed + i * 41) * 0.3,
+          1.8 + Math.abs(Math.sin(seed + i * 43)) * 0.7, // Much taller/spikier
+          0.7 + Math.sin(seed + i * 47) * 0.3
+        ),
+        this.darkRockMaterial // Dark rocks for the "lava" rocks
+      );
+      
+      craterGroup.add(rock);
+    }
+    
+    // Position and add to scene
+    craterGroup.position.set(x, 0, z);
+    this.scene.add(craterGroup);
+    
+    // Add main collider for the volcano
+    const mainCollider = new StaticCollider(
+      new THREE.Vector3(x, height * 0.4, z),
+      'rock',
+      outerRadius * 0.8
+    );
+    this.rockColliders.push(mainCollider);
+    
+    // Add colliders around the rim
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const colliderX = x + Math.cos(angle) * innerRadius;
+      const colliderZ = z + Math.sin(angle) * innerRadius;
+      
+      const rimCollider = new StaticCollider(
+        new THREE.Vector3(colliderX, height * 0.7, colliderZ),
+        'rock',
+        10 // Size of rim colliders
+      );
+      this.rockColliders.push(rimCollider);
+    }
+  }
+  
+  // Create a chaotic, gravity-defying rock cluster
+  createFloatingRocks(x: number, z: number, seed: number) {
+    const floatingRockGroup = new THREE.Group();
+    
+    // Parameters for arrangement
+    const radius = 10; // Max distance from center
+    const rockCount = 10 + Math.floor(Math.abs(Math.sin(seed) * 5)); // 10-15 rocks
+    
+    for (let i = 0; i < rockCount; i++) {
+      // Generate deterministic positions using trigonometric functions
+      const angle = (i / rockCount) * Math.PI * 2;
+      const distance = radius * (0.5 + Math.abs(Math.sin(seed + i * 3)) * 0.5);
+      
+      // Calculate position with some height variation
+      const xPos = Math.cos(angle) * distance;
+      const yPos = 4 + Math.sin(seed + i * 7) * 3; // Float between 1-7 units high
+      const zPos = Math.sin(angle) * distance;
+      
+      // Size variation
+      const size = 0.7 + Math.abs(Math.sin(seed + i * 11)) * 1.3; // Size between 0.7 and 2.0
+      
+      // Create rock with deterministic properties
+      const rock = this.createRock(
+        size,
+        seed + i * 13,
+        xPos, yPos, zPos,
+        new THREE.Vector3(
+          Math.sin(seed + i * 17) * Math.PI,
+          Math.sin(seed + i * 19) * Math.PI,
+          Math.sin(seed + i * 23) * Math.PI
+        ),
+        new THREE.Vector3(
+          1.0 + Math.sin(seed + i * 29) * 0.3,
+          1.0 + Math.sin(seed + i * 31) * 0.3,
+          1.0 + Math.sin(seed + i * 37) * 0.3
+        ),
+        i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial
+      );
+      
+      floatingRockGroup.add(rock);
+      
+      // Add individual colliders for each floating rock
+      const colliderPosition = new THREE.Vector3(x + xPos, yPos, z + zPos);
+      const rockCollider = new StaticCollider(
+        colliderPosition,
+        'rock',
+        size * 1.2 // Slightly larger than visual size
+      );
+      this.rockColliders.push(rockCollider);
+    }
+    
+    // Position and add to scene
+    floatingRockGroup.position.set(x, 0, z);
+    this.scene.add(floatingRockGroup);
+  }
+  
   createRocks() {
     // 1. Rocks near the tank starting area
     // Create a circle of rocks around the starting point at a small distance
@@ -514,6 +1382,24 @@ export class MapGenerator {
     for (let i = -10; i <= 10; i++) {
       this.createRockCluster(500 - i * 50, -500 + i * 50, i * 5 + 1000);
     }
+    
+    // ======= NEW GIANT MOUNTAIN FORMATIONS =======
+    
+    // Create multiple massive mountain formations at key locations
+    this.createGiantMountain(300, 300, 1234);
+    this.createGiantMountain(-300, 300, 5678);
+    this.createGiantMountain(300, -300, 9012);
+    this.createGiantMountain(-300, -300, 3456);
+    
+    // Create a mountain range that runs across the map
+    this.createMountainRange(0, 250, 200, 6789);
+    this.createMountainRange(250, 0, 180, 7890);
+    this.createMountainRange(0, -250, 220, 8901);
+    this.createMountainRange(-250, 0, 190, 9012);
+    
+    // Create a few volcanic crater formations
+    this.createVolcanicCrater(400, 400, 8765);
+    this.createVolcanicCrater(-400, -400, 4321);
   }
   
   // ===== BUILDING AND CITY METHODS =====
@@ -629,110 +1515,155 @@ export class MapGenerator {
     this.scene.add(roadMesh);
   }
   
-  createCityCenter() {
-    // Create a city center with buildings arranged on a grid with roads between them
-    const cityRadius = 160; // Larger city size to accommodate road spacing
-    const blockSize = 40; // Size of each city block
-    const roadWidth = 15; // Width of roads
+  createRockFormation() {
+    // Create a large, deterministic rock formation in the center of the map
+    const formationRadius = 160; // Size of the rock formation area
     
-    // Define building properties for deterministic generation
-    const buildingTypes = [
-      { height: 200, width: 20, depth: 20, materialIndex: 0 }, // Central skyscraper
-      { height: 180, width: 25, depth: 25, materialIndex: 1 }, // Financial district towers
-      { height: 160, width: 20, depth: 20, materialIndex: 2 },
-      { height: 140, width: 18, depth: 18, materialIndex: 3 },
-      { height: 120, width: 22, depth: 22, materialIndex: 4 },
-      { height: 100, width: 25, depth: 15, materialIndex: 0 },
-      { height: 90, width: 15, depth: 25, materialIndex: 1 },
-      { height: 80, width: 20, depth: 20, materialIndex: 2 },
-      // Medium buildings
-      { height: 70, width: 22, depth: 15, materialIndex: 3 },
-      { height: 60, width: 15, depth: 22, materialIndex: 4 },
-      { height: 55, width: 20, depth: 20, materialIndex: 0 },
-      { height: 50, width: 25, depth: 15, materialIndex: 1 },
-      // Smaller buildings
-      { height: 45, width: 15, depth: 25, materialIndex: 2 },
-      { height: 40, width: 20, depth: 22, materialIndex: 3 },
-      { height: 35, width: 22, depth: 20, materialIndex: 4 },
-      { height: 30, width: 18, depth: 18, materialIndex: 0 }
-    ];
+    // Create a central large mountain/rock
+    const centerRockGroup = new THREE.Group();
     
-    // First create the city roads as a grid
-    // North-South Roads (avenues)
-    for (let x = -cityRadius; x <= cityRadius; x += blockSize) {
-      this.createRoad(x, -cityRadius, x, cityRadius, roadWidth);
-    }
+    // Create the central peak - a large irregular mountain
+    const peakHeight = 180;
+    const peakWidth = 100;
+    const peakDepth = 100;
     
-    // East-West Roads (streets)
-    for (let z = -cityRadius; z <= cityRadius; z += blockSize) {
-      this.createRoad(-cityRadius, z, cityRadius, z, roadWidth);
-    }
+    // Create geometries for different parts of the mountain
+    const baseGeometry = new THREE.ConeGeometry(peakWidth/2, peakHeight * 0.8, 8);
+    const base = new THREE.Mesh(baseGeometry, this.darkRockMaterial);
+    base.position.y = peakHeight * 0.4;
+    base.castShadow = true;
+    base.receiveShadow = true;
+    centerRockGroup.add(base);
     
-    // Add central plaza
-    const plazaRadius = 20;
-    const plazaGeometry = new THREE.CircleGeometry(plazaRadius, 32);
-    const plazaMaterial = new THREE.MeshStandardMaterial({
-      color: 0xCCCCCC, // Light gray
-      roughness: 0.9,
-      metalness: 0.1
+    // Middle section of the mountain
+    const middleGeometry = new THREE.ConeGeometry(peakWidth/3, peakHeight * 0.5, 7);
+    const middle = new THREE.Mesh(middleGeometry, this.rockMaterial);
+    middle.position.y = peakHeight * 0.7;
+    middle.castShadow = true;
+    middle.receiveShadow = true;
+    centerRockGroup.add(middle);
+    
+    // Peak of the mountain
+    const topGeometry = new THREE.ConeGeometry(peakWidth/6, peakHeight * 0.3, 6);
+    const top = new THREE.Mesh(topGeometry, this.darkRockMaterial);
+    top.position.y = peakHeight * 0.95;
+    top.castShadow = true;
+    top.receiveShadow = true;
+    centerRockGroup.add(top);
+    
+    // Deform the geometries to make them look more natural
+    // We use deterministic deformation by using fixed values
+    [base, middle, top].forEach((mesh, i) => {
+      const positions = mesh.geometry.attributes.position;
+      for (let j = 0; j < positions.count; j++) {
+        const vx = positions.getX(j);
+        const vy = positions.getY(j);
+        const vz = positions.getZ(j);
+        
+        // Use trigonometric functions with fixed values for deterministic deformation
+        const deformSeed = i * 10 + 5;
+        const xFactor = 0.9 + Math.sin(vx * deformSeed * 0.1) * 0.3;
+        const zFactor = 0.9 + Math.cos(vz * deformSeed * 0.1) * 0.3;
+        
+        positions.setX(j, vx * xFactor);
+        positions.setZ(j, vz * zFactor);
+      }
+      
+      // Signal that the geometry needs an update
+      mesh.geometry.attributes.position.needsUpdate = true;
     });
-    const plaza = new THREE.Mesh(plazaGeometry, plazaMaterial);
-    plaza.rotation.x = -Math.PI / 2; // Lay flat
-    plaza.position.set(0, 0.2, 0); // Slightly above ground
-    this.scene.add(plaza);
     
-    // Now place buildings inside each city block with margin to avoid roads
-    // Use a fixed 3x3 grid of blocks centered at the origin
-    const gridSize = 3; // 3x3 grid
-    const gridOffset = -blockSize * (gridSize - 1) / 2; // Center grid at origin
+    // Add the center rock group to the scene
+    centerRockGroup.position.set(0, 0, 0);
+    this.scene.add(centerRockGroup);
     
-    let buildingIndex = 0; // For cycling through building types
+    // Create a collider for the central peak
+    const peakCollider = new StaticCollider(
+      new THREE.Vector3(0, peakHeight * 0.5, 0),
+      'rock',
+      peakWidth * 0.6
+    );
+    this.rockColliders.push(peakCollider);
     
-    // Create buildings in a grid pattern, leaving space for roads
-    for (let gridX = 0; gridX < gridSize; gridX++) {
-      for (let gridZ = 0; gridZ < gridSize; gridZ++) {
-        // Calculate the center of this block
-        const blockCenterX = gridOffset + gridX * blockSize;
-        const blockCenterZ = gridOffset + gridZ * blockSize;
-        
-        // Skip the center block (already has the plaza)
-        if (gridX === 1 && gridZ === 1) continue;
-        
-        // Get building type and ensure we don't exceed the available types
-        const buildingType = buildingTypes[buildingIndex % buildingTypes.length];
-        buildingIndex++;
-        
-        // Buildings should be smaller than the block to leave space for roads
-        const safeMargin = 3; // Extra margin from road
-        const maxBuildingSize = blockSize - roadWidth - safeMargin * 2;
-        
-        // Make sure building fits within the block
-        const buildingWidth = Math.min(buildingType.width, maxBuildingSize);
-        const buildingDepth = Math.min(buildingType.depth, maxBuildingSize);
-        
-        // Create the building
-        this.createSkyscraper(
-          blockCenterX,
-          blockCenterZ,
-          buildingType.height,
-          buildingWidth,
-          buildingDepth,
-          buildingType.materialIndex
-        );
+    // Create surrounding rock clusters in a circular pattern
+    const clusters = 16; // Number of surrounding rock clusters
+    for (let i = 0; i < clusters; i++) {
+      const angle = (i / clusters) * Math.PI * 2;
+      
+      // Vary the distance from center deterministically
+      const distance = formationRadius * 0.5 * (0.8 + 0.4 * Math.sin(i * 3.7));
+      
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      
+      // Create a cluster of rocks at this position
+      // Use i as seed for deterministic generation
+      this.createRockCluster(x, z, i * 100);
+      
+      // Add some extra rocks for more complexity
+      // Inner ring
+      if (i % 2 === 0) {
+        const innerDistance = distance * 0.6;
+        const innerX = Math.cos(angle) * innerDistance;
+        const innerZ = Math.sin(angle) * innerDistance;
+        this.createRockCluster(innerX, innerZ, i * 100 + 50);
+      }
+      
+      // Outer ring
+      if (i % 3 === 0) {
+        const outerDistance = distance * 1.4;
+        const outerX = Math.cos(angle) * outerDistance;
+        const outerZ = Math.sin(angle) * outerDistance;
+        this.createRockCluster(outerX, outerZ, i * 100 + 25);
       }
     }
     
-    // Create central high-rise at 0,0
-    const centralBuilding = buildingTypes[0];
-    // Ensure central building doesn't exceed plaza size
-    const centerBuildingSize = Math.min(plazaRadius - 5, 15); // Smaller than plaza with margin
-    this.createSkyscraper(
-      0, 0,
-      centralBuilding.height, 
-      centerBuildingSize, 
-      centerBuildingSize, 
-      centralBuilding.materialIndex
-    );
+    // Create pathways/clearings through the formation - four cardinal directions
+    const pathWidth = 15;
+    
+    // North-South path
+    for (let z = -formationRadius; z <= formationRadius; z += 20) {
+      // Create smaller rocks along the path edges
+      this.createRock(
+        0.8, // Size
+        z * 0.1, // Deform seed
+        -pathWidth/2, 0.4, z, // Position
+        new THREE.Vector3(0, z * 0.1, 0), // Rotation
+        new THREE.Vector3(0.8, 0.6, 0.8), // Scale
+        this.rockMaterial
+      );
+      
+      this.createRock(
+        0.8, // Size
+        z * 0.1 + 10, // Deform seed
+        pathWidth/2, 0.4, z, // Position
+        new THREE.Vector3(0, z * 0.1 + 1, 0), // Rotation
+        new THREE.Vector3(0.8, 0.6, 0.8), // Scale
+        this.darkRockMaterial
+      );
+    }
+    
+    // East-West path
+    for (let x = -formationRadius; x <= formationRadius; x += 20) {
+      // Create smaller rocks along the path edges
+      this.createRock(
+        0.8, // Size
+        x * 0.1, // Deform seed
+        x, 0.4, -pathWidth/2, // Position
+        new THREE.Vector3(0, x * 0.1, 0), // Rotation
+        new THREE.Vector3(0.8, 0.6, 0.8), // Scale
+        this.rockMaterial
+      );
+      
+      this.createRock(
+        0.8, // Size
+        x * 0.1 + 10, // Deform seed
+        x, 0.4, pathWidth/2, // Position
+        new THREE.Vector3(0, x * 0.1 + 1, 0), // Rotation
+        new THREE.Vector3(0.8, 0.6, 0.8), // Scale
+        this.darkRockMaterial
+      );
+    }
   }
   
   // Methods to get colliders for collision detection
