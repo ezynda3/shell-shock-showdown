@@ -12950,79 +12950,6 @@ class MeshStandardMaterial extends Material {
     return this;
   }
 }
-class MeshLambertMaterial extends Material {
-  constructor(parameters) {
-    super();
-    this.isMeshLambertMaterial = true;
-    this.type = "MeshLambertMaterial";
-    this.color = new Color(16777215);
-    this.map = null;
-    this.lightMap = null;
-    this.lightMapIntensity = 1;
-    this.aoMap = null;
-    this.aoMapIntensity = 1;
-    this.emissive = new Color(0);
-    this.emissiveIntensity = 1;
-    this.emissiveMap = null;
-    this.bumpMap = null;
-    this.bumpScale = 1;
-    this.normalMap = null;
-    this.normalMapType = TangentSpaceNormalMap;
-    this.normalScale = new Vector2(1, 1);
-    this.displacementMap = null;
-    this.displacementScale = 1;
-    this.displacementBias = 0;
-    this.specularMap = null;
-    this.alphaMap = null;
-    this.envMap = null;
-    this.envMapRotation = new Euler;
-    this.combine = MultiplyOperation;
-    this.reflectivity = 1;
-    this.refractionRatio = 0.98;
-    this.wireframe = false;
-    this.wireframeLinewidth = 1;
-    this.wireframeLinecap = "round";
-    this.wireframeLinejoin = "round";
-    this.flatShading = false;
-    this.fog = true;
-    this.setValues(parameters);
-  }
-  copy(source) {
-    super.copy(source);
-    this.color.copy(source.color);
-    this.map = source.map;
-    this.lightMap = source.lightMap;
-    this.lightMapIntensity = source.lightMapIntensity;
-    this.aoMap = source.aoMap;
-    this.aoMapIntensity = source.aoMapIntensity;
-    this.emissive.copy(source.emissive);
-    this.emissiveMap = source.emissiveMap;
-    this.emissiveIntensity = source.emissiveIntensity;
-    this.bumpMap = source.bumpMap;
-    this.bumpScale = source.bumpScale;
-    this.normalMap = source.normalMap;
-    this.normalMapType = source.normalMapType;
-    this.normalScale.copy(source.normalScale);
-    this.displacementMap = source.displacementMap;
-    this.displacementScale = source.displacementScale;
-    this.displacementBias = source.displacementBias;
-    this.specularMap = source.specularMap;
-    this.alphaMap = source.alphaMap;
-    this.envMap = source.envMap;
-    this.envMapRotation.copy(source.envMapRotation);
-    this.combine = source.combine;
-    this.reflectivity = source.reflectivity;
-    this.refractionRatio = source.refractionRatio;
-    this.wireframe = source.wireframe;
-    this.wireframeLinewidth = source.wireframeLinewidth;
-    this.wireframeLinecap = source.wireframeLinecap;
-    this.wireframeLinejoin = source.wireframeLinejoin;
-    this.flatShading = source.flatShading;
-    this.fog = source.fog;
-    return this;
-  }
-}
-
 class MeshDepthMaterial extends Material {
   constructor(parameters) {
     super();
@@ -31910,6 +31837,7 @@ class GameComponent extends LitElement {
   NOTIFICATION_DURATION = 5000;
   keys = {};
   skyColor = new Color(8900331);
+  groundMaterial;
   static styles = css`
     :host {
       display: block;
@@ -32529,14 +32457,174 @@ class GameComponent extends LitElement {
     this.scene.add(ambientLight);
     this.scene.add(hemisphereLight);
     const groundSize = 5000;
-    const groundGeometry = new PlaneGeometry(groundSize, groundSize);
-    const groundMaterial = new MeshLambertMaterial({
-      color: 5088859
+    const groundGeometry = new PlaneGeometry(groundSize, groundSize, 128, 128);
+    const grassVertexShader = `
+      uniform float time;
+      varying vec2 vUv;
+      varying vec3 vPosition;
+      varying vec3 vNormal;
+      
+      // Simplex noise function
+      vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+      
+      float snoise(vec2 v) {
+        const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+                  -0.577350269189626, 0.024390243902439);
+        vec2 i  = floor(v + dot(v, C.yy));
+        vec2 x0 = v -   i + dot(i, C.xx);
+        vec2 i1;
+        i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+        vec4 x12 = x0.xyxy + C.xxzz;
+        x12.xy -= i1;
+        i = mod289(i);
+        vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0))
+          + i.x + vec3(0.0, i1.x, 1.0));
+        vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+        m = m*m;
+        m = m*m;
+        vec3 x = 2.0 * fract(p * C.www) - 1.0;
+        vec3 h = abs(x) - 0.5;
+        vec3 ox = floor(x + 0.5);
+        vec3 a0 = x - ox;
+        m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+        vec3 g;
+        g.x  = a0.x  * x0.x  + h.x  * x0.y;
+        g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+        return 130.0 * dot(m, g);
+      }
+      
+      varying float vHeight;
+
+      void main() {
+        vUv = uv;
+        vPosition = position;
+        vNormal = normal;
+        
+        // Only apply wind effect when far from the origin
+        float distFromCenter = length(position.xz);
+        float windStrength = 0.0;
+        
+        if (distFromCenter > 10.0) {
+          // Wind effect using noise with increased strength
+          float noise = snoise(position.xz * 0.05 + time * 0.1);
+          windStrength = noise * 1.5 * (min(1.0, distFromCenter / 100.0)); // Increased from 0.5
+        }
+        
+        // Apply taller undulation to ground with multiple noise frequencies
+        vec3 newPosition = position;
+        
+        // Base terrain undulation - larger, smoother hills
+        newPosition.y += snoise(position.xz * 0.01) * 5.0; // Increased from 2.0
+        
+        // Medium frequency variation for smaller bumps
+        newPosition.y += snoise(position.xz * 0.05) * 2.0;
+        
+        // High frequency variation for grass-like detail
+        newPosition.y += snoise(position.xz * 0.3) * 0.8;
+        
+        // Apply wind effect to vertices
+        newPosition.y += windStrength;
+        
+        // Store height for fragment shader color variation
+        vHeight = newPosition.y;
+        
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
+      }
+    `;
+    const grassFragmentShader = `
+      uniform float time;
+      varying vec2 vUv;
+      varying vec3 vPosition;
+      varying vec3 vNormal;
+      varying float vHeight;
+      
+      // Simplex noise function from vertex shader
+      vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+      
+      float snoise(vec2 v) {
+        const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+                  -0.577350269189626, 0.024390243902439);
+        vec2 i  = floor(v + dot(v, C.yy));
+        vec2 x0 = v -   i + dot(i, C.xx);
+        vec2 i1;
+        i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+        vec4 x12 = x0.xyxy + C.xxzz;
+        x12.xy -= i1;
+        i = mod289(i);
+        vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0))
+          + i.x + vec3(0.0, i1.x, 1.0));
+        vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+        m = m*m;
+        m = m*m;
+        vec3 x = 2.0 * fract(p * C.www) - 1.0;
+        vec3 h = abs(x) - 0.5;
+        vec3 ox = floor(x + 0.5);
+        vec3 a0 = x - ox;
+        m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+        vec3 g;
+        g.x  = a0.x  * x0.x  + h.x  * x0.y;
+        g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+        return 130.0 * dot(m, g);
+      }
+      
+      void main() {
+        // Base grass color
+        vec3 baseColor = vec3(0.302, 0.647, 0.357); // #4DA65B
+        
+        // Add variation using noise
+        float noise = snoise(vPosition.xz * 0.1);
+        float noise2 = snoise(vPosition.xz * 0.3 + vec2(0.0, time * 0.1));
+        
+        // Create darker patches and lighter highlights with more variety
+        vec3 darkGrass = vec3(0.196, 0.455, 0.196); // Darker green
+        vec3 lightGrass = vec3(0.486, 0.729, 0.388); // Lighter green
+        vec3 tallGrassTip = vec3(0.576, 0.788, 0.424); // Even lighter for tall tips
+        
+        // Mix colors based on noise
+        vec3 finalColor = mix(darkGrass, baseColor, clamp(noise * 0.5 + 0.5, 0.0, 1.0));
+        finalColor = mix(finalColor, lightGrass, clamp(noise2 * 0.3 + 0.0, 0.0, 1.0));
+        
+        // Use height information to create vertical color gradient
+        // Taller grass (higher vHeight) gets a lighter color for realistic look
+        float heightFactor = clamp((vHeight - 1.0) * 0.1, 0.0, 0.6);
+        finalColor = mix(finalColor, tallGrassTip, heightFactor);
+        
+        // Add extra color variation for very tall peaks
+        if (vHeight > 6.0) {
+          float peakFactor = clamp((vHeight - 6.0) * 0.2, 0.0, 1.0);
+          finalColor = mix(finalColor, vec3(0.620, 0.816, 0.459), peakFactor);
+        }
+        
+        // Add subtle pattern for texture
+        float pattern = abs(sin(vUv.x * 100.0) * sin(vUv.y * 100.0) * 0.5);
+        finalColor = mix(finalColor, finalColor * 0.9, pattern * 0.1);
+        
+        // Add subtle horizontal banding for grass-like texture
+        float bands = sin(vPosition.y * 8.0) * 0.05;
+        finalColor = mix(finalColor, finalColor * (1.0 + bands), 0.3);
+        
+        // Output final color
+        gl_FragColor = vec4(finalColor, 1.0);
+      }
+    `;
+    const grassMaterial = new ShaderMaterial({
+      uniforms: {
+        time: { value: 0 }
+      },
+      vertexShader: grassVertexShader,
+      fragmentShader: grassFragmentShader,
+      side: DoubleSide
     });
-    const ground = new Mesh(groundGeometry, groundMaterial);
+    const ground = new Mesh(groundGeometry, grassMaterial);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = false;
+    ground.name = "ground";
     this.scene.add(ground);
+    this.groundMaterial = grassMaterial;
     this.mapGenerator = new MapGenerator(this.scene);
     this.createTrees();
     this.createRocks();
@@ -32794,6 +32882,9 @@ class GameComponent extends LitElement {
     if (this.frameCounter % 30 === 0 && this.renderer?.info?.render) {
       const fps = 1000 / (this.renderer.info.render.frame || 16.7);
       this.lowPerformanceMode = fps < 30;
+    }
+    if (this.groundMaterial && this.groundMaterial.uniforms.time) {
+      this.groundMaterial.uniforms.time.value = performance.now() * 0.0003;
     }
     if (this.camera) {
       if (this.frameCounter % 10 === 0) {

@@ -233,6 +233,8 @@ export class GameComponent extends LitElement {
   // Assets
   // Sky gradient colors
   private skyColor: THREE.Color = new THREE.Color(0x87ceeb); // Sky blue
+  // Ground material reference for shader updates
+  private groundMaterial?: THREE.ShaderMaterial;
 
   static styles = css`
     :host {
@@ -1127,19 +1129,185 @@ export class GameComponent extends LitElement {
     this.scene.add(ambientLight);
     this.scene.add(hemisphereLight);
     
-    // Create ground with optimized geometry and material
+    // Create ground with grass shader effect
     const groundSize = 5000; // Reduced from 10000
-    const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
+    const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize, 128, 128);
     
-    // Use MeshLambertMaterial instead of MeshStandardMaterial for better performance
-    const groundMaterial = new THREE.MeshLambertMaterial({ 
-      color: 0x4DA65B, // Slightly darker green
+    // Grass vertex shader
+    const grassVertexShader = `
+      uniform float time;
+      varying vec2 vUv;
+      varying vec3 vPosition;
+      varying vec3 vNormal;
+      
+      // Simplex noise function
+      vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+      
+      float snoise(vec2 v) {
+        const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+                  -0.577350269189626, 0.024390243902439);
+        vec2 i  = floor(v + dot(v, C.yy));
+        vec2 x0 = v -   i + dot(i, C.xx);
+        vec2 i1;
+        i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+        vec4 x12 = x0.xyxy + C.xxzz;
+        x12.xy -= i1;
+        i = mod289(i);
+        vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0))
+          + i.x + vec3(0.0, i1.x, 1.0));
+        vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+        m = m*m;
+        m = m*m;
+        vec3 x = 2.0 * fract(p * C.www) - 1.0;
+        vec3 h = abs(x) - 0.5;
+        vec3 ox = floor(x + 0.5);
+        vec3 a0 = x - ox;
+        m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+        vec3 g;
+        g.x  = a0.x  * x0.x  + h.x  * x0.y;
+        g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+        return 130.0 * dot(m, g);
+      }
+      
+      varying float vHeight;
+
+      void main() {
+        vUv = uv;
+        vPosition = position;
+        vNormal = normal;
+        
+        // Only apply wind effect when far from the origin
+        float distFromCenter = length(position.xz);
+        float windStrength = 0.0;
+        
+        if (distFromCenter > 10.0) {
+          // Wind effect using noise with increased strength
+          float noise = snoise(position.xz * 0.05 + time * 0.1);
+          windStrength = noise * 1.5 * (min(1.0, distFromCenter / 100.0)); // Increased from 0.5
+        }
+        
+        // Apply taller undulation to ground with multiple noise frequencies
+        vec3 newPosition = position;
+        
+        // Base terrain undulation - larger, smoother hills
+        newPosition.y += snoise(position.xz * 0.01) * 5.0; // Increased from 2.0
+        
+        // Medium frequency variation for smaller bumps
+        newPosition.y += snoise(position.xz * 0.05) * 2.0;
+        
+        // High frequency variation for grass-like detail
+        newPosition.y += snoise(position.xz * 0.3) * 0.8;
+        
+        // Apply wind effect to vertices
+        newPosition.y += windStrength;
+        
+        // Store height for fragment shader color variation
+        vHeight = newPosition.y;
+        
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
+      }
+    `;
+    
+    // Grass fragment shader
+    const grassFragmentShader = `
+      uniform float time;
+      varying vec2 vUv;
+      varying vec3 vPosition;
+      varying vec3 vNormal;
+      varying float vHeight;
+      
+      // Simplex noise function from vertex shader
+      vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+      
+      float snoise(vec2 v) {
+        const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+                  -0.577350269189626, 0.024390243902439);
+        vec2 i  = floor(v + dot(v, C.yy));
+        vec2 x0 = v -   i + dot(i, C.xx);
+        vec2 i1;
+        i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+        vec4 x12 = x0.xyxy + C.xxzz;
+        x12.xy -= i1;
+        i = mod289(i);
+        vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0))
+          + i.x + vec3(0.0, i1.x, 1.0));
+        vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+        m = m*m;
+        m = m*m;
+        vec3 x = 2.0 * fract(p * C.www) - 1.0;
+        vec3 h = abs(x) - 0.5;
+        vec3 ox = floor(x + 0.5);
+        vec3 a0 = x - ox;
+        m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+        vec3 g;
+        g.x  = a0.x  * x0.x  + h.x  * x0.y;
+        g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+        return 130.0 * dot(m, g);
+      }
+      
+      void main() {
+        // Base grass color
+        vec3 baseColor = vec3(0.302, 0.647, 0.357); // #4DA65B
+        
+        // Add variation using noise
+        float noise = snoise(vPosition.xz * 0.1);
+        float noise2 = snoise(vPosition.xz * 0.3 + vec2(0.0, time * 0.1));
+        
+        // Create darker patches and lighter highlights with more variety
+        vec3 darkGrass = vec3(0.196, 0.455, 0.196); // Darker green
+        vec3 lightGrass = vec3(0.486, 0.729, 0.388); // Lighter green
+        vec3 tallGrassTip = vec3(0.576, 0.788, 0.424); // Even lighter for tall tips
+        
+        // Mix colors based on noise
+        vec3 finalColor = mix(darkGrass, baseColor, clamp(noise * 0.5 + 0.5, 0.0, 1.0));
+        finalColor = mix(finalColor, lightGrass, clamp(noise2 * 0.3 + 0.0, 0.0, 1.0));
+        
+        // Use height information to create vertical color gradient
+        // Taller grass (higher vHeight) gets a lighter color for realistic look
+        float heightFactor = clamp((vHeight - 1.0) * 0.1, 0.0, 0.6);
+        finalColor = mix(finalColor, tallGrassTip, heightFactor);
+        
+        // Add extra color variation for very tall peaks
+        if (vHeight > 6.0) {
+          float peakFactor = clamp((vHeight - 6.0) * 0.2, 0.0, 1.0);
+          finalColor = mix(finalColor, vec3(0.620, 0.816, 0.459), peakFactor);
+        }
+        
+        // Add subtle pattern for texture
+        float pattern = abs(sin(vUv.x * 100.0) * sin(vUv.y * 100.0) * 0.5);
+        finalColor = mix(finalColor, finalColor * 0.9, pattern * 0.1);
+        
+        // Add subtle horizontal banding for grass-like texture
+        float bands = sin(vPosition.y * 8.0) * 0.05;
+        finalColor = mix(finalColor, finalColor * (1.0 + bands), 0.3);
+        
+        // Output final color
+        gl_FragColor = vec4(finalColor, 1.0);
+      }
+    `;
+    
+    // Create shader material
+    const grassMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        time: { value: 0 }
+      },
+      vertexShader: grassVertexShader,
+      fragmentShader: grassFragmentShader,
+      side: THREE.DoubleSide
     });
     
-    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+    const ground = new THREE.Mesh(groundGeometry, grassMaterial);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = false; // No shadows
+    ground.name = "ground"; // Add name for identification
     this.scene.add(ground);
+    
+    // Update shader time uniform in animation loop
+    this.groundMaterial = grassMaterial;
     
     // Create map generator
     this.mapGenerator = new MapGenerator(this.scene);
@@ -1578,6 +1746,12 @@ export class GameComponent extends LitElement {
       
       // Check if we're getting low FPS and should reduce update frequency of distant objects
       this.lowPerformanceMode = fps < 30;
+    }
+    
+    // Update grass shader time uniform
+    if (this.groundMaterial && this.groundMaterial.uniforms.time) {
+      // Update time with a slow rate to make movement subtle
+      this.groundMaterial.uniforms.time.value = performance.now() * 0.0003;
     }
     
     // Store camera position for health bar billboarding and audio
