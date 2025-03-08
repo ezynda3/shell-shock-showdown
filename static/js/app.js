@@ -31407,189 +31407,6 @@ GameStats = __legacyDecorateClassTS([
   customElement("game-stats")
 ], GameStats);
 
-// assets/ts/game/radar.ts
-class GameRadar extends LitElement {
-  constructor() {
-    super(...arguments);
-    this.playerId = "";
-    this.radarRadius = 150;
-    this.mapScale = 0.08;
-  }
-  canvas;
-  ctx;
-  static styles = css`
-    :host {
-      display: block;
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      z-index: 1000;
-    }
-
-    .radar-container {
-      width: 150px;
-      height: 150px;
-      border-radius: 50%;
-      background-color: rgba(0, 0, 0, 0.6);
-      border: 2px solid rgba(200, 200, 200, 0.7);
-      overflow: hidden;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-    }
-
-    canvas {
-      width: 100%;
-      height: 100%;
-    }
-  `;
-  render() {
-    return html`
-      <div class="radar-container">
-        <canvas></canvas>
-      </div>
-    `;
-  }
-  firstUpdated() {
-    this.canvas = this.shadowRoot?.querySelector("canvas");
-    if (this.canvas) {
-      this.ctx = this.canvas.getContext("2d");
-      this.canvas.width = this.radarRadius;
-      this.canvas.height = this.radarRadius;
-      this.drawRadar();
-      requestAnimationFrame(() => this.animateRadar());
-    }
-  }
-  updated(changedProperties) {
-    if (changedProperties.has("gameState") && this.gameState) {
-      this.drawRadar();
-    }
-  }
-  animateRadar() {
-    this.drawRadar();
-    requestAnimationFrame(() => this.animateRadar());
-  }
-  drawRadar() {
-    if (!this.ctx || !this.canvas)
-      return;
-    const ctx = this.ctx;
-    const centerX = this.canvas.width / 2;
-    const centerY = this.canvas.height / 2;
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    if (!this.gameState || !this.gameState.players) {
-      return;
-    }
-    const player = this.gameState.players[this.playerId];
-    if (!player) {
-      return;
-    }
-    const playerPos = new Vector3(player.position.x, player.position.y, player.position.z);
-    const playerRotation = player.tankRotation || 0;
-    ctx.fillStyle = "rgba(0, 30, 0, 0.7)";
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, this.radarRadius / 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(0, 200, 0, 0.4)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, this.radarRadius / 2, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(0, 200, 0, 0.2)";
-    ctx.lineWidth = 1;
-    for (let i = 1;i < 3; i++) {
-      const radius = this.radarRadius / 2 * (i / 3);
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.save();
-    ctx.translate(centerX, centerY);
-    ctx.rotate(-playerRotation);
-    ctx.translate(-centerX, -centerY);
-    ctx.strokeStyle = "rgba(0, 255, 0, 0.8)";
-    ctx.fillStyle = "rgba(0, 255, 0, 0.8)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerY - this.radarRadius / 2 + 5);
-    ctx.lineTo(centerX - 5, centerY - this.radarRadius / 2 + 15);
-    ctx.lineTo(centerX + 5, centerY - this.radarRadius / 2 + 15);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = "rgba(0, 200, 0, 0.3)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerY - this.radarRadius / 2);
-    ctx.lineTo(centerX, centerY + this.radarRadius / 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(centerX - this.radarRadius / 2, centerY);
-    ctx.lineTo(centerX + this.radarRadius / 2, centerY);
-    ctx.stroke();
-    ctx.restore();
-    ctx.fillStyle = "rgba(0, 255, 0, 0.9)";
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, 4, 0, Math.PI * 2);
-    ctx.fill();
-    Object.entries(this.gameState.players).forEach(([id, otherPlayer]) => {
-      if (id === this.playerId)
-        return;
-      const otherPos = new Vector3(otherPlayer.position.x, otherPlayer.position.y, otherPlayer.position.z);
-      const relativePos = otherPos.clone().sub(playerPos);
-      const distance = relativePos.length();
-      const radarRange = this.radarRadius / (2 * this.mapScale);
-      if (distance > radarRange)
-        return;
-      const sin = Math.sin(playerRotation);
-      const cos = Math.cos(playerRotation);
-      const rotatedX = relativePos.x * cos - relativePos.z * sin;
-      const rotatedZ = relativePos.x * sin + relativePos.z * cos;
-      const scaledX = rotatedX * this.mapScale;
-      const scaledZ = rotatedZ * this.mapScale;
-      const radarX = centerX + scaledX;
-      const radarY = centerY + scaledZ;
-      const distanceRatio = Math.min(1, distance / radarRange);
-      const dotSize = 5 * (1 - distanceRatio * 0.5);
-      const dotOpacity = 1 - distanceRatio * 0.6;
-      let dotColor = `rgba(255, 50, 50, ${dotOpacity})`;
-      if (otherPlayer.color) {
-        const hex = otherPlayer.color.replace("#", "");
-        const r = parseInt(hex.substring(0, 2), 16);
-        const g = parseInt(hex.substring(2, 4), 16);
-        const b = parseInt(hex.substring(4, 6), 16);
-        dotColor = `rgba(${r}, ${g}, ${b}, ${dotOpacity})`;
-      }
-      if (otherPlayer.isDestroyed) {
-        ctx.strokeStyle = dotColor;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(radarX - dotSize, radarY - dotSize);
-        ctx.lineTo(radarX + dotSize, radarY + dotSize);
-        ctx.moveTo(radarX + dotSize, radarY - dotSize);
-        ctx.lineTo(radarX - dotSize, radarY + dotSize);
-        ctx.stroke();
-      } else {
-        ctx.fillStyle = dotColor;
-        ctx.beginPath();
-        ctx.arc(radarX, radarY, dotSize, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    });
-  }
-}
-__legacyDecorateClassTS([
-  property({ type: String })
-], GameRadar.prototype, "playerId", undefined);
-__legacyDecorateClassTS([
-  property({ type: Object })
-], GameRadar.prototype, "gameState", undefined);
-__legacyDecorateClassTS([
-  property({ type: Number })
-], GameRadar.prototype, "radarRadius", undefined);
-__legacyDecorateClassTS([
-  property({ type: Number })
-], GameRadar.prototype, "mapScale", undefined);
-GameRadar = __legacyDecorateClassTS([
-  customElement("game-radar")
-], GameRadar);
-
 // assets/ts/game/index.ts
 window.SpatialAudio = SpatialAudio;
 
@@ -31915,10 +31732,6 @@ class GameComponent extends LitElement {
           <div class="damage-overlay ${this.showDamageOverlay ? "active" : ""}"></div>
           
           <game-stats></game-stats>
-          <game-radar 
-            .playerId="${this.playerId}" 
-            .gameState="${this.multiplayerState}"
-          ></game-radar>
           <div class="controls">
             <div>W: Forward, S: Backward</div>
             <div>A: Rotate tank left, D: Rotate tank right</div>
@@ -32950,3 +32763,187 @@ __legacyDecorateClassTS([
 GameComponent = __legacyDecorateClassTS([
   customElement("game-component")
 ], GameComponent);
+
+// assets/ts/game/radar.ts
+class GameRadar extends LitElement {
+  constructor() {
+    super(...arguments);
+    this.playerId = "";
+    this.radarRadius = 150;
+    this.mapScale = 0.08;
+  }
+  canvas;
+  ctx;
+  static styles = css`
+    :host {
+      display: block;
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 1000;
+    }
+
+    .radar-container {
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      background-color: rgba(0, 0, 0, 0.6);
+      border: 2px solid rgba(200, 200, 200, 0.7);
+      overflow: hidden;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+    }
+  `;
+  render() {
+    return html`
+      <div class="radar-container">
+        <canvas></canvas>
+      </div>
+    `;
+  }
+  firstUpdated() {
+    this.canvas = this.shadowRoot?.querySelector("canvas");
+    if (this.canvas) {
+      this.ctx = this.canvas.getContext("2d");
+      this.canvas.width = this.radarRadius;
+      this.canvas.height = this.radarRadius;
+      this.drawRadar();
+      requestAnimationFrame(() => this.animateRadar());
+    }
+  }
+  updated(changedProperties) {
+    if (changedProperties.has("gameState") && this.gameState) {
+      this.drawRadar();
+    }
+  }
+  animateRadar() {
+    this.drawRadar();
+    requestAnimationFrame(() => this.animateRadar());
+  }
+  drawRadar() {
+    if (!this.ctx || !this.canvas)
+      return;
+    const ctx = this.ctx;
+    const centerX = this.canvas.width / 2;
+    const centerY = this.canvas.height / 2;
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    if (!this.gameState || !this.gameState.players) {
+      return;
+    }
+    const player = this.gameState.players[this.playerId];
+    if (!player) {
+      return;
+    }
+    ctx.fillStyle = "rgba(0, 30, 0, 0.7)";
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, this.radarRadius / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0, 200, 0, 0.4)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, this.radarRadius / 2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(0, 200, 0, 0.2)";
+    ctx.lineWidth = 1;
+    for (let i = 1;i < 3; i++) {
+      const radius = this.radarRadius / 2 * (i / 3);
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(0, 200, 0, 0.3)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - this.radarRadius / 2);
+    ctx.lineTo(centerX, centerY + this.radarRadius / 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(centerX - this.radarRadius / 2, centerY);
+    ctx.lineTo(centerX + this.radarRadius / 2, centerY);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(0, 255, 0, 0.8)";
+    ctx.fillStyle = "rgba(0, 255, 0, 0.8)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - this.radarRadius / 2 + 5);
+    ctx.lineTo(centerX - 5, centerY - this.radarRadius / 2 + 15);
+    ctx.lineTo(centerX + 5, centerY - this.radarRadius / 2 + 15);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(0, 255, 0, 0.9)";
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 4, 0, Math.PI * 2);
+    ctx.fill();
+    const playerPos = new Vector3(player.position.x, player.position.y, player.position.z);
+    const playerRot = player.tankRotation || 0;
+    Object.entries(this.gameState.players).forEach(([id, otherPlayer]) => {
+      if (id === this.playerId)
+        return;
+      const otherPos = new Vector3(otherPlayer.position.x, otherPlayer.position.y, otherPlayer.position.z);
+      const relativePos = otherPos.clone().sub(playerPos);
+      const distance = relativePos.length();
+      const radarRange = this.radarRadius / (2 * this.mapScale);
+      if (distance > radarRange)
+        return;
+      const forwardVec = new Vector3(0, 0, -1);
+      const rotationY = new Matrix4().makeRotationY(playerRot);
+      forwardVec.applyMatrix4(rotationY);
+      const relXZ = new Vector2(relativePos.x, relativePos.z).normalize();
+      const forwardXZ = new Vector2(forwardVec.x, forwardVec.z).normalize();
+      const dot = relXZ.x * forwardXZ.x + relXZ.y * forwardXZ.y;
+      const det = relXZ.x * forwardXZ.y - relXZ.y * forwardXZ.x;
+      const angle = Math.atan2(det, dot);
+      const radarDistance = distance * this.mapScale;
+      const radarX = centerX - Math.sin(angle) * radarDistance;
+      const radarY = centerY + Math.cos(angle) * radarDistance;
+      const distanceRatio = Math.min(1, distance / radarRange);
+      const dotSize = 5 * (1 - distanceRatio * 0.5);
+      const dotOpacity = 1 - distanceRatio * 0.6;
+      let dotColor = `rgba(255, 50, 50, ${dotOpacity})`;
+      if (otherPlayer.color) {
+        const hex = otherPlayer.color.replace("#", "");
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        dotColor = `rgba(${r}, ${g}, ${b}, ${dotOpacity})`;
+      }
+      if (otherPlayer.isDestroyed) {
+        ctx.strokeStyle = dotColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(radarX - dotSize, radarY - dotSize);
+        ctx.lineTo(radarX + dotSize, radarY + dotSize);
+        ctx.moveTo(radarX + dotSize, radarY - dotSize);
+        ctx.lineTo(radarX - dotSize, radarY + dotSize);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = dotColor;
+        ctx.beginPath();
+        ctx.arc(radarX, radarY, dotSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    });
+  }
+}
+__legacyDecorateClassTS([
+  property({ type: String })
+], GameRadar.prototype, "playerId", undefined);
+__legacyDecorateClassTS([
+  property({ type: Object })
+], GameRadar.prototype, "gameState", undefined);
+__legacyDecorateClassTS([
+  property({ type: Number })
+], GameRadar.prototype, "radarRadius", undefined);
+__legacyDecorateClassTS([
+  property({ type: Number })
+], GameRadar.prototype, "mapScale", undefined);
+GameRadar = __legacyDecorateClassTS([
+  customElement("game-radar")
+], GameRadar);

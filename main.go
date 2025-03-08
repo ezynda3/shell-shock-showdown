@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/delaneyj/toolbelt/embeddednats"
+	"github.com/mark3labs/pro-saaskit/game"
 	"github.com/mark3labs/pro-saaskit/middleware"
 	"github.com/mark3labs/pro-saaskit/routes"
 	"github.com/nats-io/nats-server/v2/server"
@@ -70,11 +71,18 @@ func main() {
 	}
 	log.Println("KV store initialized")
 
+	// Initialize game manager
+	gameManager, err := game.NewManager(ctx, nc, kv)
+	if err != nil {
+		log.Fatalf("Failed to initialize game manager: %v", err)
+	}
+	log.Println("Game manager initialized")
+
 	middleware.AddCookieSessionMiddleware(*app)
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
-		// Setup our custom routes first with NATS, JetStream, and KV
-		err := routes.SetupRoutes(ctx, se.Router, nc, js, kv)
+		// Setup our custom routes first with game manager
+		err := routes.SetupRoutes(ctx, se.Router, nc, js, gameManager)
 		if err != nil {
 			return err
 		}

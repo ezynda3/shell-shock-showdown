@@ -6,7 +6,6 @@ import { Tank, NPCTank, ITank, ICollidable, SpatialAudio } from './tank';
 import { CollisionSystem } from './collision';
 import { Shell } from './shell';
 import './stats'; // Import stats component
-import './radar'; // Import radar component
 
 // Make SpatialAudio accessible from window for global use
 (window as any).SpatialAudio = SpatialAudio;
@@ -455,10 +454,6 @@ export class GameComponent extends LitElement {
           <div class="damage-overlay ${this.showDamageOverlay ? 'active' : ''}"></div>
           
           <game-stats></game-stats>
-          <game-radar 
-            .playerId="${this.playerId}" 
-            .gameState="${this.multiplayerState}"
-          ></game-radar>
           <div class="controls">
             <div>W: Forward, S: Backward</div>
             <div>A: Rotate tank left, D: Rotate tank right</div>

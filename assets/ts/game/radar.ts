@@ -89,7 +89,6 @@ export class GameRadar extends LitElement {
   }
 
   updated(changedProperties: Map<string, any>) {
-    // Only redraw when game state changes
     if (changedProperties.has('gameState') && this.gameState) {
       this.drawRadar();
     }
@@ -124,15 +123,6 @@ export class GameRadar extends LitElement {
       return;
     }
     
-    const playerPos = new THREE.Vector3(
-      player.position.x,
-      player.position.y,
-      player.position.z
-    );
-    
-    // Get player rotation
-    const playerRotation = player.tankRotation || 0;
-    
     // Draw radar background
     ctx.fillStyle = 'rgba(0, 30, 0, 0.7)';
     ctx.beginPath();
@@ -158,28 +148,7 @@ export class GameRadar extends LitElement {
       ctx.stroke();
     }
     
-    // Save canvas state before rotations
-    ctx.save();
-    
-    // Rotate the entire radar based on player rotation (reversed direction)
-    ctx.translate(centerX, centerY);
-    ctx.rotate(-playerRotation); // Negative rotation to reverse direction
-    ctx.translate(-centerX, -centerY);
-    
-    // Draw direction marker (fixed forward pointer)
-    ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
-    ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
-    ctx.lineWidth = 2;
-    
-    // Forward triangle pointer
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerY - this.radarRadius/2 + 5);
-    ctx.lineTo(centerX - 5, centerY - this.radarRadius/2 + 15);
-    ctx.lineTo(centerX + 5, centerY - this.radarRadius/2 + 15);
-    ctx.closePath();
-    ctx.fill();
-    
-    // Draw crosshairs
+    // Draw fixed crosshairs (no rotation)
     ctx.strokeStyle = 'rgba(0, 200, 0, 0.3)';
     ctx.lineWidth = 1;
     
@@ -195,49 +164,85 @@ export class GameRadar extends LitElement {
     ctx.lineTo(centerX + this.radarRadius/2, centerY);
     ctx.stroke();
     
-    // Restore canvas state before drawing player dots
-    ctx.restore();
+    // Draw fixed direction marker (always pointing up)
+    ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
+    ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
+    ctx.lineWidth = 2;
     
-    // Draw player (always at center, with rotation)
+    // Forward triangle pointer
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - this.radarRadius/2 + 5);
+    ctx.lineTo(centerX - 5, centerY - this.radarRadius/2 + 15);
+    ctx.lineTo(centerX + 5, centerY - this.radarRadius/2 + 15);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Draw player (always at center)
     ctx.fillStyle = 'rgba(0, 255, 0, 0.9)';
     ctx.beginPath();
     ctx.arc(centerX, centerY, 4, 0, Math.PI * 2);
     ctx.fill();
     
-    // Draw other players
+    // Get player position and rotation
+    const playerPos = new THREE.Vector3(player.position.x, player.position.y, player.position.z);
+    const playerRot = player.tankRotation || 0;
+    
+    // Draw other players with fixed coordinate system (arrow is north)
     Object.entries(this.gameState.players).forEach(([id, otherPlayer]) => {
       // Skip self
       if (id === this.playerId) return;
       
-      // Calculate relative position
+      // Get other player position
       const otherPos = new THREE.Vector3(
         otherPlayer.position.x,
         otherPlayer.position.y,
         otherPlayer.position.z
       );
       
-      // Calculate distance for scaling
+      // Calculate relative position vector (other - player)
       const relativePos = otherPos.clone().sub(playerPos);
+      
+      // Calculate distance for scaling and range check
       const distance = relativePos.length();
       const radarRange = this.radarRadius / (2 * this.mapScale);
       
       // Skip if out of radar range
       if (distance > radarRange) return;
       
-      // Calculate rotated position relative to player orientation (reversed)
-      const sin = Math.sin(playerRotation); // Positive rotation to match radar direction
-      const cos = Math.cos(playerRotation);
+      // In THREE.js, the world coordinate system has:
+      // +X = right
+      // +Y = up 
+      // +Z = towards viewer (out of screen)
+      //
+      // For the radar, we want:
+      // +X (radar) = right
+      // +Y (radar) = up (which is -Z in THREE.js coordinates)
       
-      const rotatedX = relativePos.x * cos - relativePos.z * sin;
-      const rotatedZ = relativePos.x * sin + relativePos.z * cos;
+      // Create a world-forward vector (player looking direction)
+      const forwardVec = new THREE.Vector3(0, 0, -1);  // -Z is forward in THREE.js
       
-      // Scale to radar
-      const scaledX = rotatedX * this.mapScale;
-      const scaledZ = rotatedZ * this.mapScale;
+      // Create a rotation to apply to this vector based on player rotation
+      const rotationY = new THREE.Matrix4().makeRotationY(playerRot);
+      forwardVec.applyMatrix4(rotationY);
       
-      // Calculate radar coordinates
-      const radarX = centerX + scaledX;
-      const radarY = centerY + scaledZ;
+      // Now we need to find the angle between the relative position and the forward vector,
+      // in the XZ plane.
+      
+      // Project both vectors onto XZ plane (ignore Y component)
+      const relXZ = new THREE.Vector2(relativePos.x, relativePos.z).normalize();
+      const forwardXZ = new THREE.Vector2(forwardVec.x, forwardVec.z).normalize();
+      
+      // Calculate the angle between these vectors
+      // We use the 2D cross product (determinant) and dot product
+      const dot = relXZ.x * forwardXZ.x + relXZ.y * forwardXZ.y;
+      const det = relXZ.x * forwardXZ.y - relXZ.y * forwardXZ.x;
+      const angle = Math.atan2(det, dot);
+      
+      // Calculate radar position using the angle and distance
+      // Invert the angle to fix rotation direction
+      const radarDistance = distance * this.mapScale;
+      const radarX = centerX - Math.sin(angle) * radarDistance;
+      const radarY = centerY + Math.cos(angle) * radarDistance;
       
       // Adjust dot size and opacity based on distance
       const distanceRatio = Math.min(1, distance / radarRange);
@@ -272,6 +277,11 @@ export class GameRadar extends LitElement {
         ctx.beginPath();
         ctx.arc(radarX, radarY, dotSize, 0, Math.PI * 2);
         ctx.fill();
+        
+        // Draw outline
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
       }
     });
   }
