@@ -32612,162 +32612,35 @@ class GameComponent extends LitElement {
   createCrosshair() {
     if (!this.scene || !this.camera)
       return;
-    const crosshairGroup = new Group;
-    const outerRadius = 0.8;
-    const outerSegments = 32;
-    const outerCircleGeometry = new BufferGeometry;
-    const outerCircleVertices = [];
-    for (let i = 0;i <= outerSegments; i++) {
-      const theta = i / outerSegments * Math.PI * 2;
-      outerCircleVertices.push(Math.cos(theta) * outerRadius, Math.sin(theta) * outerRadius, 0);
-      if (i < outerSegments) {
-        const nextTheta = (i + 1) / outerSegments * Math.PI * 2;
-        outerCircleVertices.push(Math.cos(nextTheta) * outerRadius, Math.sin(nextTheta) * outerRadius, 0);
-      }
-    }
-    outerCircleGeometry.setAttribute("position", new Float32BufferAttribute(outerCircleVertices, 3));
-    const innerRadius = 0.3;
-    const innerSegments = 24;
-    const innerCircleGeometry = new BufferGeometry;
-    const innerCircleVertices = [];
-    for (let i = 0;i <= innerSegments; i++) {
-      const theta = i / innerSegments * Math.PI * 2;
-      innerCircleVertices.push(Math.cos(theta) * innerRadius, Math.sin(theta) * innerRadius, 0);
-      if (i < innerSegments) {
-        const nextTheta = (i + 1) / innerSegments * Math.PI * 2;
-        innerCircleVertices.push(Math.cos(nextTheta) * innerRadius, Math.sin(nextTheta) * innerRadius, 0);
-      }
-    }
-    innerCircleGeometry.setAttribute("position", new Float32BufferAttribute(innerCircleVertices, 3));
-    const tickGeometry = new BufferGeometry;
-    const tickSize = 0.2;
-    const tickGap = 0.15;
-    const tickVertices = [
-      0,
-      outerRadius + tickSize,
-      0,
-      0,
-      outerRadius + tickGap,
-      0,
-      outerRadius + tickSize,
-      0,
-      0,
-      outerRadius + tickGap,
-      0,
-      0,
-      0,
-      -(outerRadius + tickSize),
-      0,
-      0,
-      -(outerRadius + tickGap),
-      0,
-      -(outerRadius + tickSize),
-      0,
-      0,
-      -(outerRadius + tickGap),
-      0,
-      0
-    ];
-    tickGeometry.setAttribute("position", new Float32BufferAttribute(tickVertices, 3));
-    const centerGeometry = new BufferGeometry;
-    const centerVertices = [
-      0,
-      0,
-      0,
-      0.05,
-      0,
-      0
-    ];
-    centerGeometry.setAttribute("position", new Float32BufferAttribute(centerVertices, 3));
-    const rangeMarkGeometry = new BufferGeometry;
-    const rangeMarkLength = 0.15;
-    const rangeVertices = [
-      -rangeMarkLength,
-      -0.2,
-      0,
-      rangeMarkLength,
-      -0.2,
-      0,
-      -rangeMarkLength,
-      -0.4,
-      0,
-      rangeMarkLength,
-      -0.4,
-      0,
-      -rangeMarkLength,
-      -0.6,
-      0,
-      rangeMarkLength,
-      -0.6,
-      0
-    ];
-    rangeMarkGeometry.setAttribute("position", new Float32BufferAttribute(rangeVertices, 3));
-    const outerMaterial = new LineBasicMaterial({
-      color: 65280,
-      transparent: true,
-      opacity: 0.7,
-      depthTest: false,
-      depthWrite: false
-    });
-    const innerMaterial = new LineBasicMaterial({
-      color: 65280,
-      transparent: true,
-      opacity: 0.9,
+    const crosshairSize = 0.5;
+    const crosshairMaterial = new LineBasicMaterial({
+      color: 16777215,
+      linewidth: 2,
       depthTest: false,
       depthWrite: false,
-      linewidth: 2
-    });
-    const tickMaterial = new LineBasicMaterial({
-      color: 16776960,
       transparent: true,
-      opacity: 0.9,
-      depthTest: false,
-      depthWrite: false
+      opacity: 0.9
     });
-    const centerMaterial = new LineBasicMaterial({
-      color: 16711680,
-      transparent: true,
-      opacity: 1,
-      depthTest: false,
-      depthWrite: false
-    });
-    const rangeMaterial = new LineBasicMaterial({
-      color: 16777215,
-      transparent: true,
-      opacity: 0.6,
-      depthTest: false,
-      depthWrite: false
-    });
-    const outerCircle = new LineSegments(outerCircleGeometry, outerMaterial);
-    const innerCircle = new LineSegments(innerCircleGeometry, innerMaterial);
-    const tickMarks = new LineSegments(tickGeometry, tickMaterial);
-    const centerPoint = new Points(centerGeometry, centerMaterial);
-    const rangeMarks = new LineSegments(rangeMarkGeometry, rangeMaterial);
-    outerCircle.renderOrder = 9999;
-    innerCircle.renderOrder = 9999;
-    tickMarks.renderOrder = 9999;
-    centerPoint.renderOrder = 9999;
-    rangeMarks.renderOrder = 9999;
-    crosshairGroup.add(outerCircle);
-    crosshairGroup.add(innerCircle);
-    crosshairGroup.add(tickMarks);
-    crosshairGroup.add(centerPoint);
-    crosshairGroup.add(rangeMarks);
-    const dotGeometry = new BufferGeometry;
-    dotGeometry.setAttribute("position", new Float32BufferAttribute([0, 0, 0], 3));
-    const dotMaterial = new PointsMaterial({
-      color: 16711680,
-      size: 0.1,
-      sizeAttenuation: false,
-      transparent: true,
-      opacity: 1,
-      depthTest: false,
-      depthWrite: false
-    });
-    const centerDot = new Points(dotGeometry, dotMaterial);
-    centerDot.renderOrder = 1e4;
-    crosshairGroup.add(centerDot);
-    this.crosshairObject = crosshairGroup;
+    const crosshairGeometry = new BufferGeometry;
+    const vertices = new Float32Array([
+      -crosshairSize,
+      0,
+      0,
+      crosshairSize,
+      0,
+      0,
+      0,
+      -crosshairSize,
+      0,
+      0,
+      crosshairSize,
+      0
+    ]);
+    crosshairGeometry.setAttribute("position", new BufferAttribute(vertices, 3));
+    const crosshair = new LineSegments(crosshairGeometry, crosshairMaterial);
+    crosshair.renderOrder = 9999;
+    this.crosshairObject = new Object3D;
+    this.crosshairObject.add(crosshair);
     this.scene.add(this.crosshairObject);
     this.updateCrosshairPosition();
   }
