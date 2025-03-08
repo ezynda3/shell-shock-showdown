@@ -614,6 +614,19 @@ export class Tank implements ITank {
     return this.health;
   }
   
+  // Add property to store tank's owner ID
+  private ownerId?: string;
+  
+  // Getter for tank owner ID
+  getOwnerId(): string | undefined {
+    return this.ownerId;
+  }
+  
+  // Setter for tank owner ID
+  setOwnerId(id: string) {
+    this.ownerId = id;
+  }
+  
   respawn(position?: THREE.Vector3): void {
     // Reset health
     this.health = this.MAX_HEALTH;
@@ -644,7 +657,7 @@ export class Tank implements ITank {
       bubbles: true,
       composed: true,
       detail: { 
-        playerId: 'player',
+        playerId: this.ownerId || 'player',
         position: {
           x: this.tank.position.x,
           y: this.tank.position.y,
@@ -1259,6 +1272,19 @@ export class NPCTank implements ITank {
   turretPivot: THREE.Group;
   barrel?: THREE.Mesh;
   barrelPivot: THREE.Group;
+  
+  // Add owner ID property
+  private ownerId?: string;
+  
+  // Getter for tank owner ID
+  getOwnerId(): string | undefined {
+    return this.ownerId;
+  }
+  
+  // Setter for tank owner ID
+  setOwnerId(id: string) {
+    this.ownerId = id;
+  }
   
   // Implement required interface methods
   getMinBarrelElevation(): number {
@@ -2031,6 +2057,23 @@ export class NPCTank implements ITank {
       this.scene.remove(effect);
     }
     this.destroyedEffects = [];
+    
+    // Dispatch tank respawn event if this is a remote player (has owner ID)
+    if (this.ownerId) {
+      const respawnEvent = new CustomEvent('tank-respawn', {
+        bubbles: true,
+        composed: true,
+        detail: { 
+          playerId: this.ownerId,
+          position: {
+            x: this.tank.position.x,
+            y: this.tank.position.y,
+            z: this.tank.position.z
+          }
+        }
+      });
+      document.dispatchEvent(respawnEvent);
+    }
   }
   
   private createDestroyedEffect(): void {

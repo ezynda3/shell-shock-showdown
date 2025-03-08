@@ -129,6 +129,12 @@ export class GameComponent extends LitElement {
             console.log('Using player ID from attribute:', this.playerId);
           }
           
+          // Set the player ID on the tank
+          if (this.playerTank && typeof this.playerTank.setOwnerId === 'function') {
+            this.playerTank.setOwnerId(this.playerId);
+            console.log('Set player tank owner ID:', this.playerId);
+          }
+          
           console.log('My position:', this.playerTank.tank.position);
           this.gameStateInitialized = true;
         }
@@ -658,6 +664,11 @@ export class GameComponent extends LitElement {
         tankName
       );
       
+      // Set the tank's owner ID
+      if (typeof remoteTank.setOwnerId === 'function') {
+        remoteTank.setOwnerId(playerId);
+      }
+      
       // Set initial rotation if available
       if (typeof playerData.tankRotation === 'number') {
         remoteTank.tank.rotation.y = playerData.tankRotation;
@@ -669,6 +680,11 @@ export class GameComponent extends LitElement {
       
       if (typeof playerData.barrelElevation === 'number') {
         remoteTank.barrelPivot.rotation.x = playerData.barrelElevation;
+      }
+      
+      // Set health if available
+      if (typeof playerData.health === 'number' && typeof remoteTank.setHealth === 'function') {
+        remoteTank.setHealth(playerData.health);
       }
       
       // Add debug visualization - big blue transparent cube
@@ -773,6 +789,15 @@ export class GameComponent extends LitElement {
         // Make sure the tank has a setHealth method
         if (typeof tank.setHealth === 'function') {
           tank.setHealth(playerData.health);
+        }
+        
+        // If player is alive (health > 0), make sure tank is visible
+        if (playerData.health > 0) {
+          // Make tank visible if it wasn't already
+          if (!tank.tank.visible) {
+            console.log('Making remote tank visible again after respawn');
+            tank.tank.visible = true;
+          }
         }
       }
       

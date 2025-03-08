@@ -27041,6 +27041,13 @@ class Tank {
   getHealth() {
     return this.health;
   }
+  ownerId;
+  getOwnerId() {
+    return this.ownerId;
+  }
+  setOwnerId(id) {
+    this.ownerId = id;
+  }
   respawn(position) {
     this.health = this.MAX_HEALTH;
     this.isDestroyed = false;
@@ -27059,7 +27066,7 @@ class Tank {
       bubbles: true,
       composed: true,
       detail: {
-        playerId: "player",
+        playerId: this.ownerId || "player",
         position: {
           x: this.tank.position.x,
           y: this.tank.position.y,
@@ -27526,6 +27533,13 @@ class NPCTank {
   turretPivot;
   barrel;
   barrelPivot;
+  ownerId;
+  getOwnerId() {
+    return this.ownerId;
+  }
+  setOwnerId(id) {
+    this.ownerId = id;
+  }
   getMinBarrelElevation() {
     return this.minBarrelElevation;
   }
@@ -27969,6 +27983,21 @@ class NPCTank {
       this.scene.remove(effect);
     }
     this.destroyedEffects = [];
+    if (this.ownerId) {
+      const respawnEvent = new CustomEvent("tank-respawn", {
+        bubbles: true,
+        composed: true,
+        detail: {
+          playerId: this.ownerId,
+          position: {
+            x: this.tank.position.x,
+            y: this.tank.position.y,
+            z: this.tank.position.z
+          }
+        }
+      });
+      document.dispatchEvent(respawnEvent);
+    }
   }
   createDestroyedEffect() {
     this.tank.visible = false;
@@ -28621,6 +28650,10 @@ class GameComponent extends LitElement {
           } else {
             console.log("Using player ID from attribute:", this.playerId);
           }
+          if (this.playerTank && typeof this.playerTank.setOwnerId === "function") {
+            this.playerTank.setOwnerId(this.playerId);
+            console.log("Set player tank owner ID:", this.playerId);
+          }
           console.log("My position:", this.playerTank.tank.position);
           this.gameStateInitialized = true;
         }
@@ -29028,6 +29061,9 @@ class GameComponent extends LitElement {
       }
       const tankName = playerData.name || `Player ${playerId.substring(0, 6)}`;
       const remoteTank = new NPCTank(this.scene, position, tankColor, tankName);
+      if (typeof remoteTank.setOwnerId === "function") {
+        remoteTank.setOwnerId(playerId);
+      }
       if (typeof playerData.tankRotation === "number") {
         remoteTank.tank.rotation.y = playerData.tankRotation;
       }
@@ -29036,6 +29072,9 @@ class GameComponent extends LitElement {
       }
       if (typeof playerData.barrelElevation === "number") {
         remoteTank.barrelPivot.rotation.x = playerData.barrelElevation;
+      }
+      if (typeof playerData.health === "number" && typeof remoteTank.setHealth === "function") {
+        remoteTank.setHealth(playerData.health);
       }
       this.addDebugVisualToRemoteTank(remoteTank);
       this.collisionSystem.addCollider(remoteTank);
@@ -29101,6 +29140,12 @@ class GameComponent extends LitElement {
       if (typeof playerData.health === "number") {
         if (typeof tank.setHealth === "function") {
           tank.setHealth(playerData.health);
+        }
+        if (playerData.health > 0) {
+          if (!tank.tank.visible) {
+            console.log("Making remote tank visible again after respawn");
+            tank.tank.visible = true;
+          }
         }
       }
     } catch (error) {
