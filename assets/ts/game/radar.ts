@@ -68,7 +68,7 @@ export class GameRadar extends LitElement {
       height: 100%;
     }
 
-    /* Animated radar sweep effect */
+    /* Radar sweep effect - now dynamically rotated in JS */
     .radar-sweep {
       position: absolute;
       top: 0;
@@ -77,13 +77,15 @@ export class GameRadar extends LitElement {
       height: 100%;
       border-radius: 50%;
       background: linear-gradient(90deg, rgba(0, 255, 0, 0.2) 0%, transparent 50%, transparent 100%);
-      animation: sweep 4s infinite linear;
       pointer-events: none;
+      transform-origin: center;
+      animation: pulse 4s infinite ease-in-out;
     }
-
-    @keyframes sweep {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+    
+    @keyframes pulse {
+      0% { opacity: 0.3; }
+      50% { opacity: 0.7; }
+      100% { opacity: 0.3; }
     }
 
     /* Radar grid lines */
@@ -121,15 +123,20 @@ export class GameRadar extends LitElement {
   `;
 
   render() {
+    // When we render, we won't include the radar-grid div anymore
+    // since we're drawing the grid directly on the canvas
     return html`
       <div class="radar-container">
         <canvas></canvas>
         <div class="radar-sweep"></div>
-        <div class="radar-grid"></div>
       </div>
     `;
   }
 
+  // Track sweep rotation independently
+  private sweepAngle = 0;
+  private lastTimestamp = 0;
+  
   firstUpdated() {
     // Set up canvas after render
     this.canvas = this.shadowRoot?.querySelector('canvas') as HTMLCanvasElement;
@@ -143,6 +150,9 @@ export class GameRadar extends LitElement {
       // Initial draw
       this.drawRadar();
       
+      // Start radar sweep animation
+      this.lastTimestamp = performance.now();
+      
       // Set up animation loop
       this.animateRadar();
     }
@@ -155,10 +165,36 @@ export class GameRadar extends LitElement {
     }
   }
 
-  private animateRadar() {
-    // Create animation loop for smooth updates
-    requestAnimationFrame(() => this.animateRadar());
+  private animateRadar(timestamp = performance.now()) {
+    // Calculate time delta
+    const delta = timestamp - this.lastTimestamp;
+    this.lastTimestamp = timestamp;
+    
+    // Update sweep angle (complete rotation every 4 seconds)
+    this.sweepAngle += (delta / 4000) * Math.PI * 2;
+    if (this.sweepAngle > Math.PI * 2) {
+      this.sweepAngle -= Math.PI * 2;
+    }
+    
+    // Get player rotation if available
+    let playerRotation = 0;
+    if (this.gameState?.players && this.playerId && this.gameState.players[this.playerId]) {
+      playerRotation = this.gameState.players[this.playerId].tankRotation || 0;
+    }
+    
+    // Update the radar sweep element
+    const sweepElement = this.shadowRoot?.querySelector('.radar-sweep') as HTMLElement;
+    if (sweepElement) {
+      // Combine the sweep rotation with player orientation
+      // The sweep rotates in world coordinates, so we add player rotation
+      sweepElement.style.transform = `rotate(${this.sweepAngle + playerRotation}rad)`;
+    }
+    
+    // Draw the radar
     this.drawRadar();
+    
+    // Continue animation
+    requestAnimationFrame((t) => this.animateRadar(t));
   }
 
   private drawRadar() {
@@ -171,11 +207,39 @@ export class GameRadar extends LitElement {
     // Clear the canvas
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     
+    // Exit if no game state
+    if (!this.gameState || !this.gameState.players) {
+      return;
+    }
+    
+    // Find player position and rotation
+    const player = this.gameState.players[this.playerId];
+    if (!player) {
+      return;
+    }
+    
+    const playerPos = new THREE.Vector3(
+      player.position.x,
+      player.position.y,
+      player.position.z
+    );
+    
+    // Get player rotation (default to 0 if not defined)
+    const playerRotation = player.tankRotation || 0;
+    
+    // Draw radar background with rotation
+    ctx.save();
+    
     // Draw radar background (transparent black circle)
     ctx.fillStyle = 'rgba(10, 20, 10, 0.6)';
     ctx.beginPath();
     ctx.arc(centerX, centerY, this.radarRadius / 2, 0, Math.PI * 2);
     ctx.fill();
+    
+    // Rotate canvas for grid lines to create fixed orientation relative to player
+    ctx.translate(centerX, centerY);
+    ctx.rotate(-playerRotation); // Negative rotation to counter player rotation
+    ctx.translate(-centerX, -centerY);
     
     // Draw radar circles
     ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
@@ -189,45 +253,56 @@ export class GameRadar extends LitElement {
       ctx.stroke();
     }
     
-    // Exit if no game state
-    if (!this.gameState || !this.gameState.players) {
-      return;
-    }
+    // Draw cardinal direction lines (N, S, E, W markings)
+    ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
+    ctx.lineWidth = 1;
     
-    // Find player position
-    const player = this.gameState.players[this.playerId];
-    if (!player) {
-      return;
-    }
+    // North-South line
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - this.radarRadius/2);
+    ctx.lineTo(centerX, centerY + this.radarRadius/2);
+    ctx.stroke();
     
-    const playerPos = new THREE.Vector3(
-      player.position.x,
-      player.position.y,
-      player.position.z
-    );
+    // East-West line
+    ctx.beginPath();
+    ctx.moveTo(centerX - this.radarRadius/2, centerY);
+    ctx.lineTo(centerX + this.radarRadius/2, centerY);
+    ctx.stroke();
     
-    // Draw player (always at center)
+    // Add N,S,E,W labels
+    ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
+    ctx.font = '10px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    // Draw cardinal direction labels
+    ctx.fillText('N', centerX, centerY - this.radarRadius/2 + 8);
+    ctx.fillText('S', centerX, centerY + this.radarRadius/2 - 8);
+    ctx.fillText('E', centerX + this.radarRadius/2 - 8, centerY);
+    ctx.fillText('W', centerX - this.radarRadius/2 + 8, centerY);
+    
+    // Restore canvas state to draw player dots without rotation
+    ctx.restore();
+    
+    // Draw player (always at center, pointing up)
     ctx.fillStyle = 'rgba(0, 255, 0, 0.9)';
     ctx.beginPath();
     ctx.arc(centerX, centerY, this.dotSize/2, 0, Math.PI * 2);
     ctx.fill();
     
-    // Draw direction indicator for player's tank
-    if (player.tankRotation !== undefined) {
-      // Draw tank direction
-      const dirLength = this.dotSize * 1.5;
-      const tankDirX = centerX + Math.sin(player.tankRotation) * dirLength;
-      const tankDirY = centerY + Math.cos(player.tankRotation) * dirLength;
-      
-      ctx.strokeStyle = 'rgba(0, 255, 0, 0.9)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(centerX, centerY);
-      ctx.lineTo(tankDirX, tankDirY);
-      ctx.stroke();
-    }
+    // Draw forward direction indicator for player (always points up)
+    const dirLength = this.dotSize * 1.5;
+    const tankDirX = centerX; 
+    const tankDirY = centerY - dirLength; // Always points up (north)
     
-    // Draw other players
+    ctx.strokeStyle = 'rgba(0, 255, 0, 0.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(tankDirX, tankDirY);
+    ctx.stroke();
+    
+    // Draw other players (with positions rotated relative to player)
     Object.entries(this.gameState.players).forEach(([id, otherPlayer]) => {
       // Skip self
       if (id === this.playerId) return;
@@ -241,16 +316,21 @@ export class GameRadar extends LitElement {
       
       const relativePos = otherPos.clone().sub(playerPos);
       
-      // Scale position to radar
-      const scaledX = relativePos.x * this.mapScale;
-      const scaledZ = relativePos.z * this.mapScale;
-      
       // Calculate distance for dot size/opacity scaling
       const distance = relativePos.length();
       const radarRange = this.radarRadius / (2 * this.mapScale);
       
       // Skip if out of radar range
       if (distance > radarRange) return;
+      
+      // Rotate the relative position based on player's rotation
+      // Create a rotated coordinate system where player is facing up (negative z)
+      const rotatedX = relativePos.x * Math.cos(-playerRotation) - relativePos.z * Math.sin(-playerRotation);
+      const rotatedZ = relativePos.x * Math.sin(-playerRotation) + relativePos.z * Math.cos(-playerRotation);
+      
+      // Scale position to radar
+      const scaledX = rotatedX * this.mapScale;
+      const scaledZ = rotatedZ * this.mapScale;
       
       // Calculate radar coordinates
       const radarX = centerX + scaledX;
@@ -299,9 +379,12 @@ export class GameRadar extends LitElement {
         
         // Draw direction indicator if tank rotation is available
         if (otherPlayer.tankRotation !== undefined) {
+          // Calculate relative rotation angle
+          const relativeRotation = otherPlayer.tankRotation - playerRotation;
+          
           const dirLength = adjustedDotSize * 1.5;
-          const dirX = radarX + Math.sin(otherPlayer.tankRotation) * dirLength;
-          const dirY = radarY + Math.cos(otherPlayer.tankRotation) * dirLength;
+          const dirX = radarX + Math.sin(relativeRotation) * dirLength;
+          const dirY = radarY + Math.cos(relativeRotation) * dirLength;
           
           ctx.strokeStyle = dotColor;
           ctx.lineWidth = 1.5;

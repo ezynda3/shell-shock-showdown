@@ -31293,7 +31293,7 @@ class GameRadar extends LitElement {
       height: 100%;
     }
 
-    /* Animated radar sweep effect */
+    /* Radar sweep effect - now dynamically rotated in JS */
     .radar-sweep {
       position: absolute;
       top: 0;
@@ -31302,13 +31302,15 @@ class GameRadar extends LitElement {
       height: 100%;
       border-radius: 50%;
       background: linear-gradient(90deg, rgba(0, 255, 0, 0.2) 0%, transparent 50%, transparent 100%);
-      animation: sweep 4s infinite linear;
       pointer-events: none;
+      transform-origin: center;
+      animation: pulse 4s infinite ease-in-out;
     }
-
-    @keyframes sweep {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+    
+    @keyframes pulse {
+      0% { opacity: 0.3; }
+      50% { opacity: 0.7; }
+      100% { opacity: 0.3; }
     }
 
     /* Radar grid lines */
@@ -31349,10 +31351,11 @@ class GameRadar extends LitElement {
       <div class="radar-container">
         <canvas></canvas>
         <div class="radar-sweep"></div>
-        <div class="radar-grid"></div>
       </div>
     `;
   }
+  sweepAngle = 0;
+  lastTimestamp = 0;
   firstUpdated() {
     this.canvas = this.shadowRoot?.querySelector("canvas");
     if (this.canvas) {
@@ -31360,6 +31363,7 @@ class GameRadar extends LitElement {
       this.canvas.width = this.radarRadius;
       this.canvas.height = this.radarRadius;
       this.drawRadar();
+      this.lastTimestamp = performance.now();
       this.animateRadar();
     }
   }
@@ -31368,9 +31372,23 @@ class GameRadar extends LitElement {
       this.drawRadar();
     }
   }
-  animateRadar() {
-    requestAnimationFrame(() => this.animateRadar());
+  animateRadar(timestamp = performance.now()) {
+    const delta = timestamp - this.lastTimestamp;
+    this.lastTimestamp = timestamp;
+    this.sweepAngle += delta / 4000 * Math.PI * 2;
+    if (this.sweepAngle > Math.PI * 2) {
+      this.sweepAngle -= Math.PI * 2;
+    }
+    let playerRotation = 0;
+    if (this.gameState?.players && this.playerId && this.gameState.players[this.playerId]) {
+      playerRotation = this.gameState.players[this.playerId].tankRotation || 0;
+    }
+    const sweepElement = this.shadowRoot?.querySelector(".radar-sweep");
+    if (sweepElement) {
+      sweepElement.style.transform = `rotate(${this.sweepAngle + playerRotation}rad)`;
+    }
     this.drawRadar();
+    requestAnimationFrame((t) => this.animateRadar(t));
   }
   drawRadar() {
     if (!this.ctx || !this.canvas)
@@ -31379,18 +31397,6 @@ class GameRadar extends LitElement {
     const centerX = this.canvas.width / 2;
     const centerY = this.canvas.height / 2;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.fillStyle = "rgba(10, 20, 10, 0.6)";
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, this.radarRadius / 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(0, 255, 0, 0.3)";
-    ctx.lineWidth = 1;
-    for (let i = 1;i <= 3; i++) {
-      const radius = this.radarRadius / 2 * (i / 3);
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      ctx.stroke();
-    }
     if (!this.gameState || !this.gameState.players) {
       return;
     }
@@ -31399,32 +31405,68 @@ class GameRadar extends LitElement {
       return;
     }
     const playerPos = new Vector3(player.position.x, player.position.y, player.position.z);
+    const playerRotation = player.tankRotation || 0;
+    ctx.save();
+    ctx.fillStyle = "rgba(10, 20, 10, 0.6)";
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, this.radarRadius / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.translate(centerX, centerY);
+    ctx.rotate(-playerRotation);
+    ctx.translate(-centerX, -centerY);
+    ctx.strokeStyle = "rgba(0, 255, 0, 0.3)";
+    ctx.lineWidth = 1;
+    for (let i = 1;i <= 3; i++) {
+      const radius = this.radarRadius / 2 * (i / 3);
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(0, 255, 0, 0.5)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - this.radarRadius / 2);
+    ctx.lineTo(centerX, centerY + this.radarRadius / 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(centerX - this.radarRadius / 2, centerY);
+    ctx.lineTo(centerX + this.radarRadius / 2, centerY);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(0, 255, 0, 0.7)";
+    ctx.font = "10px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("N", centerX, centerY - this.radarRadius / 2 + 8);
+    ctx.fillText("S", centerX, centerY + this.radarRadius / 2 - 8);
+    ctx.fillText("E", centerX + this.radarRadius / 2 - 8, centerY);
+    ctx.fillText("W", centerX - this.radarRadius / 2 + 8, centerY);
+    ctx.restore();
     ctx.fillStyle = "rgba(0, 255, 0, 0.9)";
     ctx.beginPath();
     ctx.arc(centerX, centerY, this.dotSize / 2, 0, Math.PI * 2);
     ctx.fill();
-    if (player.tankRotation !== undefined) {
-      const dirLength = this.dotSize * 1.5;
-      const tankDirX = centerX + Math.sin(player.tankRotation) * dirLength;
-      const tankDirY = centerY + Math.cos(player.tankRotation) * dirLength;
-      ctx.strokeStyle = "rgba(0, 255, 0, 0.9)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(centerX, centerY);
-      ctx.lineTo(tankDirX, tankDirY);
-      ctx.stroke();
-    }
+    const dirLength = this.dotSize * 1.5;
+    const tankDirX = centerX;
+    const tankDirY = centerY - dirLength;
+    ctx.strokeStyle = "rgba(0, 255, 0, 0.9)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(tankDirX, tankDirY);
+    ctx.stroke();
     Object.entries(this.gameState.players).forEach(([id, otherPlayer]) => {
       if (id === this.playerId)
         return;
       const otherPos = new Vector3(otherPlayer.position.x, otherPlayer.position.y, otherPlayer.position.z);
       const relativePos = otherPos.clone().sub(playerPos);
-      const scaledX = relativePos.x * this.mapScale;
-      const scaledZ = relativePos.z * this.mapScale;
       const distance = relativePos.length();
       const radarRange = this.radarRadius / (2 * this.mapScale);
       if (distance > radarRange)
         return;
+      const rotatedX = relativePos.x * Math.cos(-playerRotation) - relativePos.z * Math.sin(-playerRotation);
+      const rotatedZ = relativePos.x * Math.sin(-playerRotation) + relativePos.z * Math.cos(-playerRotation);
+      const scaledX = rotatedX * this.mapScale;
+      const scaledZ = rotatedZ * this.mapScale;
       const radarX = centerX + scaledX;
       const radarY = centerY + scaledZ;
       const distanceRatio = Math.min(1, distance / radarRange);
@@ -31457,9 +31499,10 @@ class GameRadar extends LitElement {
         ctx.lineWidth = 1;
         ctx.stroke();
         if (otherPlayer.tankRotation !== undefined) {
-          const dirLength = adjustedDotSize * 1.5;
-          const dirX = radarX + Math.sin(otherPlayer.tankRotation) * dirLength;
-          const dirY = radarY + Math.cos(otherPlayer.tankRotation) * dirLength;
+          const relativeRotation = otherPlayer.tankRotation - playerRotation;
+          const dirLength2 = adjustedDotSize * 1.5;
+          const dirX = radarX + Math.sin(relativeRotation) * dirLength2;
+          const dirY = radarY + Math.cos(relativeRotation) * dirLength2;
           ctx.strokeStyle = dotColor;
           ctx.lineWidth = 1.5;
           ctx.beginPath();
