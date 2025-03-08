@@ -312,9 +312,8 @@ export class Tank implements ITank {
     // No health bar for player tank - it's shown in the UI
     
     // Initialize sound effects
-    // Trim 4 seconds from the end of the tank movement sound for smooth looping
-    this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.4, 120, 4.0);
-    this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.7, 150);
+    this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.4, 120);
+    this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.39375, 150); // Reduced by another 25% (now 75% of original)
     this.explodeSound = new SpatialAudio('/static/js/assets/sounds/tank-explode.mp3', false, 0.8, 200);
     
     // Add to scene
@@ -537,7 +536,7 @@ export class Tank implements ITank {
     
     // Rotate wheels based on velocity
     this.wheels.forEach(wheel => {
-      wheel.rotation.y += this.trackRotationSpeed * 2; // Wheels turn faster than track movement
+      wheel.rotation.x += this.trackRotationSpeed * 2; // Wheels turn faster than track movement
     });
   }
   
@@ -2043,9 +2042,8 @@ export class NPCTank implements ITank {
     }
     
     // Initialize sound effects (at lower volume than player tank)
-    // Trim 4 seconds from the end of the tank movement sound for smooth looping
-    this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.3, 120, 4.0);
-    this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.5, 150);
+    this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.3, 120);
+    this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.28125, 150); // Reduced by another 25% (now 75% of original)
     this.explodeSound = new SpatialAudio('/static/js/assets/sounds/tank-explode.mp3', false, 0.6, 200);
     
     // Create health bar with tank name

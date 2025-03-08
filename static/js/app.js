@@ -29586,8 +29586,8 @@ class Tank {
     this.collider = new Sphere(this.tank.position.clone(), this.collisionRadius);
     this.lastPosition = this.tank.position.clone();
     this.initializeCompoundColliders();
-    this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.4, 120, 4);
-    this.fireSound = new SpatialAudio("/static/js/assets/sounds/tank-fire.mp3", false, 0.7, 150);
+    this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.4, 120);
+    this.fireSound = new SpatialAudio("/static/js/assets/sounds/tank-fire.mp3", false, 0.39375, 150);
     this.explodeSound = new SpatialAudio("/static/js/assets/sounds/tank-explode.mp3", false, 0.8, 200);
     scene.add(this.tank);
   }
@@ -29742,7 +29742,7 @@ class Tank {
       }
     });
     this.wheels.forEach((wheel) => {
-      wheel.rotation.y += this.trackRotationSpeed * 2;
+      wheel.rotation.x += this.trackRotationSpeed * 2;
     });
   }
   createDetailedTurret() {
@@ -30741,8 +30741,8 @@ class NPCTank {
     if (this.movementPattern === "patrol") {
       this.setupPatrolPoints();
     }
-    this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.3, 120, 4);
-    this.fireSound = new SpatialAudio("/static/js/assets/sounds/tank-fire.mp3", false, 0.5, 150);
+    this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.3, 120);
+    this.fireSound = new SpatialAudio("/static/js/assets/sounds/tank-fire.mp3", false, 0.28125, 150);
     this.explodeSound = new SpatialAudio("/static/js/assets/sounds/tank-explode.mp3", false, 0.6, 200);
     this.createHealthBar();
     scene.add(this.tank);
