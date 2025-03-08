@@ -29160,8 +29160,24 @@ class Shell {
     if (other.getType() === "tank") {
       const tank = other;
       const isPlayerTank = !(tank instanceof NPCTank);
-      const damageAmount = 25;
-      console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit with ${damageAmount} damage. Current health: ${tank.getHealth()}`);
+      let damageAmount = 25;
+      if (tank.getDetailedColliders && tank.getDetailedColliders().length > 0) {
+        const shellPosition = this.mesh.position.clone();
+        let hitLocation = "body";
+        let damageMultiplier = 1;
+        for (const collider of tank.getDetailedColliders()) {
+          const distance = shellPosition.distanceTo(collider.collider.center);
+          if (distance < collider.collider.radius) {
+            hitLocation = collider.part;
+            damageMultiplier = collider.damageMultiplier;
+            break;
+          }
+        }
+        damageAmount = Math.round(damageAmount * damageMultiplier);
+        console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit on ${hitLocation} with ${damageAmount} damage (x${damageMultiplier} multiplier). Current health: ${tank.getHealth()}`);
+      } else {
+        console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit with ${damageAmount} damage. Current health: ${tank.getHealth()}`);
+      }
       const tankDestroyed = tank.takeDamage(damageAmount);
       console.log(`After hit: ${isPlayerTank ? "PLAYER" : "NPC"} tank health: ${tank.getHealth()}%, destroyed: ${tankDestroyed}`);
       if (tankDestroyed) {
@@ -29556,6 +29572,7 @@ class Tank {
   healthBarSprite;
   healthBarContext = null;
   healthBarTexture = null;
+  compoundColliders = [];
   scene;
   camera;
   constructor(scene, camera, name = "Player") {
@@ -29568,6 +29585,7 @@ class Tank {
     this.createTank();
     this.collider = new Sphere(this.tank.position.clone(), this.collisionRadius);
     this.lastPosition = this.tank.position.clone();
+    this.initializeCompoundColliders();
     this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.4, 120, 4);
     this.fireSound = new SpatialAudio("/static/js/assets/sounds/tank-fire.mp3", false, 0.7, 150);
     this.explodeSound = new SpatialAudio("/static/js/assets/sounds/tank-explode.mp3", false, 0.8, 200);
@@ -29840,6 +29858,7 @@ class Tank {
     }
     this.lastPosition.copy(this.tank.position);
     this.updateSoundPositions();
+    this.updateCompoundColliders();
     if (!this.canFire) {
       const currentTime = Date.now();
       if (currentTime - this.lastFireTime >= this.FIRE_COOLDOWN_MS) {
@@ -29944,6 +29963,9 @@ class Tank {
   getCollider() {
     return this.collider;
   }
+  getDetailedColliders() {
+    return this.compoundColliders;
+  }
   getPosition() {
     return this.tank.position.clone();
   }
@@ -29951,8 +29973,12 @@ class Tank {
     return "tank";
   }
   onCollision(other) {
+    if (other.getType() === "shell") {
+      return;
+    }
     this.tank.position.copy(this.lastPosition);
     this.collider.center.copy(this.lastPosition);
+    this.updateCompoundColliders();
   }
   checkCollision(other) {
     const otherCollider = other.getCollider();
@@ -29963,6 +29989,83 @@ class Tank {
       return otherCollider.intersectsSphere(this.collider);
     }
     return false;
+  }
+  initializeCompoundColliders() {
+    this.compoundColliders = [];
+    this.compoundColliders.push({
+      part: "body",
+      collider: new Sphere(this.tank.position.clone(), 1.4),
+      damageMultiplier: 1
+    });
+    const turretPosition = this.tank.position.clone().add(new Vector3(0, 1.2, 0));
+    this.compoundColliders.push({
+      part: "turret",
+      collider: new Sphere(turretPosition, 0.9),
+      damageMultiplier: 1.2
+    });
+    const barrelPosition = this.tank.position.clone().add(new Vector3(0, 1, 1));
+    this.compoundColliders.push({
+      part: "barrel",
+      collider: new Sphere(barrelPosition, 0.4),
+      damageMultiplier: 0.8
+    });
+    const leftTrackPosition = this.tank.position.clone().add(new Vector3(-1, 0.5, 0));
+    this.compoundColliders.push({
+      part: "leftTrack",
+      collider: new Sphere(leftTrackPosition, 0.6),
+      damageMultiplier: 1.5
+    });
+    const rightTrackPosition = this.tank.position.clone().add(new Vector3(1, 0.5, 0));
+    this.compoundColliders.push({
+      part: "rightTrack",
+      collider: new Sphere(rightTrackPosition, 0.6),
+      damageMultiplier: 1.5
+    });
+    const rearPosition = this.tank.position.clone().add(new Vector3(0, 0.8, -1.5));
+    this.compoundColliders.push({
+      part: "rear",
+      collider: new Sphere(rearPosition, 0.8),
+      damageMultiplier: 1.8
+    });
+  }
+  updateCompoundColliders() {
+    if (this.compoundColliders.length === 0) {
+      this.initializeCompoundColliders();
+      return;
+    }
+    const tankRotation = this.tank.rotation.y;
+    const turretRotation = this.turretPivot.rotation.y + tankRotation;
+    for (const collider of this.compoundColliders) {
+      switch (collider.part) {
+        case "body":
+          collider.collider.center.copy(this.tank.position);
+          break;
+        case "turret":
+          const turretOffset = new Vector3(0, 1.2, 0);
+          collider.collider.center.copy(this.tank.position).add(turretOffset);
+          break;
+        case "barrel":
+          const barrelOffset = new Vector3(0, 1, 1);
+          barrelOffset.applyAxisAngle(new Vector3(0, 1, 0), turretRotation);
+          collider.collider.center.copy(this.tank.position).add(barrelOffset);
+          break;
+        case "leftTrack":
+          const leftTrackOffset = new Vector3(-1, 0.5, 0);
+          leftTrackOffset.applyAxisAngle(new Vector3(0, 1, 0), tankRotation);
+          collider.collider.center.copy(this.tank.position).add(leftTrackOffset);
+          break;
+        case "rightTrack":
+          const rightTrackOffset = new Vector3(1, 0.5, 0);
+          rightTrackOffset.applyAxisAngle(new Vector3(0, 1, 0), tankRotation);
+          collider.collider.center.copy(this.tank.position).add(rightTrackOffset);
+          break;
+        case "rear":
+          const rearOffset = new Vector3(0, 0.8, -1.5);
+          rearOffset.applyAxisAngle(new Vector3(0, 1, 0), tankRotation);
+          collider.collider.center.copy(this.tank.position).add(rearOffset);
+          break;
+      }
+    }
   }
   updateCamera(camera) {
     const cameraOffset = new Vector3(0, 4, -8);
@@ -30776,6 +30879,7 @@ class NPCTank {
       return null;
     }
     this.lastPosition.copy(this.tank.position);
+    this.updateCompoundColliders();
     this.updateSoundPositions();
     this.isCurrentlyMoving = false;
     this.velocity = 0;

@@ -207,6 +207,11 @@ export interface ITank extends ICollidable {
   getMaxBarrelElevation(): number; // Get maximum barrel elevation angle
   isMoving(): boolean; // Returns whether the tank is currently moving
   getVelocity?(): number; // Returns the current velocity of the tank
+  getDetailedColliders?(): {
+    part: string;
+    collider: THREE.Sphere;
+    damageMultiplier: number;
+  }[]; // Returns detailed colliders for precise hit detection
 }
 
 export class Tank implements ITank {
@@ -272,6 +277,13 @@ export class Tank implements ITank {
   private healthBarContext: CanvasRenderingContext2D | null = null;
   private healthBarTexture: THREE.CanvasTexture | null = null;
   
+  // Compound collision system for more precise hit detection
+  private compoundColliders: {
+    part: string;
+    collider: THREE.Sphere;
+    damageMultiplier: number;
+  }[] = [];
+  
   private scene: THREE.Scene;
   private camera?: THREE.PerspectiveCamera;
 
@@ -293,6 +305,9 @@ export class Tank implements ITank {
     // Initialize collision sphere
     this.collider = new THREE.Sphere(this.tank.position.clone(), this.collisionRadius);
     this.lastPosition = this.tank.position.clone();
+    
+    // Initialize compound colliders for more precise hit detection
+    this.initializeCompoundColliders();
     
     // No health bar for player tank - it's shown in the UI
     
@@ -693,6 +708,9 @@ export class Tank implements ITank {
     // Update sound source positions
     this.updateSoundPositions();
     
+    // Update compound colliders to match tank's current position and rotation
+    this.updateCompoundColliders();
+    
     // Handle reloading using timestamps instead of frame counting
     if (!this.canFire) {
       const currentTime = Date.now();
@@ -902,7 +920,13 @@ export class Tank implements ITank {
   
   // Implement ICollidable interface
   getCollider(): THREE.Sphere {
+    // Still return the main collider for broad-phase detection
     return this.collider;
+  }
+  
+  // New method to get all detailed colliders for precise hit detection
+  getDetailedColliders() {
+    return this.compoundColliders;
   }
   
   getPosition(): THREE.Vector3 {
@@ -914,9 +938,19 @@ export class Tank implements ITank {
   }
   
   onCollision(other: ICollidable): void {
+    if (other.getType() === 'shell') {
+      // For shell collisions, we'll check precise hit detection in Shell.ts
+      // This is handled by the shell's onCollision method
+      return;
+    }
+    
+    // For other collisions (tank-tank, tank-environment)
     // Move back to last position
     this.tank.position.copy(this.lastPosition);
     this.collider.center.copy(this.lastPosition);
+    
+    // Update compound colliders
+    this.updateCompoundColliders();
   }
   
   private checkCollision(other: ICollidable): boolean {
@@ -932,6 +966,117 @@ export class Tank implements ITank {
     }
     
     return false;
+  }
+  
+  // Initialize compound colliders for more precise hit detection
+  private initializeCompoundColliders(): void {
+    // Clear any existing compound colliders
+    this.compoundColliders = [];
+    
+    // Body collider - slightly smaller than the main collider
+    this.compoundColliders.push({
+      part: 'body',
+      collider: new THREE.Sphere(this.tank.position.clone(), 1.4),
+      damageMultiplier: 1.0 // Normal damage
+    });
+    
+    // Turret collider - positioned above the body
+    const turretPosition = this.tank.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+    this.compoundColliders.push({
+      part: 'turret',
+      collider: new THREE.Sphere(turretPosition, 0.9),
+      damageMultiplier: 1.2 // More damage to the turret
+    });
+    
+    // Barrel collider - positioned in front of the turret
+    const barrelPosition = this.tank.position.clone().add(new THREE.Vector3(0, 1.0, 1.0));
+    this.compoundColliders.push({
+      part: 'barrel',
+      collider: new THREE.Sphere(barrelPosition, 0.4),
+      damageMultiplier: 0.8 // Less damage to the barrel
+    });
+    
+    // Tracks colliders - positioned on both sides of the tank
+    const leftTrackPosition = this.tank.position.clone().add(new THREE.Vector3(-1.0, 0.5, 0));
+    this.compoundColliders.push({
+      part: 'leftTrack',
+      collider: new THREE.Sphere(leftTrackPosition, 0.6),
+      damageMultiplier: 1.5 // More damage to the tracks for mobility hits
+    });
+    
+    const rightTrackPosition = this.tank.position.clone().add(new THREE.Vector3(1.0, 0.5, 0));
+    this.compoundColliders.push({
+      part: 'rightTrack',
+      collider: new THREE.Sphere(rightTrackPosition, 0.6),
+      damageMultiplier: 1.5 // More damage to the tracks
+    });
+    
+    // Rear collider - positioned behind the tank
+    const rearPosition = this.tank.position.clone().add(new THREE.Vector3(0, 0.8, -1.5));
+    this.compoundColliders.push({
+      part: 'rear',
+      collider: new THREE.Sphere(rearPosition, 0.8),
+      damageMultiplier: 1.8 // Critical hit from behind
+    });
+  }
+  
+  // Update compound colliders to match the tank's current position and rotation
+  private updateCompoundColliders(): void {
+    // Make sure we have compound colliders initialized
+    if (this.compoundColliders.length === 0) {
+      this.initializeCompoundColliders();
+      return;
+    }
+    
+    // Get current rotation of tank and turret
+    const tankRotation = this.tank.rotation.y;
+    const turretRotation = this.turretPivot.rotation.y + tankRotation; // Combined rotation
+    
+    // Update each compound collider
+    for (const collider of this.compoundColliders) {
+      switch (collider.part) {
+        case 'body':
+          // Body stays centered on the tank
+          collider.collider.center.copy(this.tank.position);
+          break;
+        
+        case 'turret':
+          // Turret rotates with the turret pivot
+          // Calculate offset based on turret rotation
+          const turretOffset = new THREE.Vector3(0, 1.2, 0);
+          // No need to rotate vertical offset
+          collider.collider.center.copy(this.tank.position).add(turretOffset);
+          break;
+        
+        case 'barrel':
+          // Barrel follows turret rotation
+          const barrelOffset = new THREE.Vector3(0, 1.0, 1.0);
+          barrelOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), turretRotation);
+          collider.collider.center.copy(this.tank.position).add(barrelOffset);
+          break;
+          
+        case 'leftTrack':
+          // Left track follows tank rotation
+          const leftTrackOffset = new THREE.Vector3(-1.0, 0.5, 0);
+          leftTrackOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), tankRotation);
+          collider.collider.center.copy(this.tank.position).add(leftTrackOffset);
+          break;
+          
+        case 'rightTrack':
+          // Right track follows tank rotation
+          const rightTrackOffset = new THREE.Vector3(1.0, 0.5, 0);
+          rightTrackOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), tankRotation);
+          collider.collider.center.copy(this.tank.position).add(rightTrackOffset);
+          break;
+          
+        case 'rear':
+          // Rear follows tank rotation
+          const rearOffset = new THREE.Vector3(0, 0.8, -1.5);
+          rearOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), tankRotation);
+          collider.collider.center.copy(this.tank.position).add(rearOffset);
+          break;
+      }
+    }
   }
 
   updateCamera(camera: THREE.PerspectiveCamera) {
@@ -2122,6 +2267,9 @@ export class NPCTank implements ITank {
     
     // Store the current position before movement
     this.lastPosition.copy(this.tank.position);
+    
+    // Update compound colliders to match tank's current position and rotation
+    this.updateCompoundColliders();
     
     // Update sound positions
     this.updateSoundPositions();

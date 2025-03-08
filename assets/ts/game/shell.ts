@@ -307,17 +307,41 @@ export class Shell implements ICollidable {
     // Create explosion effect
     this.createExplosion(this.mesh.position.clone());
     
-    // If hit a tank, apply damage
+    // If hit a tank, apply damage with more precise hit detection
     if (other.getType() === 'tank') {
       const tank = other as ITank;
       
       // Check if this is a player-tank hit or an NPC-tank hit
       const isPlayerTank = !(tank instanceof NPCTank);
       
-      // Calculate damage - 25% regardless, ensuring 4 hits to destroy
-      const damageAmount = 25;
+      // Base damage - 25% regardless, ensuring 4 hits to destroy
+      let damageAmount = 25;
       
-      console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit with ${damageAmount} damage. Current health: ${tank.getHealth()}`);
+      // Check for hit with compound colliders if available
+      if (tank.getDetailedColliders && tank.getDetailedColliders().length > 0) {
+        // Get the shell's position for precise hit detection
+        const shellPosition = this.mesh.position.clone();
+        let hitLocation = "body"; // Default hit location
+        let damageMultiplier = 1.0; // Default multiplier
+        
+        // Check each detailed collider to see which was hit
+        for (const collider of tank.getDetailedColliders()) {
+          const distance = shellPosition.distanceTo(collider.collider.center);
+          if (distance < collider.collider.radius) {
+            // This is the part we hit!
+            hitLocation = collider.part;
+            damageMultiplier = collider.damageMultiplier;
+            break;
+          }
+        }
+        
+        // Apply the damage multiplier
+        damageAmount = Math.round(damageAmount * damageMultiplier);
+        
+        console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit on ${hitLocation} with ${damageAmount} damage (x${damageMultiplier} multiplier). Current health: ${tank.getHealth()}`);
+      } else {
+        console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit with ${damageAmount} damage. Current health: ${tank.getHealth()}`);
+      }
       
       // Try to damage the tank
       const tankDestroyed = tank.takeDamage(damageAmount);
