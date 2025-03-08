@@ -227,6 +227,13 @@ export class Shell implements ICollidable {
     return this.owner;
   }
   
+  getOwnerId(): string {
+    if (this.owner && (this.owner as any).playerId) {
+      return (this.owner as any).playerId;
+    }
+    return "unknown";
+  }
+  
   private destroy(): void {
     // Set isActive to false
     this.isActive = false;

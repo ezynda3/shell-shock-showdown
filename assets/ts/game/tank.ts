@@ -638,6 +638,21 @@ export class Tank implements ITank {
       this.scene.remove(effect);
     }
     this.destroyedEffects = [];
+    
+    // Dispatch tank respawn event
+    const respawnEvent = new CustomEvent('tank-respawn', {
+      bubbles: true,
+      composed: true,
+      detail: { 
+        playerId: 'player',
+        position: {
+          x: this.tank.position.x,
+          y: this.tank.position.y,
+          z: this.tank.position.z
+        }
+      }
+    });
+    document.dispatchEvent(respawnEvent);
   }
   
   private createDestroyedEffect(): void {

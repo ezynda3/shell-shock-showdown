@@ -43,7 +43,7 @@ func Index() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div style=\"width: 100%; height: calc(100vh - 64px);\" data-signals=\"{update: &#39;&#39;, shellFired: &#39;&#39;, gameState: &#39;&#39; }\" data-on-load=\"@get(&#39;/gamestate&#39;, { openWhenHidden: true })\"><game-component data-on-player-movement__case.kebab=\"$update = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-shell-fired__case.kebab=\"$shellFired = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-attr-game-state__case.kebab=\"$gameState\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div style=\"width: 100%; height: calc(100vh - 64px);\" data-signals=\"{update: &#39;&#39;, shellFired: &#39;&#39;, gameState: &#39;&#39;, tankHit: &#39;&#39;, tankDeath: &#39;&#39;, tankRespawn: &#39;&#39; }\" data-on-load=\"@get(&#39;/gamestate&#39;, { openWhenHidden: true })\"><game-component data-on-player-movement__case.kebab=\"$update = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-shell-fired__case.kebab=\"$shellFired = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-tank-hit-sync__case.kebab=\"$tankHit = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-tank-death-sync__case.kebab=\"$tankDeath = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-tank-respawn-sync__case.kebab=\"$tankRespawn = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-attr-game-state__case.kebab=\"$gameState\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -56,7 +56,7 @@ func Index() templ.Component {
 					var templ_7745c5c3_Var3 string
 					templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(auth.Id)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/index.templ`, Line: 18, Col: 25}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/index.templ`, Line: 21, Col: 25}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 					if templ_7745c5c3_Err != nil {

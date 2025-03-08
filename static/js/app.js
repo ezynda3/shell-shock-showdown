@@ -26613,6 +26613,12 @@ class Shell {
   getOwner() {
     return this.owner;
   }
+  getOwnerId() {
+    if (this.owner && this.owner.playerId) {
+      return this.owner.playerId;
+    }
+    return "unknown";
+  }
   destroy() {
     this.isActive = false;
     if (this.mesh.parent) {
@@ -27049,6 +27055,19 @@ class Tank {
       this.scene.remove(effect);
     }
     this.destroyedEffects = [];
+    const respawnEvent = new CustomEvent("tank-respawn", {
+      bubbles: true,
+      composed: true,
+      detail: {
+        playerId: "player",
+        position: {
+          x: this.tank.position.x,
+          y: this.tank.position.y,
+          z: this.tank.position.z
+        }
+      }
+    });
+    document.dispatchEvent(respawnEvent);
   }
   createDestroyedEffect() {
     this.tank.visible = false;
@@ -28904,7 +28923,21 @@ class GameComponent extends LitElement {
     document.addEventListener("tank-hit", this.handleTankHit);
     this.handleShellFired = this.handleShellFired.bind(this);
     document.addEventListener("shell-fired", this.handleShellFired);
+    this.handleTankRespawn = this.handleTankRespawn.bind(this);
+    document.addEventListener("tank-respawn", this.handleTankRespawn);
     this.updateStats();
+  }
+  handleTankRespawn(event) {
+    const respawnData = event.detail;
+    if (respawnData.playerId === "player") {
+      respawnData.playerId = this.playerId;
+    }
+    const tankRespawnEvent = new CustomEvent("tank-respawn-sync", {
+      detail: respawnData,
+      bubbles: true,
+      composed: true
+    });
+    this.dispatchEvent(tankRespawnEvent);
   }
   handleShellFired(event) {
     const position = event.detail.position;
@@ -29534,6 +29567,18 @@ class GameComponent extends LitElement {
       console.log(`Player tank hit for ${damageAmount} damage!`);
       this.showPlayerHitEffects();
       this.updateStats();
+      if (source && source !== this.playerTank) {
+        const tankHitEvent = new CustomEvent("tank-hit-sync", {
+          detail: {
+            targetId: this.playerId,
+            sourceId: source.getOwnerId ? source.getOwnerId() : "unknown",
+            damageAmount
+          },
+          bubbles: true,
+          composed: true
+        });
+        this.dispatchEvent(tankHitEvent);
+      }
     }
   }
   showPlayerHitEffects() {
@@ -29553,20 +29598,42 @@ class GameComponent extends LitElement {
     const { tank, source } = event.detail;
     let killerName = "Unknown";
     let victimName = "Unknown";
+    let killerId = "unknown";
+    let victimId = "unknown";
     if (tank === this.playerTank) {
       victimName = "Player";
+      victimId = this.playerId;
     } else {
       const npcIndex = this.npcTanks.findIndex((npc) => npc === tank);
       if (npcIndex !== -1) {
         victimName = this.npcTanks[npcIndex].tankName || `NPC ${npcIndex + 1}`;
+        victimId = `npc_${npcIndex}`;
+      } else {
+        for (const [id, remoteTank] of this.remoteTanks.entries()) {
+          if (remoteTank === tank) {
+            victimName = remoteTank.tankName || `Player ${id.substr(0, 6)}`;
+            victimId = id;
+            break;
+          }
+        }
       }
     }
     if (source === this.playerTank) {
       killerName = "Player";
+      killerId = this.playerId;
     } else if (source) {
       const npcIndex = this.npcTanks.findIndex((npc) => npc === source);
       if (npcIndex !== -1) {
         killerName = this.npcTanks[npcIndex].tankName || `NPC ${npcIndex + 1}`;
+        killerId = `npc_${npcIndex}`;
+      } else {
+        for (const [id, remoteTank] of this.remoteTanks.entries()) {
+          if (remoteTank === source) {
+            killerName = remoteTank.tankName || `Player ${id.substr(0, 6)}`;
+            killerId = id;
+            break;
+          }
+        }
       }
     }
     this.addKillNotification(killerName, victimName);
@@ -29576,12 +29643,30 @@ class GameComponent extends LitElement {
       this.respawnTimer = 0;
       this.playerDeaths++;
       this.showPlayerDeathEffects();
+      const tankDeathEvent = new CustomEvent("tank-death-sync", {
+        detail: {
+          targetId: victimId,
+          sourceId: killerId
+        },
+        bubbles: true,
+        composed: true
+      });
+      this.dispatchEvent(tankDeathEvent);
       this.updateStats();
     } else {
-      console.log("NPC tank destroyed!");
+      console.log("Tank destroyed!", { victimName, killerName });
       if (source === this.playerTank) {
         this.playerKills++;
         this.updateStats();
+        const tankDeathEvent = new CustomEvent("tank-death-sync", {
+          detail: {
+            targetId: victimId,
+            sourceId: killerId
+          },
+          bubbles: true,
+          composed: true
+        });
+        this.dispatchEvent(tankDeathEvent);
       }
       const npcIndex = this.npcTanks.findIndex((npc) => npc === tank);
       if (npcIndex !== -1) {

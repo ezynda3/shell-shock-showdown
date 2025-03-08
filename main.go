@@ -21,10 +21,10 @@ func main() {
 
 	// Setup embedded NATS server
 	log.Println("Starting embedded NATS server...")
-	
+
 	ns, err := embeddednats.New(
 		context.Background(),
-		embeddednats.WithDirectory(app.DataDir() + "/nats"),
+		embeddednats.WithDirectory(app.DataDir()+"/nats"),
 		embeddednats.WithNATSServerOptions(&server.Options{
 			JetStream: true,
 		}),
@@ -41,7 +41,7 @@ func main() {
 		nats.Name("shell-shock-client"),
 		nats.InProcessServer(ns.NatsServer),
 	}
-	
+
 	nc, err := nats.Connect(ns.NatsServer.ClientURL(), clientOpts...)
 	if err != nil {
 		log.Fatalf("Failed to connect to NATS: %v", err)

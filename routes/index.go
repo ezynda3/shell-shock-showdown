@@ -39,6 +39,7 @@ type PlayerState struct {
 	Velocity        float64  `json:"velocity"`
 	Timestamp       int64    `json:"timestamp"`
 	Color           string   `json:"color,omitempty"`
+	IsDestroyed     bool     `json:"isDestroyed"`
 }
 
 // ShellState represents the state of a shell
@@ -62,6 +63,9 @@ type Signals struct {
 	Update     string `json:"update"`
 	ShellFired string `json:"shellFired"`
 	GameState  string `json:"gameState"`
+	TankHit    string `json:"tankHit"`     // New signal for tank being hit
+	TankDeath  string `json:"tankDeath"`   // New signal for tank being destroyed
+	TankRespawn string `json:"tankRespawn"` // New signal for tank respawning
 }
 
 var (
@@ -197,8 +201,113 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], nc *nats.Conn, 
 
 		sse := datastar.NewSSE(e.Response, e.Request)
 
-		// Handle shell firing events
-		if signals.ShellFired != "" {
+			// Handle tank hit events from frontend
+			if signals.TankHit != "" {
+				var hitData struct {
+					TargetID     string `json:"targetId"`
+					SourceID     string `json:"sourceId"`
+					DamageAmount int    `json:"damageAmount"`
+				}
+				
+				if err := json.Unmarshal([]byte(signals.TankHit), &hitData); err != nil {
+					log.Println("Error unmarshaling tank hit data:", err)
+					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid tank hit data"})
+				}
+				
+				// Update player health in game state
+				gameStateMutex.Lock()
+				if targetPlayer, exists := gameState.Players[hitData.TargetID]; exists {
+					// Apply damage to tank
+					targetPlayer.Health = targetPlayer.Health - hitData.DamageAmount
+					
+					// Check if destroyed
+					if targetPlayer.Health <= 0 {
+						targetPlayer.Health = 0
+						targetPlayer.IsDestroyed = true
+						
+						// Publish tank death event to NATS
+						deathData := map[string]interface{}{
+							"targetId": hitData.TargetID,
+							"sourceId": hitData.SourceID,
+						}
+						deathJSON, _ := json.Marshal(deathData)
+						if err := nc.Publish("tanks.death", deathJSON); err != nil {
+							log.Printf("Error publishing tank death event to NATS: %v", err)
+						}
+						
+						log.Printf("Tank %s destroyed by %s", hitData.TargetID, hitData.SourceID)
+					}
+					
+					// Save updated player back to game state
+					gameState.Players[hitData.TargetID] = targetPlayer
+					
+					// Publish tank hit event to NATS
+					hitJSON, _ := json.Marshal(map[string]interface{}{
+						"targetId": hitData.TargetID,
+						"sourceId": hitData.SourceID,
+						"health": targetPlayer.Health,
+					})
+					if err := nc.Publish("tanks.hit", hitJSON); err != nil {
+						log.Printf("Error publishing tank hit event to NATS: %v", err)
+					}
+				}
+				gameStateMutex.Unlock()
+			}
+			
+			// Handle tank respawn events from frontend
+			if signals.TankRespawn != "" {
+				var respawnData struct {
+					PlayerID string   `json:"playerId"`
+					Position Position `json:"position"`
+				}
+				
+				if err := json.Unmarshal([]byte(signals.TankRespawn), &respawnData); err != nil {
+					log.Println("Error unmarshaling tank respawn data:", err)
+					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid tank respawn data"})
+				}
+				
+				// Update player in game state
+				gameStateMutex.Lock()
+				if player, exists := gameState.Players[respawnData.PlayerID]; exists {
+					// Reset health and destroyed status
+					player.Health = 100
+					player.IsDestroyed = false
+					
+					// Update position if provided
+					if (respawnData.Position != Position{}) {
+						player.Position = respawnData.Position
+					} else {
+						// Random offset for respawn position
+						offsetX := -20.0 + rand.Float64()*40.0
+						offsetZ := -20.0 + rand.Float64()*40.0
+						
+						player.Position = Position{
+							X: offsetX,
+							Y: 0,
+							Z: offsetZ,
+						}
+					}
+					
+					// Save updated player back to game state
+					gameState.Players[respawnData.PlayerID] = player
+					
+					// Publish respawn event to NATS
+					respawnJSON, _ := json.Marshal(player)
+					if err := nc.Publish("tanks.respawn", respawnJSON); err != nil {
+						log.Printf("Error publishing tank respawn event to NATS: %v", err)
+					}
+					
+					log.Printf("Tank %s respawned at position (%f, %f, %f)", 
+						respawnData.PlayerID, 
+						player.Position.X, 
+						player.Position.Y, 
+						player.Position.Z)
+				}
+				gameStateMutex.Unlock()
+			}
+			
+						// Handle shell firing events
+					if signals.ShellFired != "" {
 			var shellData struct {
 				Position  Position `json:"position"`
 				Direction Position `json:"direction"`
@@ -278,12 +387,12 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], nc *nats.Conn, 
 			playerUpdate.Name = playerName
 			playerUpdate.Color = getPlayerColor(playerID)
 
-			// Check if this is a new player (not in game state yet)
+			// Get current player state if exists
 			gameStateMutex.RLock()
-			_, playerExists := gameState.Players[playerID]
+			currentPlayer, playerExists := gameState.Players[playerID]
 			gameStateMutex.RUnlock()
 
-			// If new player, set spawn position at center with random offset
+			// Handle new player joining (not in game state yet)
 			if !playerExists {
 				// Random offset for spawn position (-20 to 20 range)
 				offsetX := -20.0 + rand.Float64()*40.0
@@ -297,6 +406,20 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], nc *nats.Conn, 
 					X: offsetX,
 					Y: 0,
 					Z: offsetZ,
+				}
+				
+				// Initialize health for new player
+				playerUpdate.Health = 100
+				playerUpdate.IsDestroyed = false
+			} else {
+				// If player exists, preserve their current health if not included in update
+				if playerUpdate.Health == 0 {
+					playerUpdate.Health = currentPlayer.Health
+				}
+				
+				// Maintain destroyed state if already destroyed
+				if currentPlayer.IsDestroyed {
+					playerUpdate.IsDestroyed = true
 				}
 			}
 

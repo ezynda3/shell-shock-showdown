@@ -488,8 +488,33 @@ export class GameComponent extends LitElement {
     this.handleShellFired = this.handleShellFired.bind(this);
     document.addEventListener('shell-fired', this.handleShellFired);
     
+    // Listen for tank respawn events
+    this.handleTankRespawn = this.handleTankRespawn.bind(this);
+    document.addEventListener('tank-respawn', this.handleTankRespawn);
+    
     // Initialize game stats
     this.updateStats();
+  }
+  
+  // Handle tank respawn events
+  private handleTankRespawn(event: CustomEvent) {
+    // Get respawn data
+    const respawnData = event.detail;
+    
+    // Update playerId if it's the local player
+    if (respawnData.playerId === 'player') {
+      respawnData.playerId = this.playerId;
+    }
+    
+    // Create a custom event for DataStar to send to server
+    const tankRespawnEvent = new CustomEvent('tank-respawn-sync', { 
+      detail: respawnData,
+      bubbles: true,
+      composed: true
+    });
+    
+    // Dispatch the event to be sent to the server
+    this.dispatchEvent(tankRespawnEvent);
   }
   
   // Handle shell fired events from player tank
@@ -1603,6 +1628,21 @@ export class GameComponent extends LitElement {
       
       // Update stats
       this.updateStats();
+      
+      // Send tank hit event to server for synchronization
+      if (source && source !== this.playerTank) {
+        // Create tank hit event for server
+        const tankHitEvent = new CustomEvent('tank-hit-sync', {
+          detail: {
+            targetId: this.playerId,
+            sourceId: source.getOwnerId ? source.getOwnerId() : 'unknown',
+            damageAmount: damageAmount
+          },
+          bubbles: true,
+          composed: true
+        });
+        this.dispatchEvent(tankHitEvent);
+      }
     }
   }
   
@@ -1639,26 +1679,50 @@ export class GameComponent extends LitElement {
     // Get tank names
     let killerName = "Unknown";
     let victimName = "Unknown";
+    let killerId = "unknown";
+    let victimId = "unknown";
     
-    // Get victim name
+    // Get victim name and ID
     if (tank === this.playerTank) {
       victimName = "Player";
+      victimId = this.playerId;
     } else {
       // Find NPC tank name
       const npcIndex = this.npcTanks.findIndex(npc => npc === tank);
       if (npcIndex !== -1) {
         victimName = this.npcTanks[npcIndex].tankName || `NPC ${npcIndex + 1}`;
+        victimId = `npc_${npcIndex}`;
+      } else {
+        // Check if it's a remote player
+        for (const [id, remoteTank] of this.remoteTanks.entries()) {
+          if (remoteTank === tank) {
+            victimName = remoteTank.tankName || `Player ${id.substr(0, 6)}`;
+            victimId = id;
+            break;
+          }
+        }
       }
     }
     
-    // Get killer name
+    // Get killer name and ID
     if (source === this.playerTank) {
       killerName = "Player";
+      killerId = this.playerId;
     } else if (source) {
       // Find NPC tank name
       const npcIndex = this.npcTanks.findIndex(npc => npc === source);
       if (npcIndex !== -1) {
         killerName = this.npcTanks[npcIndex].tankName || `NPC ${npcIndex + 1}`;
+        killerId = `npc_${npcIndex}`;
+      } else {
+        // Check if it's a remote player
+        for (const [id, remoteTank] of this.remoteTanks.entries()) {
+          if (remoteTank === source) {
+            killerName = remoteTank.tankName || `Player ${id.substr(0, 6)}`;
+            killerId = id;
+            break;
+          }
+        }
       }
     }
     
@@ -1675,16 +1739,38 @@ export class GameComponent extends LitElement {
       // Show death effects
       this.showPlayerDeathEffects();
       
+      // Send tank death event to server
+      const tankDeathEvent = new CustomEvent('tank-death-sync', {
+        detail: {
+          targetId: victimId,
+          sourceId: killerId
+        },
+        bubbles: true,
+        composed: true
+      });
+      this.dispatchEvent(tankDeathEvent);
+      
       // Update stats
       this.updateStats();
     } else {
-      // It's an NPC tank
-      console.log('NPC tank destroyed!');
+      // It's an NPC tank or a remote player
+      console.log('Tank destroyed!', { victimName, killerName });
       
-      // If destroyed by player, increment kill count
+      // If destroyed by player, increment kill count and send event to server
       if (source === this.playerTank) {
         this.playerKills++;
         this.updateStats();
+        
+        // Send tank death event to server
+        const tankDeathEvent = new CustomEvent('tank-death-sync', {
+          detail: {
+            targetId: victimId,
+            sourceId: killerId
+          },
+          bubbles: true,
+          composed: true
+        });
+        this.dispatchEvent(tankDeathEvent);
       }
       
       // Find the NPC tank in our array

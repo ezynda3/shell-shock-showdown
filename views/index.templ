@@ -6,12 +6,15 @@ templ Index() {
 	@Layout(true) {
 		<div
 			style="width: 100%; height: calc(100vh - 64px);"
-			data-signals="{update: '', shellFired: '', gameState: '' }"
+			data-signals="{update: '', shellFired: '', gameState: '', tankHit: '', tankDeath: '', tankRespawn: '' }"
 			data-on-load="@get('/gamestate', { openWhenHidden: true })"
 		>
 			<game-component
 				data-on-player-movement__case.kebab="$update = JSON.stringify(evt.detail); @post('/update')"
 				data-on-shell-fired__case.kebab="$shellFired = JSON.stringify(evt.detail); @post('/update')"
+				data-on-tank-hit-sync__case.kebab="$tankHit = JSON.stringify(evt.detail); @post('/update')"
+				data-on-tank-death-sync__case.kebab="$tankDeath = JSON.stringify(evt.detail); @post('/update')"
+				data-on-tank-respawn-sync__case.kebab="$tankRespawn = JSON.stringify(evt.detail); @post('/update')"
 				data-attr-game-state__case.kebab="$gameState"
 				if user := ctx.Value("user"); user != nil {
 					if auth, ok := user.(*core.Record); ok {

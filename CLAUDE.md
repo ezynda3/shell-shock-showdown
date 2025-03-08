@@ -2,7 +2,7 @@
 
 ## Build Commands
 - `task build` - Build the entire application
-- `task build:templ` - Generate templ templates
+- `task build:templ` - Generate templ templates (note: avoid running during development as hot-reload will handle this)
 - `task build:ts` - Build TypeScript files
 - `task live` - Start development with hot-reload
 - `go test ./... -v` - Run all tests
@@ -28,6 +28,8 @@
 - Use templ for html templates
 - Components should be modular and reusable
 - Store shared types in dedicated files
+- NATS.io with JetStream and KV is used for game state synchronization
+- Event system includes: player updates, shell firing, tank hits, tank deaths, and respawns
 
 ### Naming
 - Descriptive, consistent naming that indicates purpose
