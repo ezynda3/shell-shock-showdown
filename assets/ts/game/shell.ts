@@ -95,6 +95,11 @@ export class Shell implements ICollidable {
     return this.shellId;
   }
   
+  // Air resistance coefficient (higher = more drag)
+  private airResistance: number = 0.001;
+  // Wind effect (subtle)
+  private windFactor = new THREE.Vector3(0.0005, 0, 0.0005);
+  
   update(): boolean {
     // If shell is inactive or has already processed a collision, return false
     if (!this.isActive || this.hasProcessedCollision) return false;
@@ -110,10 +115,19 @@ export class Shell implements ICollidable {
       return false;
     }
     
-    // Apply gravity to velocity
-    this.velocity.y -= this.GRAVITY;
+    // Apply gravity with more realistic effects
+    // Gravity increases slightly with velocity for more realistic arcs
+    this.velocity.y -= this.GRAVITY * (1 + this.velocity.length() * 0.01);
     
-    // Update position based on velocity
+    // Apply air resistance proportional to velocity squared (realistic drag)
+    const speedSquared = this.velocity.lengthSq();
+    const dragForce = this.velocity.clone().normalize().multiplyScalar(-this.airResistance * speedSquared);
+    this.velocity.add(dragForce);
+    
+    // Apply subtle wind effects
+    this.velocity.add(this.windFactor);
+    
+    // Update position based on adjusted velocity
     this.mesh.position.add(this.velocity);
     
     // Update collider position
@@ -124,12 +138,25 @@ export class Shell implements ICollidable {
     
     // Check if shell is below ground (y = 0)
     if (this.mesh.position.y < 0) {
-      // Create explosion effect at ground level
-      this.createExplosion(new THREE.Vector3(
+      // Create explosion effect at ground level with appropriate angle
+      const hitPosition = new THREE.Vector3(
         this.mesh.position.x,
         0,
         this.mesh.position.z
-      ));
+      );
+      
+      // Calculate impact angle and speed for more realistic ground explosions
+      const impactAngle = Math.atan2(-this.velocity.y, Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z));
+      const impactSpeed = this.velocity.length();
+      
+      // Create explosion with size relative to impact speed and angle
+      const explosionSize = 1.0 + (impactSpeed * 0.5) * Math.sin(impactAngle);
+      this.createExplosion(hitPosition, explosionSize);
+      
+      // Create dust effect based on impact angle
+      if (impactAngle < Math.PI / 4) { // Shallow impact
+        this.createDustEffect(hitPosition);
+      }
       
       // Immediately remove shell visuals
       this.scene.remove(this.mesh);
@@ -142,6 +169,85 @@ export class Shell implements ICollidable {
     }
     
     return true;
+  }
+  
+  // Create dust cloud effect for shallow impacts
+  private createDustEffect(position: THREE.Vector3): void {
+    const particleCount = 20;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const colors = new Float32Array(particleCount * 3);
+    
+    // Direction of dust spread (opposite of shell horizontal direction)
+    const dustDirection = new THREE.Vector2(-this.velocity.x, -this.velocity.z).normalize();
+    
+    // Create positions and colors for dust particles
+    for (let i = 0; i < particleCount; i++) {
+      const i3 = i * 3;
+      
+      // Calculate spread based on shell velocity
+      const spread = 2.0 * Math.random();
+      const angle = Math.PI * 2 * Math.random();
+      
+      // Positions with directional bias
+      positions[i3] = position.x + (Math.cos(angle) * spread) + (dustDirection.x * spread);
+      positions[i3 + 1] = position.y + Math.random() * 0.5; // Low height
+      positions[i3 + 2] = position.z + (Math.sin(angle) * spread) + (dustDirection.y * spread);
+      
+      // Dust color (tan/brown)
+      const brightness = 0.5 + Math.random() * 0.3;
+      colors[i3] = brightness; // Red
+      colors[i3 + 1] = brightness * 0.9; // Green (slightly less for brown tint)
+      colors[i3 + 2] = brightness * 0.7; // Blue (even less for brown tint)
+    }
+    
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    
+    const material = new THREE.PointsMaterial({
+      size: 0.5,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.6
+    });
+    
+    const particles = new THREE.Points(geometry, material);
+    this.scene.add(particles);
+    
+    // Animate dust particles
+    const dustDuration = 2000; // 2 seconds
+    const startTime = Date.now();
+    
+    const animateDust = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = elapsed / dustDuration;
+      
+      if (progress >= 1) {
+        this.scene.remove(particles);
+        return;
+      }
+      
+      // Expand and rise
+      const positions = geometry.attributes.position.array as Float32Array;
+      for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+        // Slowly move outward
+        positions[i3] += dustDirection.x * 0.01;
+        // Slowly rise and slow down over time
+        positions[i3 + 1] += 0.02 * (1 - progress);
+        positions[i3 + 2] += dustDirection.y * 0.01;
+      }
+      
+      // Fade out
+      if (progress > 0.5) {
+        material.opacity = 0.6 * (1 - (progress - 0.5) * 2);
+      }
+      
+      geometry.attributes.position.needsUpdate = true;
+      requestAnimationFrame(animateDust);
+    };
+    
+    requestAnimationFrame(animateDust);
   }
   
   private updateTrail(): void {
@@ -331,28 +437,49 @@ export class Shell implements ICollidable {
   private createExplosion(position: THREE.Vector3, sizeScale: number = 1.0): void {
     // Reduce particle count on low-end devices
     const isLowPerformance = (window as any).lowPerformanceMode || false;
-    const particleCount = isLowPerformance ? 15 : 25; // Reduced from 30
+    const particleCount = isLowPerformance ? 15 : 30; // Increased for more impressive explosions
+    
+    // Create enhanced explosion effect
+    this.createFireballEffect(position, sizeScale);
+    this.createShockwaveEffect(position, sizeScale);
     
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(particleCount * 3);
     const colors = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
     
-    // Create positions and colors for particles
+    // Create positions and colors for particles with more variation
     for (let i = 0; i < particleCount; i++) {
-      // Random position in sphere
+      // Random position in sphere with directional bias
       const i3 = i * 3;
-      positions[i3] = (Math.random() - 0.5) * 2;
-      positions[i3 + 1] = Math.random() * 2; // More upward
-      positions[i3 + 2] = (Math.random() - 0.5) * 2;
+      const phi = Math.random() * Math.PI * 2;
+      const theta = Math.random() * Math.PI;
+      const radius = Math.random() * 2 * sizeScale;
       
-      // Yellow-orange-red color gradient
-      colors[i3] = Math.random() * 0.5 + 0.5; // Red component (0.5-1.0)
-      colors[i3 + 1] = Math.random() * 0.5; // Green component (0-0.5)
-      colors[i3 + 2] = 0; // No blue
+      positions[i3] = Math.sin(theta) * Math.cos(phi) * radius;
+      positions[i3 + 1] = Math.cos(theta) * radius * 1.2; // More upward bias
+      positions[i3 + 2] = Math.sin(theta) * Math.sin(phi) * radius;
+      
+      // Varied particle sizes
+      sizes[i] = 0.1 + Math.random() * 0.3;
+      
+      // More vibrant color variation (yellow-orange-red with some bright spots)
+      if (Math.random() > 0.7) {
+        // Bright yellow/white cores
+        colors[i3] = 1.0; // Full red
+        colors[i3 + 1] = 0.9 + Math.random() * 0.1; // Almost full green (yellow)
+        colors[i3 + 2] = Math.random() * 0.5; // Some blue (for white hot centers)
+      } else {
+        // Normal fire colors
+        colors[i3] = Math.random() * 0.2 + 0.8; // Red component (0.8-1.0)
+        colors[i3 + 1] = Math.random() * 0.6; // Green component (0-0.6) - more orange variation
+        colors[i3 + 2] = 0; // No blue
+      }
     }
     
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
     
     // Reuse explosion material
     if (!Shell.explosionMaterial) {
@@ -360,7 +487,9 @@ export class Shell implements ICollidable {
         size: 0.2,
         vertexColors: true,
         transparent: true,
-        opacity: 0.8
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending, // Additive blending for brighter effect
+        sizeAttenuation: true // Size varies with distance
       });
     }
     
@@ -378,8 +507,7 @@ export class Shell implements ICollidable {
     this.scene.add(particles);
     
     // Animate explosion particles
-    let frame = 0;
-    const MAX_FRAMES = isLowPerformance ? 15 : 20; // Fewer animation frames on low-end devices
+    const MAX_FRAMES = isLowPerformance ? 15 : 25; // More frames for smoother animation
     
     // Use a single requestAnimationFrame to reduce overhead
     const startTime = performance.now();
@@ -388,27 +516,158 @@ export class Shell implements ICollidable {
     const animateExplosion = () => {
       const elapsed = performance.now() - startTime;
       const progress = Math.min(1, elapsed / duration);
-      frame = Math.floor(progress * MAX_FRAMES);
       
       if (progress >= 1) {
         this.scene.remove(particles);
         return;
       }
       
+      // Update particle positions for more dynamic movement
+      const positions = geometry.attributes.position.array as Float32Array;
+      const sizes = geometry.attributes.size.array as Float32Array;
+      
+      for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+        
+        // Expand particles with some random variation
+        const expansionRate = 0.03 * (1.0 - progress * 0.5); // Slows down over time
+        const direction = new THREE.Vector3(
+          positions[i3], 
+          positions[i3 + 1], 
+          positions[i3 + 2]
+        ).normalize();
+        
+        positions[i3] += direction.x * expansionRate * (1 + Math.random() * 0.5);
+        positions[i3 + 1] += direction.y * expansionRate * (1 + Math.random() * 0.5);
+        positions[i3 + 2] += direction.z * expansionRate * (1 + Math.random() * 0.5);
+        
+        // Add slight upward drift for rising heat effect
+        positions[i3 + 1] += 0.01 * (1.0 - progress);
+        
+        // Increase particle size slightly then shrink
+        if (progress < 0.3) {
+          sizes[i] *= 1.01;
+        } else {
+          sizes[i] *= 0.98;
+        }
+      }
+      
       // Scale particles outward
       const scale = sizeScale * (1 + progress * 2);
       particles.scale.set(scale, scale, scale);
       
-      // Fade out
-      const opacity = 1 - progress;
+      // Fade out with non-linear curve for more natural look
+      const opacity = Math.pow(1 - progress, 1.5);
       if (material.opacity !== undefined) {
         material.opacity = opacity;
       }
+      
+      // Update geometry attributes
+      geometry.attributes.position.needsUpdate = true;
+      geometry.attributes.size.needsUpdate = true;
       
       requestAnimationFrame(animateExplosion);
     };
     
     // Start animation
     requestAnimationFrame(animateExplosion);
+    
+    // Add sound effect
+    if (typeof Audio !== 'undefined') {
+      try {
+        const explosionSound = new Audio('/static/js/assets/sounds/shell-explosion.mp3');
+        explosionSound.volume = 0.2 + (sizeScale * 0.3); // Volume based on explosion size
+        explosionSound.play().catch(e => console.warn('Audio play failed:', e));
+      } catch(e) {
+        console.warn('Audio not supported');
+      }
+    }
+  }
+  
+  // Create shockwave ring effect
+  private createShockwaveEffect(position: THREE.Vector3, sizeScale: number): void {
+    // Create a ring geometry for the shockwave
+    const shockwaveGeometry = new THREE.RingGeometry(0.1, 0.5, 32);
+    const shockwaveMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffcc66,
+      transparent: true,
+      opacity: 0.7,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide
+    });
+    
+    const shockwave = new THREE.Mesh(shockwaveGeometry, shockwaveMaterial);
+    shockwave.position.copy(position);
+    shockwave.position.y += 0.1; // Slightly above ground
+    shockwave.rotation.x = -Math.PI / 2; // Lay flat
+    
+    this.scene.add(shockwave);
+    
+    // Animate the shockwave
+    const startTime = performance.now();
+    const duration = 500; // Half a second
+    const maxRadius = 8 * sizeScale;
+    
+    const animateShockwave = () => {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      
+      if (progress >= 1) {
+        this.scene.remove(shockwave);
+        return;
+      }
+      
+      // Expand the ring
+      const currentScale = progress * maxRadius;
+      shockwave.scale.set(currentScale, currentScale, 1);
+      
+      // Fade out
+      shockwaveMaterial.opacity = 0.7 * (1 - progress);
+      
+      requestAnimationFrame(animateShockwave);
+    };
+    
+    requestAnimationFrame(animateShockwave);
+  }
+  
+  // Create expanding fireball effect
+  private createFireballEffect(position: THREE.Vector3, sizeScale: number): void {
+    // Bright flash at explosion center
+    const flashGeometry = new THREE.SphereGeometry(1 * sizeScale, 16, 16);
+    const flashMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffeeaa,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending
+    });
+    
+    const flash = new THREE.Mesh(flashGeometry, flashMaterial);
+    flash.position.copy(position);
+    this.scene.add(flash);
+    
+    // Animate flash
+    const startTime = performance.now();
+    const flashDuration = 300; // Very quick (0.3 seconds)
+    
+    const animateFlash = () => {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min(1, elapsed / flashDuration);
+      
+      if (progress >= 1) {
+        this.scene.remove(flash);
+        return;
+      }
+      
+      // Quick expansion then fade
+      const scale = sizeScale * (1 + progress * 3);
+      flash.scale.set(scale, scale, scale);
+      
+      // Rapid fade out
+      flashMaterial.opacity = 0.9 * (1 - progress * progress);
+      
+      requestAnimationFrame(animateFlash);
+    };
+    
+    requestAnimationFrame(animateFlash);
   }
 }

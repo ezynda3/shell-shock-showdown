@@ -29108,6 +29108,8 @@ class Shell {
   getShellId() {
     return this.shellId;
   }
+  airResistance = 0.001;
+  windFactor = new Vector3(0.0005, 0, 0.0005);
   update() {
     if (!this.isActive || this.hasProcessedCollision)
       return false;
@@ -29117,12 +29119,23 @@ class Shell {
       this.destroy();
       return false;
     }
-    this.velocity.y -= this.GRAVITY;
+    this.velocity.y -= this.GRAVITY * (1 + this.velocity.length() * 0.01);
+    const speedSquared = this.velocity.lengthSq();
+    const dragForce = this.velocity.clone().normalize().multiplyScalar(-this.airResistance * speedSquared);
+    this.velocity.add(dragForce);
+    this.velocity.add(this.windFactor);
     this.mesh.position.add(this.velocity);
     this.collider.center.copy(this.mesh.position);
     this.updateTrail();
     if (this.mesh.position.y < 0) {
-      this.createExplosion(new Vector3(this.mesh.position.x, 0, this.mesh.position.z));
+      const hitPosition = new Vector3(this.mesh.position.x, 0, this.mesh.position.z);
+      const impactAngle = Math.atan2(-this.velocity.y, Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z));
+      const impactSpeed = this.velocity.length();
+      const explosionSize = 1 + impactSpeed * 0.5 * Math.sin(impactAngle);
+      this.createExplosion(hitPosition, explosionSize);
+      if (impactAngle < Math.PI / 4) {
+        this.createDustEffect(hitPosition);
+      }
       this.scene.remove(this.mesh);
       if (this.trail) {
         this.scene.remove(this.trail);
@@ -29131,6 +29144,58 @@ class Shell {
       return false;
     }
     return true;
+  }
+  createDustEffect(position) {
+    const particleCount = 20;
+    const geometry = new BufferGeometry;
+    const positions = new Float32Array(particleCount * 3);
+    const colors = new Float32Array(particleCount * 3);
+    const dustDirection = new Vector2(-this.velocity.x, -this.velocity.z).normalize();
+    for (let i = 0;i < particleCount; i++) {
+      const i3 = i * 3;
+      const spread = 2 * Math.random();
+      const angle = Math.PI * 2 * Math.random();
+      positions[i3] = position.x + Math.cos(angle) * spread + dustDirection.x * spread;
+      positions[i3 + 1] = position.y + Math.random() * 0.5;
+      positions[i3 + 2] = position.z + Math.sin(angle) * spread + dustDirection.y * spread;
+      const brightness = 0.5 + Math.random() * 0.3;
+      colors[i3] = brightness;
+      colors[i3 + 1] = brightness * 0.9;
+      colors[i3 + 2] = brightness * 0.7;
+    }
+    geometry.setAttribute("position", new BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new BufferAttribute(colors, 3));
+    const material = new PointsMaterial({
+      size: 0.5,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.6
+    });
+    const particles = new Points(geometry, material);
+    this.scene.add(particles);
+    const dustDuration = 2000;
+    const startTime = Date.now();
+    const animateDust = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = elapsed / dustDuration;
+      if (progress >= 1) {
+        this.scene.remove(particles);
+        return;
+      }
+      const positions2 = geometry.attributes.position.array;
+      for (let i = 0;i < particleCount; i++) {
+        const i3 = i * 3;
+        positions2[i3] += dustDirection.x * 0.01;
+        positions2[i3 + 1] += 0.02 * (1 - progress);
+        positions2[i3 + 2] += dustDirection.y * 0.01;
+      }
+      if (progress > 0.5) {
+        material.opacity = 0.6 * (1 - (progress - 0.5) * 2);
+      }
+      geometry.attributes.position.needsUpdate = true;
+      requestAnimationFrame(animateDust);
+    };
+    requestAnimationFrame(animateDust);
   }
   updateTrail() {
     for (let i = this.TRAIL_LENGTH - 1;i > 0; i--) {
@@ -29251,27 +29316,43 @@ class Shell {
   static explosionMaterial;
   createExplosion(position, sizeScale = 1) {
     const isLowPerformance = window.lowPerformanceMode || false;
-    const particleCount = isLowPerformance ? 15 : 25;
+    const particleCount = isLowPerformance ? 15 : 30;
+    this.createFireballEffect(position, sizeScale);
+    this.createShockwaveEffect(position, sizeScale);
     const geometry = new BufferGeometry;
     const positions = new Float32Array(particleCount * 3);
     const colors = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
     for (let i = 0;i < particleCount; i++) {
       const i3 = i * 3;
-      positions[i3] = (Math.random() - 0.5) * 2;
-      positions[i3 + 1] = Math.random() * 2;
-      positions[i3 + 2] = (Math.random() - 0.5) * 2;
-      colors[i3] = Math.random() * 0.5 + 0.5;
-      colors[i3 + 1] = Math.random() * 0.5;
-      colors[i3 + 2] = 0;
+      const phi = Math.random() * Math.PI * 2;
+      const theta = Math.random() * Math.PI;
+      const radius = Math.random() * 2 * sizeScale;
+      positions[i3] = Math.sin(theta) * Math.cos(phi) * radius;
+      positions[i3 + 1] = Math.cos(theta) * radius * 1.2;
+      positions[i3 + 2] = Math.sin(theta) * Math.sin(phi) * radius;
+      sizes[i] = 0.1 + Math.random() * 0.3;
+      if (Math.random() > 0.7) {
+        colors[i3] = 1;
+        colors[i3 + 1] = 0.9 + Math.random() * 0.1;
+        colors[i3 + 2] = Math.random() * 0.5;
+      } else {
+        colors[i3] = Math.random() * 0.2 + 0.8;
+        colors[i3 + 1] = Math.random() * 0.6;
+        colors[i3 + 2] = 0;
+      }
     }
     geometry.setAttribute("position", new BufferAttribute(positions, 3));
     geometry.setAttribute("color", new BufferAttribute(colors, 3));
+    geometry.setAttribute("size", new BufferAttribute(sizes, 1));
     if (!Shell.explosionMaterial) {
       Shell.explosionMaterial = new PointsMaterial({
         size: 0.2,
         vertexColors: true,
         transparent: true,
-        opacity: 0.8
+        opacity: 0.8,
+        blending: AdditiveBlending,
+        sizeAttenuation: true
       });
     }
     const material = Shell.explosionMaterial.clone();
@@ -29280,27 +29361,110 @@ class Shell {
     particles.position.copy(position);
     particles.scale.set(sizeScale, sizeScale, sizeScale);
     this.scene.add(particles);
-    let frame = 0;
-    const MAX_FRAMES = isLowPerformance ? 15 : 20;
+    const MAX_FRAMES = isLowPerformance ? 15 : 25;
     const startTime = performance.now();
     const duration = MAX_FRAMES * 16.7;
     const animateExplosion = () => {
       const elapsed = performance.now() - startTime;
       const progress = Math.min(1, elapsed / duration);
-      frame = Math.floor(progress * MAX_FRAMES);
       if (progress >= 1) {
         this.scene.remove(particles);
         return;
       }
+      const positions2 = geometry.attributes.position.array;
+      const sizes2 = geometry.attributes.size.array;
+      for (let i = 0;i < particleCount; i++) {
+        const i3 = i * 3;
+        const expansionRate = 0.03 * (1 - progress * 0.5);
+        const direction = new Vector3(positions2[i3], positions2[i3 + 1], positions2[i3 + 2]).normalize();
+        positions2[i3] += direction.x * expansionRate * (1 + Math.random() * 0.5);
+        positions2[i3 + 1] += direction.y * expansionRate * (1 + Math.random() * 0.5);
+        positions2[i3 + 2] += direction.z * expansionRate * (1 + Math.random() * 0.5);
+        positions2[i3 + 1] += 0.01 * (1 - progress);
+        if (progress < 0.3) {
+          sizes2[i] *= 1.01;
+        } else {
+          sizes2[i] *= 0.98;
+        }
+      }
       const scale = sizeScale * (1 + progress * 2);
       particles.scale.set(scale, scale, scale);
-      const opacity = 1 - progress;
+      const opacity = Math.pow(1 - progress, 1.5);
       if (material.opacity !== undefined) {
         material.opacity = opacity;
       }
+      geometry.attributes.position.needsUpdate = true;
+      geometry.attributes.size.needsUpdate = true;
       requestAnimationFrame(animateExplosion);
     };
     requestAnimationFrame(animateExplosion);
+    if (typeof Audio !== "undefined") {
+      try {
+        const explosionSound = new Audio("/static/js/assets/sounds/shell-explosion.mp3");
+        explosionSound.volume = 0.2 + sizeScale * 0.3;
+        explosionSound.play().catch((e) => console.warn("Audio play failed:", e));
+      } catch (e) {
+        console.warn("Audio not supported");
+      }
+    }
+  }
+  createShockwaveEffect(position, sizeScale) {
+    const shockwaveGeometry = new RingGeometry(0.1, 0.5, 32);
+    const shockwaveMaterial = new MeshBasicMaterial({
+      color: 16764006,
+      transparent: true,
+      opacity: 0.7,
+      blending: AdditiveBlending,
+      side: DoubleSide
+    });
+    const shockwave = new Mesh(shockwaveGeometry, shockwaveMaterial);
+    shockwave.position.copy(position);
+    shockwave.position.y += 0.1;
+    shockwave.rotation.x = -Math.PI / 2;
+    this.scene.add(shockwave);
+    const startTime = performance.now();
+    const duration = 500;
+    const maxRadius = 8 * sizeScale;
+    const animateShockwave = () => {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      if (progress >= 1) {
+        this.scene.remove(shockwave);
+        return;
+      }
+      const currentScale = progress * maxRadius;
+      shockwave.scale.set(currentScale, currentScale, 1);
+      shockwaveMaterial.opacity = 0.7 * (1 - progress);
+      requestAnimationFrame(animateShockwave);
+    };
+    requestAnimationFrame(animateShockwave);
+  }
+  createFireballEffect(position, sizeScale) {
+    const flashGeometry = new SphereGeometry(1 * sizeScale, 16, 16);
+    const flashMaterial = new MeshBasicMaterial({
+      color: 16772778,
+      transparent: true,
+      opacity: 0.9,
+      blending: AdditiveBlending
+    });
+    const flash = new Mesh(flashGeometry, flashMaterial);
+    flash.position.copy(position);
+    this.scene.add(flash);
+    const startTime = performance.now();
+    const flashDuration = 300;
+    const animateFlash = () => {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min(1, elapsed / flashDuration);
+      if (progress >= 1) {
+        this.scene.remove(flash);
+        return;
+      }
+      const scale = sizeScale * (1 + progress * 3);
+      flash.scale.set(scale, scale, scale);
+      flashMaterial.opacity = 0.9 * (1 - progress * progress);
+      requestAnimationFrame(animateFlash);
+    };
+    requestAnimationFrame(animateFlash);
   }
 }
 
@@ -29311,7 +29475,11 @@ class SpatialAudio {
   sourcePosition;
   maxDistance = 100;
   baseVolume = 1;
+  playbackRate = 1;
   static globalListener = null;
+  DOPPLER_FACTOR = 0.05;
+  lastPosition;
+  velocity = new Vector3;
   constructor(src, loop = false, volume = 1, maxDistance = 100) {
     this.audio = new Audio(src);
     this.audio.loop = loop;
@@ -29319,14 +29487,19 @@ class SpatialAudio {
     this.audio.volume = this.baseVolume;
     this.maxDistance = maxDistance;
     this.sourcePosition = new Vector3;
+    this.lastPosition = new Vector3;
   }
   setSourcePosition(position) {
+    if (this.isPlaying && SpatialAudio.globalListener) {
+      this.velocity.subVectors(position, this.lastPosition);
+    }
+    this.lastPosition.copy(this.sourcePosition);
     this.sourcePosition.copy(position);
-    this.updateVolume();
+    this.updateVolumeAndDoppler();
   }
   setListenerPosition(position) {
     SpatialAudio.globalListener = position ? position.clone() : null;
-    this.updateVolume();
+    this.updateVolumeAndDoppler();
   }
   static setGlobalListener(position) {
     SpatialAudio.globalListener = position ? position.clone() : null;
@@ -29336,6 +29509,7 @@ class SpatialAudio {
       if (!this.audio.loop) {
         this.audio = new Audio(this.audio.src);
         this.audio.volume = this.baseVolume;
+        this.audio.playbackRate = this.playbackRate;
       }
       this.audio.play().catch((e) => console.warn("Audio play failed:", e));
       this.isPlaying = true;
@@ -29350,7 +29524,7 @@ class SpatialAudio {
       this.isPlaying = false;
     }
   }
-  updateVolume() {
+  updateVolumeAndDoppler() {
     if (!SpatialAudio.globalListener) {
       this.audio.volume = this.baseVolume;
       return;
@@ -29358,19 +29532,40 @@ class SpatialAudio {
     const distance = this.sourcePosition.distanceTo(SpatialAudio.globalListener);
     const volumeFactor = Math.max(0, 1 - distance / this.maxDistance);
     this.audio.volume = this.baseVolume * volumeFactor * volumeFactor;
+    if (this.isPlaying && this.velocity.length() > 0.01) {
+      const direction = new Vector3().subVectors(this.sourcePosition, SpatialAudio.globalListener).normalize();
+      const relativeSpeed = this.velocity.dot(direction);
+      const dopplerShift = 1 - relativeSpeed * this.DOPPLER_FACTOR;
+      const newRate = this.playbackRate * Math.max(0.8, Math.min(1.2, dopplerShift));
+      if (Math.abs(this.audio.playbackRate - newRate) > 0.01) {
+        this.audio.playbackRate = newRate;
+      }
+    }
   }
   isActive() {
     return this.isPlaying;
   }
   setVolume(volume) {
     this.baseVolume = Math.max(0, Math.min(1, volume));
-    this.updateVolume();
+    this.updateVolumeAndDoppler();
+  }
+  setPlaybackRate(rate) {
+    this.playbackRate = Math.max(0.5, Math.min(2, rate));
+    if (this.audio && this.isPlaying) {
+      this.audio.playbackRate = this.playbackRate;
+    }
   }
   cloneAndPlay() {
     const clone = new SpatialAudio(this.audio.src, false, this.baseVolume, this.maxDistance);
     clone.setSourcePosition(this.sourcePosition);
+    clone.setPlaybackRate(this.playbackRate);
     clone.play();
     return clone;
+  }
+  applyEnvironmentalFilter(environmentType = "outdoor") {
+    if (typeof window.AudioContext === "undefined" || !this.audio) {
+      return;
+    }
   }
 }
 
@@ -29436,9 +29631,9 @@ class Tank {
     scene.add(this.tank);
   }
   createTank() {
-    const bodyGeometry = new BoxGeometry(2, 0.75, 3);
+    const bodyGeometry = new BoxGeometry(2, 0.75, 3, 1, 1, 2);
     const bodyMaterial = new MeshStandardMaterial({
-      color: 4881497,
+      color: this.tankColor || 4881497,
       roughness: 0.7,
       metalness: 0.3
     });
@@ -29447,28 +29642,147 @@ class Tank {
     this.tankBody.castShadow = true;
     this.tankBody.receiveShadow = true;
     this.tank.add(this.tankBody);
-    const trackGeometry = new BoxGeometry(0.4, 0.5, 3.2);
+    this.addArmorPlates();
+    this.createDetailedTracks();
+    this.turretPivot = new Group;
+    this.turretPivot.position.set(0, 1, 0);
+    this.tank.add(this.turretPivot);
+    this.createDetailedTurret();
+    const barrelGroup = new Group;
+    barrelGroup.position.set(0, 0, 0.8);
+    this.turretPivot.add(barrelGroup);
+    this.createDetailedBarrel(barrelGroup);
+    this.barrelPivot = barrelGroup;
+    this.barrelPivot.rotation.x = 0;
+  }
+  addArmorPlates() {
+    const frontPlateGeometry = new BoxGeometry(1.9, 0.4, 0.2);
+    const armorMaterial = new MeshStandardMaterial({
+      color: this.tankColor || 4881497,
+      roughness: 0.6,
+      metalness: 0.4
+    });
+    const frontPlate = new Mesh(frontPlateGeometry, armorMaterial);
+    frontPlate.position.set(0, 0.5, -1.4);
+    frontPlate.rotation.x = Math.PI / 8;
+    frontPlate.castShadow = true;
+    this.tank.add(frontPlate);
+    const sideSkirtGeometry = new BoxGeometry(0.1, 0.3, 2.8);
+    const leftSkirt = new Mesh(sideSkirtGeometry, armorMaterial);
+    leftSkirt.position.set(-1.05, 0.4, 0);
+    leftSkirt.castShadow = true;
+    this.tank.add(leftSkirt);
+    const rightSkirt = new Mesh(sideSkirtGeometry, armorMaterial);
+    rightSkirt.position.set(1.05, 0.4, 0);
+    rightSkirt.castShadow = true;
+    this.tank.add(rightSkirt);
+  }
+  createDetailedTracks() {
+    const trackBaseGeometry = new BoxGeometry(0.4, 0.5, 3.2);
     const trackMaterial = new MeshStandardMaterial({
       color: 3355443,
       roughness: 0.9,
       metalness: 0.2
     });
-    const leftTrack = new Mesh(trackGeometry, trackMaterial);
+    const leftTrack = new Mesh(trackBaseGeometry, trackMaterial);
     leftTrack.position.set(-1, 0.25, 0);
     leftTrack.castShadow = true;
     leftTrack.receiveShadow = true;
     this.tank.add(leftTrack);
-    const rightTrack = new Mesh(trackGeometry, trackMaterial);
+    const rightTrack = new Mesh(trackBaseGeometry, trackMaterial);
     rightTrack.position.set(1, 0.25, 0);
     rightTrack.castShadow = true;
     rightTrack.receiveShadow = true;
     this.tank.add(rightTrack);
-    this.turretPivot = new Group;
-    this.turretPivot.position.set(0, 1, 0);
-    this.tank.add(this.turretPivot);
+    const treadsPerSide = this.TRACK_SEGMENT_COUNT;
+    const treadSegmentGeometry = new BoxGeometry(0.5, 0.08, 0.3);
+    const treadMaterial = new MeshStandardMaterial({
+      color: 2236962,
+      roughness: 1,
+      metalness: 0.1
+    });
+    for (let i = 0;i < treadsPerSide; i++) {
+      const leftTread = new Mesh(treadSegmentGeometry, treadMaterial);
+      leftTread.position.set(-1, 0.05, -1.4 + i * (3 / treadsPerSide));
+      leftTread.castShadow = true;
+      this.tank.add(leftTread);
+      this.trackSegments.push(leftTread);
+      const rightTread = new Mesh(treadSegmentGeometry, treadMaterial);
+      rightTread.position.set(1, 0.05, -1.4 + i * (3 / treadsPerSide));
+      rightTread.castShadow = true;
+      this.tank.add(rightTread);
+      this.trackSegments.push(rightTread);
+    }
+    const wheelGeometry = new CylinderGeometry(0.3, 0.3, 0.1, 12);
+    const wheelMaterial = new MeshStandardMaterial({
+      color: 4473924,
+      roughness: 0.8,
+      metalness: 0.5
+    });
+    const leftFrontWheel = new Mesh(wheelGeometry, wheelMaterial);
+    leftFrontWheel.rotation.z = Math.PI / 2;
+    leftFrontWheel.position.set(-1, 0.3, -1.4);
+    this.tank.add(leftFrontWheel);
+    this.wheels.push(leftFrontWheel);
+    const rightFrontWheel = new Mesh(wheelGeometry, wheelMaterial);
+    rightFrontWheel.rotation.z = Math.PI / 2;
+    rightFrontWheel.position.set(1, 0.3, -1.4);
+    this.tank.add(rightFrontWheel);
+    this.wheels.push(rightFrontWheel);
+    const leftRearWheel = new Mesh(wheelGeometry, wheelMaterial);
+    leftRearWheel.rotation.z = Math.PI / 2;
+    leftRearWheel.position.set(-1, 0.3, 1.4);
+    this.tank.add(leftRearWheel);
+    this.wheels.push(leftRearWheel);
+    const rightRearWheel = new Mesh(wheelGeometry, wheelMaterial);
+    rightRearWheel.rotation.z = Math.PI / 2;
+    rightRearWheel.position.set(1, 0.3, 1.4);
+    this.tank.add(rightRearWheel);
+    this.wheels.push(rightRearWheel);
+    const smallWheelGeometry = new CylinderGeometry(0.2, 0.2, 0.08, 8);
+    const roadWheelPositions = [-0.8, -0.2, 0.4, 1];
+    for (const zPos of roadWheelPositions) {
+      const leftRoadWheel = new Mesh(smallWheelGeometry, wheelMaterial);
+      leftRoadWheel.rotation.z = Math.PI / 2;
+      leftRoadWheel.position.set(-1, 0.25, zPos);
+      this.tank.add(leftRoadWheel);
+      this.wheels.push(leftRoadWheel);
+      const rightRoadWheel = new Mesh(smallWheelGeometry, wheelMaterial);
+      rightRoadWheel.rotation.z = Math.PI / 2;
+      rightRoadWheel.position.set(1, 0.25, zPos);
+      this.tank.add(rightRoadWheel);
+      this.wheels.push(rightRoadWheel);
+    }
+  }
+  animateTracks() {
+    this.trackRotationSpeed = this.velocity * 0.5;
+    const segmentSpacing = 3 / this.TRACK_SEGMENT_COUNT;
+    let leftSegments = this.trackSegments.filter((_, i) => i % 2 === 0);
+    let rightSegments = this.trackSegments.filter((_, i) => i % 2 === 1);
+    leftSegments.forEach((segment) => {
+      segment.position.z += this.trackRotationSpeed;
+      if (this.trackRotationSpeed > 0 && segment.position.z > 1.6) {
+        segment.position.z = -1.6 + (segment.position.z - 1.6);
+      } else if (this.trackRotationSpeed < 0 && segment.position.z < -1.6) {
+        segment.position.z = 1.6 + (segment.position.z + 1.6);
+      }
+    });
+    rightSegments.forEach((segment) => {
+      segment.position.z += this.trackRotationSpeed;
+      if (this.trackRotationSpeed > 0 && segment.position.z > 1.6) {
+        segment.position.z = -1.6 + (segment.position.z - 1.6);
+      } else if (this.trackRotationSpeed < 0 && segment.position.z < -1.6) {
+        segment.position.z = 1.6 + (segment.position.z + 1.6);
+      }
+    });
+    this.wheels.forEach((wheel) => {
+      wheel.rotation.y += this.trackRotationSpeed * 2;
+    });
+  }
+  createDetailedTurret() {
     const turretGeometry = new CylinderGeometry(0.8, 0.8, 0.5, 16);
     const turretMaterial = new MeshStandardMaterial({
-      color: 4152905,
+      color: this.tankColor ? new Color(this.tankColor).multiplyScalar(0.9).getHex() : 4152905,
       roughness: 0.7,
       metalness: 0.3
     });
@@ -29476,10 +29790,39 @@ class Tank {
     this.turret.castShadow = true;
     this.turret.receiveShadow = true;
     this.turretPivot.add(this.turret);
-    const barrelGroup = new Group;
-    barrelGroup.position.set(0, 0, 0.8);
-    this.turretPivot.add(barrelGroup);
-    const barrelGeometry = new CylinderGeometry(0.2, 0.2, 2, 16);
+    const hatchGeometry = new CylinderGeometry(0.3, 0.3, 0.1, 8);
+    const hatchMaterial = new MeshStandardMaterial({
+      color: 3355443,
+      roughness: 0.8,
+      metalness: 0.4
+    });
+    const hatch = new Mesh(hatchGeometry, hatchMaterial);
+    hatch.position.set(0, 0.3, 0);
+    hatch.castShadow = true;
+    this.turretPivot.add(hatch);
+    const antennaGeometry = new CylinderGeometry(0.02, 0.01, 1, 4);
+    const antennaMaterial = new MeshStandardMaterial({
+      color: 1118481,
+      roughness: 0.5,
+      metalness: 0.8
+    });
+    const antenna = new Mesh(antennaGeometry, antennaMaterial);
+    antenna.position.set(-0.5, 0.6, -0.2);
+    antenna.castShadow = true;
+    this.turretPivot.add(antenna);
+    const mantletGeometry = new BoxGeometry(0.7, 0.5, 0.3);
+    const mantletMaterial = new MeshStandardMaterial({
+      color: 3355443,
+      roughness: 0.7,
+      metalness: 0.4
+    });
+    const mantlet = new Mesh(mantletGeometry, mantletMaterial);
+    mantlet.position.set(0, 0, 0.8);
+    mantlet.castShadow = true;
+    this.turretPivot.add(mantlet);
+  }
+  createDetailedBarrel(barrelGroup) {
+    const barrelGeometry = new CylinderGeometry(0.2, 0.15, 2.2, 12);
     const barrelMaterial = new MeshStandardMaterial({
       color: 3355443,
       roughness: 0.7,
@@ -29487,12 +29830,57 @@ class Tank {
     });
     this.barrel = new Mesh(barrelGeometry, barrelMaterial);
     this.barrel.rotation.x = Math.PI / 2;
-    this.barrel.position.set(0, 0, 1);
+    this.barrel.position.set(0, 0, 1.1);
     this.barrel.castShadow = true;
     barrelGroup.add(this.barrel);
-    this.barrelPivot = barrelGroup;
-    this.barrelPivot.rotation.x = 0;
-    this.barrel.rotation.x = Math.PI / 2;
+    const muzzleBrakeGeometry = new CylinderGeometry(0.2, 0.2, 0.3, 12);
+    const muzzleBrakeMaterial = new MeshStandardMaterial({
+      color: 2236962,
+      roughness: 0.6,
+      metalness: 0.6
+    });
+    const muzzleBrake = new Mesh(muzzleBrakeGeometry, muzzleBrakeMaterial);
+    muzzleBrake.rotation.x = Math.PI / 2;
+    muzzleBrake.position.set(0, 0, 2.2);
+    barrelGroup.add(muzzleBrake);
+  }
+  acceleration = 0;
+  maxAcceleration = 0.01;
+  maxDeceleration = 0.02;
+  engineRPM = 0;
+  trackRotationSpeed = 0;
+  MAX_ENGINE_RPM = 1.5;
+  TRACK_SEGMENT_COUNT = 8;
+  trackSegments = [];
+  wheels = [];
+  updateMovementWithPhysics(keys) {
+    this.velocity = 0;
+    const targetAcceleration = keys["w"] || keys["W"] ? this.maxAcceleration : keys["s"] || keys["S"] ? -this.maxAcceleration : 0;
+    this.acceleration = this.acceleration * 0.9 + targetAcceleration * 0.1;
+    this.velocity += this.acceleration;
+    if (!keys["w"] && !keys["W"] && !keys["s"] && !keys["S"]) {
+      this.velocity *= 0.95;
+    }
+    const maxSpeed = 0.2;
+    this.velocity = Math.max(-maxSpeed, Math.min(maxSpeed, this.velocity));
+    if (Math.abs(this.velocity) > 0.001) {
+      this.tank.position.x += Math.sin(this.tank.rotation.y) * this.velocity;
+      this.tank.position.z += Math.cos(this.tank.rotation.y) * this.velocity;
+      this.isCurrentlyMoving = true;
+      this.engineRPM = Math.min(this.MAX_ENGINE_RPM, 0.8 + Math.abs(this.velocity) * 5);
+    } else {
+      this.isCurrentlyMoving = false;
+      this.velocity = 0;
+      this.engineRPM = 0;
+    }
+    if (keys["a"] || keys["A"]) {
+      this.tank.rotation.y += this.tankRotationSpeed * (1 - Math.abs(this.velocity) * 0.5);
+      this.isCurrentlyMoving = true;
+    }
+    if (keys["d"] || keys["D"]) {
+      this.tank.rotation.y -= this.tankRotationSpeed * (1 - Math.abs(this.velocity) * 0.5);
+      this.isCurrentlyMoving = true;
+    }
   }
   update(keys, colliders) {
     if (this.isDestroyed) {
@@ -29507,32 +29895,16 @@ class Tank {
       }
     }
     this.isCurrentlyMoving = false;
-    this.velocity = 0;
-    if (keys["w"] || keys["W"]) {
-      this.tank.position.x += Math.sin(this.tank.rotation.y) * this.tankSpeed;
-      this.tank.position.z += Math.cos(this.tank.rotation.y) * this.tankSpeed;
-      this.isCurrentlyMoving = true;
-      this.velocity = this.tankSpeed;
-    }
-    if (keys["s"] || keys["S"]) {
-      this.tank.position.x -= Math.sin(this.tank.rotation.y) * this.tankSpeed;
-      this.tank.position.z -= Math.cos(this.tank.rotation.y) * this.tankSpeed;
-      this.isCurrentlyMoving = true;
-      this.velocity = -this.tankSpeed;
-    }
-    if (keys["a"] || keys["A"]) {
-      this.tank.rotation.y += this.tankRotationSpeed;
-      this.isCurrentlyMoving = true;
-    }
-    if (keys["d"] || keys["D"]) {
-      this.tank.rotation.y -= this.tankRotationSpeed;
-      this.isCurrentlyMoving = true;
+    this.updateMovementWithPhysics(keys);
+    if (Math.abs(this.velocity) > 0.01) {
+      this.animateTracks();
     }
     if (this.isCurrentlyMoving) {
       if (!this.lastMoveSoundState) {
         this.moveSound.play();
         this.lastMoveSoundState = true;
       }
+      this.moveSound.setPlaybackRate(0.8 + this.engineRPM * 0.7);
     } else if (this.lastMoveSoundState) {
       this.moveSound.stop();
       this.lastMoveSoundState = false;

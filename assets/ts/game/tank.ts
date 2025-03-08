@@ -8,9 +8,15 @@ export class SpatialAudio {
   private sourcePosition: THREE.Vector3;
   private maxDistance: number = 100;
   private baseVolume: number = 1.0;
+  private playbackRate: number = 1.0;
   
   // Shared listener position for all spatial audio
   private static globalListener: THREE.Vector3 | null = null;
+  
+  // Doppler effect constants
+  private readonly DOPPLER_FACTOR: number = 0.05;
+  private lastPosition: THREE.Vector3;
+  private velocity: THREE.Vector3 = new THREE.Vector3();
 
   constructor(src: string, loop: boolean = false, volume: number = 1.0, maxDistance: number = 100) {
     this.audio = new Audio(src);
@@ -19,16 +25,28 @@ export class SpatialAudio {
     this.audio.volume = this.baseVolume;
     this.maxDistance = maxDistance;
     this.sourcePosition = new THREE.Vector3();
+    this.lastPosition = new THREE.Vector3();
   }
 
   setSourcePosition(position: THREE.Vector3) {
+    // Calculate velocity for Doppler effect
+    if (this.isPlaying && SpatialAudio.globalListener) {
+      this.velocity.subVectors(position, this.lastPosition);
+    }
+    
+    // Store last position before updating current
+    this.lastPosition.copy(this.sourcePosition);
+    
+    // Update current position
     this.sourcePosition.copy(position);
-    this.updateVolume();
+    
+    // Update volume and apply Doppler effect
+    this.updateVolumeAndDoppler();
   }
 
   setListenerPosition(position: THREE.Vector3 | null) {
     SpatialAudio.globalListener = position ? position.clone() : null;
-    this.updateVolume();
+    this.updateVolumeAndDoppler();
   }
   
   // Set the global listener position for all spatial audio objects
@@ -42,6 +60,7 @@ export class SpatialAudio {
       if (!this.audio.loop) {
         this.audio = new Audio(this.audio.src);
         this.audio.volume = this.baseVolume;
+        this.audio.playbackRate = this.playbackRate;
       }
       
       this.audio.play().catch(e => console.warn('Audio play failed:', e));
@@ -59,7 +78,7 @@ export class SpatialAudio {
     }
   }
 
-  updateVolume() {
+  updateVolumeAndDoppler() {
     if (!SpatialAudio.globalListener) {
       this.audio.volume = this.baseVolume;
       return;
@@ -68,7 +87,32 @@ export class SpatialAudio {
     // Calculate distance-based volume reduction
     const distance = this.sourcePosition.distanceTo(SpatialAudio.globalListener);
     const volumeFactor = Math.max(0, 1 - (distance / this.maxDistance));
-    this.audio.volume = this.baseVolume * volumeFactor * volumeFactor; // Squared for more realistic falloff
+    
+    // Apply distance-based inverse square law attenuation (more realistic)
+    this.audio.volume = this.baseVolume * volumeFactor * volumeFactor;
+    
+    // Apply Doppler effect if object is moving
+    if (this.isPlaying && this.velocity.length() > 0.01) {
+      // Calculate direction from listener to source
+      const direction = new THREE.Vector3().subVectors(
+        this.sourcePosition, 
+        SpatialAudio.globalListener
+      ).normalize();
+      
+      // Project velocity onto direction vector (positive = moving away, negative = moving toward)
+      const relativeSpeed = this.velocity.dot(direction);
+      
+      // Apply Doppler shift
+      const dopplerShift = 1.0 - (relativeSpeed * this.DOPPLER_FACTOR);
+      
+      // Apply shift to playback rate (within reasonable limits)
+      const newRate = this.playbackRate * Math.max(0.8, Math.min(1.2, dopplerShift));
+      
+      // Only update if the change is significant
+      if (Math.abs(this.audio.playbackRate - newRate) > 0.01) {
+        this.audio.playbackRate = newRate;
+      }
+    }
   }
 
   isActive(): boolean {
@@ -77,15 +121,33 @@ export class SpatialAudio {
 
   setVolume(volume: number) {
     this.baseVolume = Math.max(0, Math.min(1, volume));
-    this.updateVolume();
+    this.updateVolumeAndDoppler();
+  }
+  
+  setPlaybackRate(rate: number) {
+    this.playbackRate = Math.max(0.5, Math.min(2.0, rate));
+    if (this.audio && this.isPlaying) {
+      this.audio.playbackRate = this.playbackRate;
+    }
   }
 
   // For one-shot sounds, clone the audio to allow multiple overlapping sounds
   cloneAndPlay(): SpatialAudio {
     const clone = new SpatialAudio(this.audio.src, false, this.baseVolume, this.maxDistance);
     clone.setSourcePosition(this.sourcePosition);
+    clone.setPlaybackRate(this.playbackRate);
     clone.play();
     return clone;
+  }
+  
+  // Apply filter based on environment (for future expansion)
+  applyEnvironmentalFilter(environmentType: 'indoor' | 'outdoor' | 'underwater' = 'outdoor') {
+    if (typeof window.AudioContext === 'undefined' || !this.audio) {
+      return; // Audio filter API not supported
+    }
+    
+    // This would be implemented with Web Audio API filters
+    // Left as a placeholder for future implementation
   }
 }
 
@@ -210,10 +272,10 @@ export class Tank implements ITank {
   }
 
   private createTank() {
-    // Tank body
-    const bodyGeometry = new THREE.BoxGeometry(2, 0.75, 3);
+    // Tank body - more detailed with beveled edges
+    const bodyGeometry = new THREE.BoxGeometry(2, 0.75, 3, 1, 1, 2);
     const bodyMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0x4a7c59,  // Dark green
+      color: this.tankColor || 0x4a7c59,  // Dark green (or custom color)
       roughness: 0.7,
       metalness: 0.3
     });
@@ -223,42 +285,19 @@ export class Tank implements ITank {
     this.tankBody.receiveShadow = true;
     this.tank.add(this.tankBody);
     
-    // Tracks (left and right)
-    const trackGeometry = new THREE.BoxGeometry(0.4, 0.5, 3.2);
-    const trackMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0x333333, 
-      roughness: 0.9,
-      metalness: 0.2
-    });
+    // Add armor plating details to the tank body
+    this.addArmorPlates();
     
-    const leftTrack = new THREE.Mesh(trackGeometry, trackMaterial);
-    leftTrack.position.set(-1, 0.25, 0);
-    leftTrack.castShadow = true;
-    leftTrack.receiveShadow = true;
-    this.tank.add(leftTrack);
-    
-    const rightTrack = new THREE.Mesh(trackGeometry, trackMaterial);
-    rightTrack.position.set(1, 0.25, 0);
-    rightTrack.castShadow = true;
-    rightTrack.receiveShadow = true;
-    this.tank.add(rightTrack);
+    // Tracks (left and right) - more detailed with tread segments
+    this.createDetailedTracks();
     
     // Create turret group for Y-axis rotation
     this.turretPivot = new THREE.Group();
     this.turretPivot.position.set(0, 1.0, 0); // Position at top of tank body, slightly higher
     this.tank.add(this.turretPivot);
     
-    // Turret base (dome)
-    const turretGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.5, 16);
-    const turretMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0x3f5e49,  // Slightly different green
-      roughness: 0.7,
-      metalness: 0.3
-    });
-    this.turret = new THREE.Mesh(turretGeometry, turretMaterial);
-    this.turret.castShadow = true;
-    this.turret.receiveShadow = true;
-    this.turretPivot.add(this.turret);
+    // Turret base - more detailed with hatches and details
+    this.createDetailedTurret();
     
     // Create a group for the barrel - this will handle the elevation
     const barrelGroup = new THREE.Group();
@@ -267,8 +306,243 @@ export class Tank implements ITank {
     barrelGroup.position.set(0, 0, 0.8); // 0.8 is the radius of the turret
     this.turretPivot.add(barrelGroup);
     
-    // Create the barrel using a rotated cylinder
-    const barrelGeometry = new THREE.CylinderGeometry(0.2, 0.2, 2, 16);
+    // Create a more detailed barrel with muzzle brake
+    this.createDetailedBarrel(barrelGroup);
+    
+    // Store reference to the barrelGroup for elevation control
+    this.barrelPivot = barrelGroup;
+    
+    // Set initial barrel elevation to exactly horizontal (0 degrees)
+    this.barrelPivot.rotation.x = 0;
+  }
+  
+  private addArmorPlates(): void {
+    // Front glacis plate
+    const frontPlateGeometry = new THREE.BoxGeometry(1.9, 0.4, 0.2);
+    const armorMaterial = new THREE.MeshStandardMaterial({
+      color: this.tankColor || 0x4a7c59,
+      roughness: 0.6,
+      metalness: 0.4
+    });
+    
+    const frontPlate = new THREE.Mesh(frontPlateGeometry, armorMaterial);
+    frontPlate.position.set(0, 0.5, -1.4);
+    frontPlate.rotation.x = Math.PI / 8; // Angled slightly
+    frontPlate.castShadow = true;
+    this.tank.add(frontPlate);
+    
+    // Side skirt armor (left)
+    const sideSkirtGeometry = new THREE.BoxGeometry(0.1, 0.3, 2.8);
+    const leftSkirt = new THREE.Mesh(sideSkirtGeometry, armorMaterial);
+    leftSkirt.position.set(-1.05, 0.4, 0);
+    leftSkirt.castShadow = true;
+    this.tank.add(leftSkirt);
+    
+    // Side skirt armor (right)
+    const rightSkirt = new THREE.Mesh(sideSkirtGeometry, armorMaterial);
+    rightSkirt.position.set(1.05, 0.4, 0);
+    rightSkirt.castShadow = true;
+    this.tank.add(rightSkirt);
+  }
+  
+  private createDetailedTracks(): void {
+    // Track base
+    const trackBaseGeometry = new THREE.BoxGeometry(0.4, 0.5, 3.2);
+    const trackMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0x333333, 
+      roughness: 0.9,
+      metalness: 0.2
+    });
+    
+    // Left track base
+    const leftTrack = new THREE.Mesh(trackBaseGeometry, trackMaterial);
+    leftTrack.position.set(-1, 0.25, 0);
+    leftTrack.castShadow = true;
+    leftTrack.receiveShadow = true;
+    this.tank.add(leftTrack);
+    
+    // Right track base
+    const rightTrack = new THREE.Mesh(trackBaseGeometry, trackMaterial);
+    rightTrack.position.set(1, 0.25, 0);
+    rightTrack.castShadow = true;
+    rightTrack.receiveShadow = true;
+    this.tank.add(rightTrack);
+    
+    // Track treads - add segments for visual detail
+    const treadsPerSide = this.TRACK_SEGMENT_COUNT; // Number of visible tread segments
+    const treadSegmentGeometry = new THREE.BoxGeometry(0.5, 0.08, 0.3);
+    const treadMaterial = new THREE.MeshStandardMaterial({
+      color: 0x222222,
+      roughness: 1.0,
+      metalness: 0.1
+    });
+    
+    // Create tread segments for both tracks and store references for animation
+    for (let i = 0; i < treadsPerSide; i++) {
+      const leftTread = new THREE.Mesh(treadSegmentGeometry, treadMaterial);
+      leftTread.position.set(-1, 0.05, -1.4 + i * (3 / treadsPerSide));
+      leftTread.castShadow = true;
+      this.tank.add(leftTread);
+      this.trackSegments.push(leftTread);
+      
+      const rightTread = new THREE.Mesh(treadSegmentGeometry, treadMaterial);
+      rightTread.position.set(1, 0.05, -1.4 + i * (3 / treadsPerSide));
+      rightTread.castShadow = true;
+      this.tank.add(rightTread);
+      this.trackSegments.push(rightTread);
+    }
+    
+    // Add drive wheels at the front and back
+    const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 12);
+    const wheelMaterial = new THREE.MeshStandardMaterial({
+      color: 0x444444,
+      roughness: 0.8,
+      metalness: 0.5
+    });
+    
+    // Front wheels
+    const leftFrontWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    leftFrontWheel.rotation.z = Math.PI / 2;
+    leftFrontWheel.position.set(-1, 0.3, -1.4);
+    this.tank.add(leftFrontWheel);
+    this.wheels.push(leftFrontWheel);
+    
+    const rightFrontWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    rightFrontWheel.rotation.z = Math.PI / 2;
+    rightFrontWheel.position.set(1, 0.3, -1.4);
+    this.tank.add(rightFrontWheel);
+    this.wheels.push(rightFrontWheel);
+    
+    // Rear wheels
+    const leftRearWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    leftRearWheel.rotation.z = Math.PI / 2;
+    leftRearWheel.position.set(-1, 0.3, 1.4);
+    this.tank.add(leftRearWheel);
+    this.wheels.push(leftRearWheel);
+    
+    const rightRearWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    rightRearWheel.rotation.z = Math.PI / 2;
+    rightRearWheel.position.set(1, 0.3, 1.4);
+    this.tank.add(rightRearWheel);
+    this.wheels.push(rightRearWheel);
+    
+    // Add road wheels in between
+    const smallWheelGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.08, 8);
+    const roadWheelPositions = [-0.8, -0.2, 0.4, 1.0]; // Z positions along track
+    
+    for (const zPos of roadWheelPositions) {
+      const leftRoadWheel = new THREE.Mesh(smallWheelGeometry, wheelMaterial);
+      leftRoadWheel.rotation.z = Math.PI / 2;
+      leftRoadWheel.position.set(-1, 0.25, zPos);
+      this.tank.add(leftRoadWheel);
+      this.wheels.push(leftRoadWheel);
+      
+      const rightRoadWheel = new THREE.Mesh(smallWheelGeometry, wheelMaterial);
+      rightRoadWheel.rotation.z = Math.PI / 2;
+      rightRoadWheel.position.set(1, 0.25, zPos);
+      this.tank.add(rightRoadWheel);
+      this.wheels.push(rightRoadWheel);
+    }
+  }
+  
+  // Animate track segments and wheels based on movement
+  private animateTracks(): void {
+    // Calculate rotation speed based on velocity
+    this.trackRotationSpeed = this.velocity * 0.5;
+    
+    // Move track segments
+    const segmentSpacing = 3 / this.TRACK_SEGMENT_COUNT;
+    let leftSegments = this.trackSegments.filter((_, i) => i % 2 === 0);
+    let rightSegments = this.trackSegments.filter((_, i) => i % 2 === 1);
+    
+    // Update left track segments
+    leftSegments.forEach(segment => {
+      // Move segment backward/forward
+      segment.position.z += this.trackRotationSpeed;
+      
+      // If segment moves beyond the track length, wrap it around to the front
+      if (this.trackRotationSpeed > 0 && segment.position.z > 1.6) {
+        segment.position.z = -1.6 + (segment.position.z - 1.6);
+      } 
+      // If segment moves beyond the front, wrap it around to the back
+      else if (this.trackRotationSpeed < 0 && segment.position.z < -1.6) {
+        segment.position.z = 1.6 + (segment.position.z + 1.6);
+      }
+    });
+    
+    // Update right track segments (same logic as left)
+    rightSegments.forEach(segment => {
+      segment.position.z += this.trackRotationSpeed;
+      if (this.trackRotationSpeed > 0 && segment.position.z > 1.6) {
+        segment.position.z = -1.6 + (segment.position.z - 1.6);
+      } else if (this.trackRotationSpeed < 0 && segment.position.z < -1.6) {
+        segment.position.z = 1.6 + (segment.position.z + 1.6);
+      }
+    });
+    
+    // Rotate wheels based on velocity
+    this.wheels.forEach(wheel => {
+      wheel.rotation.y += this.trackRotationSpeed * 2; // Wheels turn faster than track movement
+    });
+  }
+  
+  private createDetailedTurret(): void {
+    // Main turret body - slightly more complex shape
+    const turretGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.5, 16);
+    const turretMaterial = new THREE.MeshStandardMaterial({ 
+      color: this.tankColor ? new THREE.Color(this.tankColor).multiplyScalar(0.9).getHex() : 0x3f5e49,
+      roughness: 0.7,
+      metalness: 0.3
+    });
+    
+    this.turret = new THREE.Mesh(turretGeometry, turretMaterial);
+    this.turret.castShadow = true;
+    this.turret.receiveShadow = true;
+    this.turretPivot.add(this.turret);
+    
+    // Add turret details - commander's hatch
+    const hatchGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 8);
+    const hatchMaterial = new THREE.MeshStandardMaterial({
+      color: 0x333333,
+      roughness: 0.8,
+      metalness: 0.4
+    });
+    
+    const hatch = new THREE.Mesh(hatchGeometry, hatchMaterial);
+    hatch.position.set(0, 0.3, 0);
+    hatch.castShadow = true;
+    this.turretPivot.add(hatch);
+    
+    // Add antenna
+    const antennaGeometry = new THREE.CylinderGeometry(0.02, 0.01, 1.0, 4);
+    const antennaMaterial = new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      roughness: 0.5,
+      metalness: 0.8
+    });
+    
+    const antenna = new THREE.Mesh(antennaGeometry, antennaMaterial);
+    antenna.position.set(-0.5, 0.6, -0.2);
+    antenna.castShadow = true;
+    this.turretPivot.add(antenna);
+    
+    // Add mantlet at barrel base
+    const mantletGeometry = new THREE.BoxGeometry(0.7, 0.5, 0.3);
+    const mantletMaterial = new THREE.MeshStandardMaterial({
+      color: 0x333333,
+      roughness: 0.7,
+      metalness: 0.4
+    });
+    
+    const mantlet = new THREE.Mesh(mantletGeometry, mantletMaterial);
+    mantlet.position.set(0, 0, 0.8);
+    mantlet.castShadow = true;
+    this.turretPivot.add(mantlet);
+  }
+  
+  private createDetailedBarrel(barrelGroup: THREE.Group): void {
+    // Main barrel (thicker at base, thinner at muzzle)
+    const barrelGeometry = new THREE.CylinderGeometry(0.2, 0.15, 2.2, 12);
     const barrelMaterial = new THREE.MeshStandardMaterial({ 
       color: 0x333333, 
       roughness: 0.7,
@@ -277,27 +551,92 @@ export class Tank implements ITank {
     
     this.barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
     
-    // Rotate the cylinder to point forward (perpendicular to tank)
+    // Rotate the cylinder to point forward
     this.barrel.rotation.x = Math.PI / 2;
     
     // Position the barrel so one end is at the pivot point
-    this.barrel.position.set(0, 0, 1); // Half the length of the barrel
+    this.barrel.position.set(0, 0, 1.1); // Half the length of the barrel
     
     this.barrel.castShadow = true;
     barrelGroup.add(this.barrel);
     
-    // Store reference to the barrelGroup for elevation control
-    this.barrelPivot = barrelGroup;
+    // Add muzzle brake
+    const muzzleBrakeGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.3, 12);
+    const muzzleBrakeMaterial = new THREE.MeshStandardMaterial({
+      color: 0x222222,
+      roughness: 0.6,
+      metalness: 0.6
+    });
     
-    // Set initial barrel elevation to exactly horizontal (0 degrees)
-    this.barrelPivot.rotation.x = 0;
-    
-    // Ensure the barrel is properly oriented for horizontal firing
-    // This ensures shells fly straight initially and don't hit the ground immediately
-    this.barrel.rotation.x = Math.PI / 2; // Barrel cylinder points along z-axis
+    const muzzleBrake = new THREE.Mesh(muzzleBrakeGeometry, muzzleBrakeMaterial);
+    muzzleBrake.rotation.x = Math.PI / 2;
+    muzzleBrake.position.set(0, 0, 2.2);
+    barrelGroup.add(muzzleBrake);
   }
 
 
+  // Track movement physics properties
+  private acceleration: number = 0;
+  private maxAcceleration: number = 0.01;
+  private maxDeceleration: number = 0.02;
+  private engineRPM: number = 0;
+  private trackRotationSpeed: number = 0;
+  private readonly MAX_ENGINE_RPM: number = 1.5;
+  private readonly TRACK_SEGMENT_COUNT: number = 8; // Must match the value in createDetailedTracks
+  private trackSegments: THREE.Mesh[] = [];
+  private wheels: THREE.Mesh[] = [];
+  
+  // Method to handle physics-based movement
+  private updateMovementWithPhysics(keys: {[key: string]: boolean}) {
+    // Reset velocity variables
+    this.velocity = 0;
+    
+    // Determine target acceleration based on inputs
+    const targetAcceleration = 
+      keys['w'] || keys['W'] ? this.maxAcceleration : 
+      keys['s'] || keys['S'] ? -this.maxAcceleration : 0;
+    
+    // Gradually change acceleration (smoother feel)
+    this.acceleration = this.acceleration * 0.9 + targetAcceleration * 0.1;
+    
+    // Apply velocity changes based on acceleration
+    this.velocity += this.acceleration;
+    
+    // Apply friction/drag when no input
+    if (!keys['w'] && !keys['W'] && !keys['s'] && !keys['S']) {
+      this.velocity *= 0.95; // Gradual slowdown
+    }
+    
+    // Clamp velocity to max speed
+    const maxSpeed = 0.2;
+    this.velocity = Math.max(-maxSpeed, Math.min(maxSpeed, this.velocity));
+    
+    // Update position based on velocity and tank rotation
+    if (Math.abs(this.velocity) > 0.001) {
+      this.tank.position.x += Math.sin(this.tank.rotation.y) * this.velocity;
+      this.tank.position.z += Math.cos(this.tank.rotation.y) * this.velocity;
+      this.isCurrentlyMoving = true;
+      
+      // Update engine sound pitch based on velocity
+      this.engineRPM = Math.min(this.MAX_ENGINE_RPM, 0.8 + Math.abs(this.velocity) * 5);
+    } else {
+      this.isCurrentlyMoving = false;
+      this.velocity = 0;
+      this.engineRPM = 0;
+    }
+    
+    // Tank rotation with inertia
+    if (keys['a'] || keys['A']) {
+      this.tank.rotation.y += this.tankRotationSpeed * (1.0 - Math.abs(this.velocity) * 0.5); // Slower rotation at high speed
+      this.isCurrentlyMoving = true;
+    }
+    
+    if (keys['d'] || keys['D']) {
+      this.tank.rotation.y -= this.tankRotationSpeed * (1.0 - Math.abs(this.velocity) * 0.5); // Slower rotation at high speed
+      this.isCurrentlyMoving = true;
+    }
+  }
+  
   update(keys: { [key: string]: boolean }, colliders?: ICollidable[]): Shell | null {
     // If tank is destroyed, don't process movement or firing
     if (this.isDestroyed) {
@@ -320,42 +659,23 @@ export class Tank implements ITank {
     
     // Reset movement flag - will be set to true if any movement occurs
     this.isCurrentlyMoving = false;
-    this.velocity = 0;
     
-    // Tank movement
-    if (keys['w'] || keys['W']) {
-      // Move forward in the direction the tank is facing
-      this.tank.position.x += Math.sin(this.tank.rotation.y) * this.tankSpeed;
-      this.tank.position.z += Math.cos(this.tank.rotation.y) * this.tankSpeed;
-      this.isCurrentlyMoving = true;
-      this.velocity = this.tankSpeed;
+    // Apply physics-based movement with acceleration and inertia
+    this.updateMovementWithPhysics(keys);
+    
+    // Animate tracks if moving
+    if (Math.abs(this.velocity) > 0.01) {
+      this.animateTracks();
     }
     
-    if (keys['s'] || keys['S']) {
-      // Move backward in the direction the tank is facing
-      this.tank.position.x -= Math.sin(this.tank.rotation.y) * this.tankSpeed;
-      this.tank.position.z -= Math.cos(this.tank.rotation.y) * this.tankSpeed;
-      this.isCurrentlyMoving = true;
-      this.velocity = -this.tankSpeed;
-    }
-    
-    // Tank rotation
-    if (keys['a'] || keys['A']) {
-      this.tank.rotation.y += this.tankRotationSpeed;
-      this.isCurrentlyMoving = true;
-    }
-    
-    if (keys['d'] || keys['D']) {
-      this.tank.rotation.y -= this.tankRotationSpeed;
-      this.isCurrentlyMoving = true;
-    }
-    
-    // Update movement sound based on movement status
+    // Update movement sound based on movement status and engine RPM
     if (this.isCurrentlyMoving) {
       if (!this.lastMoveSoundState) {
         this.moveSound.play();
         this.lastMoveSoundState = true;
       }
+      // Update engine sound pitch based on RPM
+      this.moveSound.setPlaybackRate(0.8 + this.engineRPM * 0.7);
     } else if (this.lastMoveSoundState) {
       this.moveSound.stop();
       this.lastMoveSoundState = false;
