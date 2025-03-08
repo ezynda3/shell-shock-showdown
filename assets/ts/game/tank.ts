@@ -9,6 +9,8 @@ export class SpatialAudio {
   private maxDistance: number = 100;
   private baseVolume: number = 1.0;
   private playbackRate: number = 1.0;
+  private duration: number | null = null;  // Original duration 
+  private trimEnd: number = 0;             // Seconds to trim from end
   
   // Shared listener position for all spatial audio
   private static globalListener: THREE.Vector3 | null = null;
@@ -18,7 +20,7 @@ export class SpatialAudio {
   private lastPosition: THREE.Vector3;
   private velocity: THREE.Vector3 = new THREE.Vector3();
 
-  constructor(src: string, loop: boolean = false, volume: number = 1.0, maxDistance: number = 100) {
+  constructor(src: string, loop: boolean = false, volume: number = 1.0, maxDistance: number = 100, trimEndSeconds: number = 0) {
     this.audio = new Audio(src);
     this.audio.loop = loop;
     this.baseVolume = Math.max(0, Math.min(1, volume));
@@ -26,6 +28,33 @@ export class SpatialAudio {
     this.maxDistance = maxDistance;
     this.sourcePosition = new THREE.Vector3();
     this.lastPosition = new THREE.Vector3();
+    this.trimEnd = trimEndSeconds;
+    
+    // For looping sounds with trimming
+    if (loop && trimEndSeconds > 0) {
+      // We need to handle the manual looping
+      this.audio.addEventListener('loadedmetadata', () => {
+        this.duration = this.audio.duration;
+        
+        // Add timeupdate listener to handle manual looping with trimmed end
+        if (this.duration && this.trimEnd > 0) {
+          // This is the simpler looping approach: just reset to beginning
+          // when we reach the loop point
+          this.audio.addEventListener('timeupdate', () => {
+            if (this.isPlaying && this.duration && this.trimEnd > 0) {
+              const loopPoint = this.duration - this.trimEnd;
+              
+              // If we've reached the loop point, jump back to start
+              if (this.audio.currentTime >= loopPoint) {
+                // Add a small offset to avoid exact boundary 
+                // which could cause looping issues
+                this.audio.currentTime = 0.01;
+              }
+            }
+          });
+        }
+      });
+    }
   }
 
   setSourcePosition(position: THREE.Vector3) {
@@ -56,13 +85,14 @@ export class SpatialAudio {
 
   play() {
     if (!this.isPlaying) {
-      // Need to create a new Audio element each time for overlapping sounds
+      // For non-looping sounds, create a new Audio element each time
       if (!this.audio.loop) {
         this.audio = new Audio(this.audio.src);
         this.audio.volume = this.baseVolume;
         this.audio.playbackRate = this.playbackRate;
       }
       
+      // Play the audio element
       this.audio.play().catch(e => console.warn('Audio play failed:', e));
       this.isPlaying = true;
     }
@@ -70,10 +100,12 @@ export class SpatialAudio {
 
   stop() {
     if (this.isPlaying) {
+      // Stop the audio
       this.audio.pause();
-      if (!this.audio.loop) {
-        this.audio.currentTime = 0;
-      }
+      
+      // Reset time position
+      this.audio.currentTime = 0;
+      
       this.isPlaying = false;
     }
   }
@@ -126,6 +158,8 @@ export class SpatialAudio {
   
   setPlaybackRate(rate: number) {
     this.playbackRate = Math.max(0.5, Math.min(2.0, rate));
+    
+    // Apply to audio
     if (this.audio && this.isPlaying) {
       this.audio.playbackRate = this.playbackRate;
     }
@@ -133,7 +167,7 @@ export class SpatialAudio {
 
   // For one-shot sounds, clone the audio to allow multiple overlapping sounds
   cloneAndPlay(): SpatialAudio {
-    const clone = new SpatialAudio(this.audio.src, false, this.baseVolume, this.maxDistance);
+    const clone = new SpatialAudio(this.audio.src, false, this.baseVolume, this.maxDistance, this.trimEnd);
     clone.setSourcePosition(this.sourcePosition);
     clone.setPlaybackRate(this.playbackRate);
     clone.play();
@@ -263,7 +297,8 @@ export class Tank implements ITank {
     // No health bar for player tank - it's shown in the UI
     
     // Initialize sound effects
-    this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.4, 120);
+    // Trim 4 seconds from the end of the tank movement sound for smooth looping
+    this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.4, 120, 4.0);
     this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.7, 150);
     this.explodeSound = new SpatialAudio('/static/js/assets/sounds/tank-explode.mp3', false, 0.8, 200);
     
@@ -1863,7 +1898,8 @@ export class NPCTank implements ITank {
     }
     
     // Initialize sound effects (at lower volume than player tank)
-    this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.3, 120);
+    // Trim 4 seconds from the end of the tank movement sound for smooth looping
+    this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.3, 120, 4.0);
     this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.5, 150);
     this.explodeSound = new SpatialAudio('/static/js/assets/sounds/tank-explode.mp3', false, 0.6, 200);
     

@@ -29476,11 +29476,13 @@ class SpatialAudio {
   maxDistance = 100;
   baseVolume = 1;
   playbackRate = 1;
+  duration = null;
+  trimEnd = 0;
   static globalListener = null;
   DOPPLER_FACTOR = 0.05;
   lastPosition;
   velocity = new Vector3;
-  constructor(src, loop = false, volume = 1, maxDistance = 100) {
+  constructor(src, loop = false, volume = 1, maxDistance = 100, trimEndSeconds = 0) {
     this.audio = new Audio(src);
     this.audio.loop = loop;
     this.baseVolume = Math.max(0, Math.min(1, volume));
@@ -29488,6 +29490,22 @@ class SpatialAudio {
     this.maxDistance = maxDistance;
     this.sourcePosition = new Vector3;
     this.lastPosition = new Vector3;
+    this.trimEnd = trimEndSeconds;
+    if (loop && trimEndSeconds > 0) {
+      this.audio.addEventListener("loadedmetadata", () => {
+        this.duration = this.audio.duration;
+        if (this.duration && this.trimEnd > 0) {
+          this.audio.addEventListener("timeupdate", () => {
+            if (this.isPlaying && this.duration && this.trimEnd > 0) {
+              const loopPoint = this.duration - this.trimEnd;
+              if (this.audio.currentTime >= loopPoint) {
+                this.audio.currentTime = 0.01;
+              }
+            }
+          });
+        }
+      });
+    }
   }
   setSourcePosition(position) {
     if (this.isPlaying && SpatialAudio.globalListener) {
@@ -29518,9 +29536,7 @@ class SpatialAudio {
   stop() {
     if (this.isPlaying) {
       this.audio.pause();
-      if (!this.audio.loop) {
-        this.audio.currentTime = 0;
-      }
+      this.audio.currentTime = 0;
       this.isPlaying = false;
     }
   }
@@ -29556,7 +29572,7 @@ class SpatialAudio {
     }
   }
   cloneAndPlay() {
-    const clone = new SpatialAudio(this.audio.src, false, this.baseVolume, this.maxDistance);
+    const clone = new SpatialAudio(this.audio.src, false, this.baseVolume, this.maxDistance, this.trimEnd);
     clone.setSourcePosition(this.sourcePosition);
     clone.setPlaybackRate(this.playbackRate);
     clone.play();
@@ -29625,7 +29641,7 @@ class Tank {
     this.createTank();
     this.collider = new Sphere(this.tank.position.clone(), this.collisionRadius);
     this.lastPosition = this.tank.position.clone();
-    this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.4, 120);
+    this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.4, 120, 4);
     this.fireSound = new SpatialAudio("/static/js/assets/sounds/tank-fire.mp3", false, 0.7, 150);
     this.explodeSound = new SpatialAudio("/static/js/assets/sounds/tank-explode.mp3", false, 0.8, 200);
     scene.add(this.tank);
@@ -30695,7 +30711,7 @@ class NPCTank {
     if (this.movementPattern === "patrol") {
       this.setupPatrolPoints();
     }
-    this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.3, 120);
+    this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.3, 120, 4);
     this.fireSound = new SpatialAudio("/static/js/assets/sounds/tank-fire.mp3", false, 0.5, 150);
     this.explodeSound = new SpatialAudio("/static/js/assets/sounds/tank-explode.mp3", false, 0.6, 200);
     this.createHealthBar();
