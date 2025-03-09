@@ -193,8 +193,9 @@ export class GameComponent extends LitElement {
   private playerTank?: Tank;
   private remoteTanks: Map<string, NPCTank> = new Map();
   private npcTanks: NPCTank[] = [];
-  // Disabled NPC tanks for multiplayer testing
+  // Base NPC count; can be increased when only a single player is online
   private readonly NUM_NPC_TANKS = 0;
+  private readonly SOLO_PLAYER_NPC_COUNT = 25;
   
   // Performance settings
   private lodDistance = 300; // Distance at which to switch to lower detail
@@ -599,6 +600,25 @@ export class GameComponent extends LitElement {
     if (!this.playerId) {
       console.error('Waiting for player ID before processing remote players');
       return;
+    }
+    
+    // Check if we need to update NPC tanks based on player count
+    const playerCount = playerKeys.length;
+    
+    // If player count changes to or from 1, we need to update NPC tanks
+    if (playerCount === 1 && this.npcTanks.length === 0) {
+      // Single player detected, add NPCs
+      console.log('Single player detected, creating NPC tanks');
+      this.createNpcTanks();
+    } else if (playerCount > 1 && this.npcTanks.length > 0) {
+      // Multiple players detected, remove NPCs
+      console.log('Multiple players detected, removing NPC tanks');
+      // Clear existing NPC tanks
+      for (const tank of this.npcTanks) {
+        this.collisionSystem.removeCollider(tank);
+        tank.dispose();
+      }
+      this.npcTanks = [];
     }
     
     // Process each player in the game state
@@ -1456,8 +1476,21 @@ export class GameComponent extends LitElement {
     }
     this.npcTanks = [];
     
+    // Determine how many NPC tanks to create
+    let npcCount = this.NUM_NPC_TANKS;
+    
+    // Check if there's only one player online (the current player)
+    if (this.multiplayerState && this.multiplayerState.players) {
+      const playerCount = Object.keys(this.multiplayerState.players).length;
+      // Only enable NPCs when a single player is online
+      if (playerCount === 1) {
+        npcCount = this.SOLO_PLAYER_NPC_COUNT;
+        console.log(`Solo player detected. Adding ${npcCount} NPC tanks for player enjoyment.`);
+      }
+    }
+    
     // Create new NPC tanks at random positions around the map
-    for (let i = 0; i < this.NUM_NPC_TANKS; i++) {
+    for (let i = 0; i < npcCount; i++) {
       // Random position in a wider circle around origin (200-800 units away)
       const angle = Math.random() * Math.PI * 2;
       const distance = 200 + Math.random() * 600;

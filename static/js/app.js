@@ -32785,6 +32785,7 @@ class GameComponent extends LitElement {
   remoteTanks = new Map;
   npcTanks = [];
   NUM_NPC_TANKS = 0;
+  SOLO_PLAYER_NPC_COUNT = 25;
   lodDistance = 300;
   collisionSystem = new CollisionSystem;
   mapGenerator;
@@ -33120,6 +33121,18 @@ class GameComponent extends LitElement {
     if (!this.playerId) {
       console.error("Waiting for player ID before processing remote players");
       return;
+    }
+    const playerCount = playerKeys.length;
+    if (playerCount === 1 && this.npcTanks.length === 0) {
+      console.log("Single player detected, creating NPC tanks");
+      this.createNpcTanks();
+    } else if (playerCount > 1 && this.npcTanks.length > 0) {
+      console.log("Multiple players detected, removing NPC tanks");
+      for (const tank of this.npcTanks) {
+        this.collisionSystem.removeCollider(tank);
+        tank.dispose();
+      }
+      this.npcTanks = [];
     }
     for (const [playerId, playerData] of Object.entries(this.multiplayerState.players)) {
       if (playerId === this.playerId) {
@@ -33679,7 +33692,15 @@ class GameComponent extends LitElement {
       tank.dispose();
     }
     this.npcTanks = [];
-    for (let i = 0;i < this.NUM_NPC_TANKS; i++) {
+    let npcCount = this.NUM_NPC_TANKS;
+    if (this.multiplayerState && this.multiplayerState.players) {
+      const playerCount = Object.keys(this.multiplayerState.players).length;
+      if (playerCount === 1) {
+        npcCount = this.SOLO_PLAYER_NPC_COUNT;
+        console.log(`Solo player detected. Adding ${npcCount} NPC tanks for player enjoyment.`);
+      }
+    }
+    for (let i = 0;i < npcCount; i++) {
       const angle = Math.random() * Math.PI * 2;
       const distance = 200 + Math.random() * 600;
       const position = new Vector3(Math.cos(angle) * distance, 0, Math.sin(angle) * distance);
