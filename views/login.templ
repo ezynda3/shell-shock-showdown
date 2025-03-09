@@ -8,40 +8,31 @@ import (
 templ Login(configs []core.OAuth2ProviderConfig) {
 	if app, ok := ctx.Value("app").(*pocketbase.PocketBase); ok {
 		@Layout(false, app.Settings().Meta.AppURL) {
-		<div class="flex min-h-[80vh]">
-			<!-- Gradient Side -->
-			<div class="hidden lg:block w-1/2 bg-gradient-to-br from-violet-500 to-purple-800 p-12">
-				<div class="flex h-full items-center justify-center">
-					<div class="text-center text-white">
-						<h1 class="text-4xl font-bold">Welcome Back</h1>
-						<p class="mt-4 text-lg text-violet-200">Sign in to your account to continue your journey</p>
-					</div>
-				</div>
+		<div class="relative flex min-h-screen items-center justify-center">
+			<!-- Full-screen background image -->
+			<div class="absolute inset-0 z-0">
+				<img 
+					src="/static/img/splash.png" 
+					alt="Background" 
+					class="h-full w-full object-cover"
+				/>
+				<div class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
 			</div>
-			<!-- Form Side -->
-			<div class="w-full lg:w-1/2 flex items-center justify-center p-8">
-				<div class="w-full max-w-md">
-					<div class="text-center mb-8">
-						<h2 class="text-2xl font-bold leading-9 tracking-tight">
-							Sign in to your account
+			
+			<!-- Semi-transparent card with login buttons -->
+			<div class="relative z-10 w-full max-w-md px-4">
+				<div class="rounded-xl border border-white/20 bg-black/40 p-8 backdrop-blur-md">
+					<div class="mb-6 text-center">
+						<h2 class="text-2xl font-bold leading-9 tracking-tight text-white">
+							Welcome Back
 						</h2>
+						<p class="mt-2 text-sm text-white/70">
+							Sign in with your preferred provider
+						</p>
 					</div>
-					<div class="uk-card">
-						<div class="uk-card-body">
-							<div class="mt-6">
-								<div class="relative">
-									<div class="absolute inset-0 flex items-center">
-										<div class="w-full border-t border-border"></div>
-									</div>
-									<div class="relative flex justify-center text-sm font-medium leading-6">
-										<span class="bg-background px-6 text-muted-foreground">Sign-in with</span>
-									</div>
-								</div>
-								<div class="mt-6 grid grid-cols-2 gap-4" id="oauth-providers">
-									<!-- Provider buttons will be populated here -->
-								</div>
-							</div>
-						</div>
+					
+					<div id="oauth-providers" class="grid grid-cols-1 gap-3">
+						<!-- Provider buttons will be populated here -->
 					</div>
 				</div>
 			</div>
@@ -86,7 +77,7 @@ templ Login(configs []core.OAuth2ProviderConfig) {
 					// Create a button for each provider
 					providers.forEach(provider => {
 						const button = document.createElement('button');
-						button.className = 'uk-btn uk-btn-default w-full capitalize';
+						button.className = 'uk-btn uk-btn-default w-full capitalize flex items-center justify-center py-3 bg-white/90 hover:bg-white text-black';
 						button.onclick = () => handleOAuth2Auth(provider.name);
 						
 						const icon = document.createElement('uk-icon');
@@ -94,16 +85,30 @@ templ Login(configs []core.OAuth2ProviderConfig) {
 						icon.setAttribute('icon', provider.name.toLowerCase());
 						
 						button.appendChild(icon);
-						button.appendChild(document.createTextNode(provider.name));
+						button.appendChild(document.createTextNode(`Continue with ${provider.name}`));
 						
 						container.appendChild(button);
 					});
 					
 					if (providers.length === 0) {
-						container.innerHTML = '<p class="text-center w-full">No OAuth2 providers available.</p>';
+						container.innerHTML = `
+							<div class="text-center p-6 rounded-lg border border-white/20 bg-black/20">
+								<div class="text-4xl mb-4">😕</div>
+								<h3 class="text-lg font-medium text-white">No OAuth2 providers available</h3>
+								<p class="text-white/70 text-sm mt-2">Please configure OAuth2 providers in your PocketBase admin panel.</p>
+							</div>
+						`;
 					}
 				} catch (error) {
 					console.error('Failed to load auth methods:', error);
+					const container = document.getElementById('oauth-providers');
+					container.innerHTML = `
+						<div class="text-center p-6 rounded-lg border border-red-500/50 bg-black/20">
+							<div class="text-4xl mb-4">❌</div>
+							<h3 class="text-lg font-medium text-red-500">Error loading providers</h3>
+							<p class="text-white/70 text-sm mt-2">${error.message}</p>
+						</div>
+					`;
 				}
 			}
 			
