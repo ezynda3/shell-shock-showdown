@@ -332,8 +332,8 @@ export abstract class BaseTank implements ITank {
   protected tankRotationSpeed: number;
   protected turretRotationSpeed: number;
   protected barrelElevationSpeed: number;
-  protected maxBarrelElevation: number = 0;
-  protected minBarrelElevation: number = -Math.PI / 4;
+  protected maxBarrelElevation: number = 0; // Horizontal is the highest position (no elevation)
+  protected minBarrelElevation: number = -Math.PI / 4; // Allow negative elevation for distant targets
   protected tankName: string;
   protected tankColor: number;
   
@@ -646,6 +646,9 @@ export abstract class BaseTank implements ITank {
     muzzleBrake.rotation.x = Math.PI / 2;
     muzzleBrake.position.set(0, 0, 2.2);
     barrelGroup.add(muzzleBrake);
+    
+    // Set initial barrel elevation to horizontal position
+    barrelGroup.rotation.x = 0; // Perfectly horizontal (no depression)
   }
   
   protected getTurretColor(): number {
@@ -2067,20 +2070,21 @@ export class Tank extends BaseTank {
     
     // Barrel elevation (using the barrel pivot group instead of the barrel itself)
     if (keys['arrowup'] || keys['ArrowUp']) {
-      // Move barrel up (decreasing rotation.x value)
-      this.barrelPivot.rotation.x = Math.max(
-        this.minBarrelElevation,
-        this.barrelPivot.rotation.x - this.barrelElevationSpeed
+      // Move barrel up (increasing rotation.x value toward 0/horizontal)
+      this.barrelPivot.rotation.x = Math.min(
+        this.maxBarrelElevation,  // 0 is horizontal (max elevation)
+        this.barrelPivot.rotation.x + this.barrelElevationSpeed
       );
     }
     
     if (keys['arrowdown'] || keys['ArrowDown']) {
-      // Move barrel down (increasing rotation.x value)
-      this.barrelPivot.rotation.x = Math.min(
-        this.maxBarrelElevation,
-        this.barrelPivot.rotation.x + this.barrelElevationSpeed
+      // Move barrel down (decreasing rotation.x value below 0/horizontal)
+      this.barrelPivot.rotation.x = Math.max(
+        this.minBarrelElevation,  // -Math.PI/4 is max depression
+        this.barrelPivot.rotation.x - this.barrelElevationSpeed
       );
     }
+    
     
     // Update collider position
     this.collider.center.copy(this.tank.position);
@@ -2395,8 +2399,8 @@ export class Tank extends BaseTank {
   }
 
   updateCamera(camera: THREE.PerspectiveCamera) {
-    // Camera follows tank and turret direction
-    const cameraOffset = new THREE.Vector3(0, 4, -8); // Decreased height to show more sky
+    // Camera follows tank and turret direction with lower height for proper perspective
+    const cameraOffset = new THREE.Vector3(0, 2.5, -8);
     
     // Calculate the combined rotation of tank body and turret
     const combinedAngle = this.tank.rotation.y + this.turretPivot.rotation.y;
@@ -2409,11 +2413,11 @@ export class Tank extends BaseTank {
     camera.position.copy(this.tank.position).add(rotatedOffset);
     
     // Calculate a look target that considers both tank position and turret direction
-    const lookDirection = new THREE.Vector3(0, 0, 10); // Look forward
-    lookDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), combinedAngle); // Apply rotation
+    const lookDirection = new THREE.Vector3(0, 0, 10);
+    lookDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), combinedAngle);
     
-    // Set the target position with some height adjustment
-    const targetPosition = this.tank.position.clone().add(lookDirection).add(new THREE.Vector3(0, 4, 0));
+    // Set the target position with consistent height adjustment (lower than before)
+    const targetPosition = this.tank.position.clone().add(lookDirection).add(new THREE.Vector3(0, 1, 0));
     camera.lookAt(targetPosition);
   }
   
@@ -2461,8 +2465,8 @@ export class Tank extends BaseTank {
       // Create a sprite that will always face the camera
       const sprite = new THREE.Sprite(spriteMaterial);
       
-      // Position the sprite above the tank
-      sprite.position.set(0, 3.5, 0); // Higher position to make room for name
+      // Position the sprite above the tank at a consistent height
+      sprite.position.set(0, 3.2, 0); // Standardized height for all tanks
       
       // Scale the sprite to an appropriate size
       sprite.scale.set(3.0, 1.0, 1.0); // Wider to accommodate name
@@ -3341,8 +3345,8 @@ export class NPCTank extends BaseTank {
       // Create a sprite that will always face the camera
       const sprite = new THREE.Sprite(spriteMaterial);
       
-      // Position the sprite above the tank
-      sprite.position.set(0, 3.7, 0); // Higher position to make room for name
+      // Position the sprite above the tank at a consistent height
+      sprite.position.set(0, 3.2, 0); // Standardized height for all tanks
       
       // Scale the sprite to an appropriate size
       sprite.scale.set(4.0, 1.5, 1.0); // Wider and taller to accommodate name
@@ -3853,8 +3857,9 @@ export class NPCTank extends BaseTank {
     // Target height difference
     const heightDifference = targetPosition.y - this.tank.position.y;
     
-    // Calculate rough elevation angle needed
-    let targetElevation = -Math.atan2(heightDifference, horizontalDistance);
+    // Calculate elevation angle needed (allowing only depression or horizontal)
+    // Use negative of atan2 because of how the barrel coordinate system works
+    let targetElevation = Math.min(0, -Math.atan2(heightDifference, horizontalDistance));
     
     // Clamp to min/max elevation
     targetElevation = Math.max(this.minBarrelElevation, 

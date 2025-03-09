@@ -29820,6 +29820,7 @@ class BaseTank {
     muzzleBrake.rotation.x = Math.PI / 2;
     muzzleBrake.position.set(0, 0, 2.2);
     barrelGroup.add(muzzleBrake);
+    barrelGroup.rotation.x = 0;
   }
   getTurretColor() {
     const color = new Color(this.tankColor);
@@ -30713,10 +30714,10 @@ class Tank extends BaseTank {
       this.turretPivot.rotation.y -= this.turretRotationSpeed;
     }
     if (keys["arrowup"] || keys["ArrowUp"]) {
-      this.barrelPivot.rotation.x = Math.max(this.minBarrelElevation, this.barrelPivot.rotation.x - this.barrelElevationSpeed);
+      this.barrelPivot.rotation.x = Math.min(this.maxBarrelElevation, this.barrelPivot.rotation.x + this.barrelElevationSpeed);
     }
     if (keys["arrowdown"] || keys["ArrowDown"]) {
-      this.barrelPivot.rotation.x = Math.min(this.maxBarrelElevation, this.barrelPivot.rotation.x + this.barrelElevationSpeed);
+      this.barrelPivot.rotation.x = Math.max(this.minBarrelElevation, this.barrelPivot.rotation.x - this.barrelElevationSpeed);
     }
     this.collider.center.copy(this.tank.position);
     if (colliders) {
@@ -30896,14 +30897,14 @@ class Tank extends BaseTank {
     }
   }
   updateCamera(camera) {
-    const cameraOffset = new Vector3(0, 4, -8);
+    const cameraOffset = new Vector3(0, 2.5, -8);
     const combinedAngle = this.tank.rotation.y + this.turretPivot.rotation.y;
     const rotatedOffset = cameraOffset.clone();
     rotatedOffset.applyAxisAngle(new Vector3(0, 1, 0), combinedAngle);
     camera.position.copy(this.tank.position).add(rotatedOffset);
     const lookDirection = new Vector3(0, 0, 10);
     lookDirection.applyAxisAngle(new Vector3(0, 1, 0), combinedAngle);
-    const targetPosition = this.tank.position.clone().add(lookDirection).add(new Vector3(0, 4, 0));
+    const targetPosition = this.tank.position.clone().add(lookDirection).add(new Vector3(0, 1, 0));
     camera.lookAt(targetPosition);
   }
   createHealthBar() {
@@ -30932,7 +30933,7 @@ class Tank extends BaseTank {
         transparent: true
       });
       const sprite = new Sprite(spriteMaterial);
-      sprite.position.set(0, 3.5, 0);
+      sprite.position.set(0, 3.2, 0);
       sprite.scale.set(3, 1, 1);
       this.tank.add(sprite);
       this.healthBarSprite = sprite;
@@ -31557,7 +31558,7 @@ class NPCTank extends BaseTank {
         transparent: true
       });
       const sprite = new Sprite(spriteMaterial);
-      sprite.position.set(0, 3.7, 0);
+      sprite.position.set(0, 3.2, 0);
       sprite.scale.set(4, 1.5, 1);
       this.tank.add(sprite);
       this.healthBarSprite = sprite;
@@ -31903,7 +31904,7 @@ class NPCTank extends BaseTank {
     this.turretPivot.rotation.y += rotationAmount;
     const horizontalDistance = new Vector2(direction.x, direction.z).length();
     const heightDifference = targetPosition.y - this.tank.position.y;
-    let targetElevation = -Math.atan2(heightDifference, horizontalDistance);
+    let targetElevation = Math.min(0, -Math.atan2(heightDifference, horizontalDistance));
     targetElevation = Math.max(this.minBarrelElevation, Math.min(this.maxBarrelElevation, targetElevation));
     const elevationDifference = targetElevation - this.barrelPivot.rotation.x;
     const elevationAmount = Math.sign(elevationDifference) * Math.min(Math.abs(elevationDifference), this.barrelElevationSpeed);
