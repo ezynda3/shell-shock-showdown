@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -25,17 +24,16 @@ var playerColors = []string{
 
 // Manager handles all game state operations
 type Manager struct {
-	state         GameState
-	mutex         sync.RWMutex
-	kv            jetstream.KeyValue
-	nc            *nats.Conn
-	ctx           context.Context
+	state          GameState
+	mutex          sync.RWMutex
+	kv             jetstream.KeyValue
+	ctx            context.Context
 	shellIDCounter int
-	getTime       TimeStamper
+	getTime        TimeStamper
 }
 
 // NewManager creates a new game manager instance
-func NewManager(ctx context.Context, nc *nats.Conn, kv jetstream.KeyValue) (*Manager, error) {
+func NewManager(ctx context.Context, kv jetstream.KeyValue) (*Manager, error) {
 	manager := &Manager{
 		state: GameState{
 			Players: make(map[string]PlayerState),
@@ -43,7 +41,6 @@ func NewManager(ctx context.Context, nc *nats.Conn, kv jetstream.KeyValue) (*Man
 		},
 		mutex:          sync.RWMutex{},
 		kv:             kv,
-		nc:             nc,
 		ctx:            ctx,
 		shellIDCounter: 0,
 		getTime:        DefaultTimeStamper,
@@ -141,12 +138,6 @@ func (m *Manager) UpdatePlayer(update PlayerState, playerID string, playerName s
 		log.Printf("Error saving game state after player update: %v", err)
 	}
 
-	// Publish player update to NATS
-	playerJSON, _ := json.Marshal(update)
-	if err := m.nc.Publish("players.updated", playerJSON); err != nil {
-		return fmt.Errorf("error publishing player update to NATS: %v", err)
-	}
-
 	log.Printf("Updated player %s at position (%f, %f, %f)",
 		playerID,
 		update.Position.X,
@@ -184,12 +175,6 @@ func (m *Manager) FireShell(shellData ShellData, playerID string) (ShellState, e
 		log.Printf("Error saving game state after shell fired: %v", err)
 	}
 
-	// Publish shell fired event to NATS
-	shellJSON, _ := json.Marshal(newShell)
-	if err := m.nc.Publish("shells.fired", shellJSON); err != nil {
-		return newShell, fmt.Errorf("error publishing shell fired event to NATS: %v", err)
-	}
-
 	log.Printf("Added new shell %s from player %s", newShell.ID, playerID)
 	return newShell, nil
 }
@@ -207,16 +192,6 @@ func (m *Manager) ProcessTankHit(hitData HitData) error {
 			targetPlayer.Health = 0
 			targetPlayer.IsDestroyed = true
 
-			// Publish tank death event to NATS
-			deathData := map[string]interface{}{
-				"targetId": hitData.TargetID,
-				"sourceId": hitData.SourceID,
-			}
-			deathJSON, _ := json.Marshal(deathData)
-			if err := m.nc.Publish("tanks.death", deathJSON); err != nil {
-				log.Printf("Error publishing tank death event to NATS: %v", err)
-			}
-
 			log.Printf("Tank %s destroyed by %s", hitData.TargetID, hitData.SourceID)
 		}
 
@@ -229,21 +204,11 @@ func (m *Manager) ProcessTankHit(hitData HitData) error {
 			log.Printf("Error saving game state after tank hit: %v", err)
 		}
 
-		// Publish tank hit event to NATS
-		hitJSON, _ := json.Marshal(map[string]interface{}{
-			"targetId": hitData.TargetID,
-			"sourceId": hitData.SourceID,
-			"health":   targetPlayer.Health,
-		})
-		if err := m.nc.Publish("tanks.hit", hitJSON); err != nil {
-			return fmt.Errorf("error publishing tank hit event to NATS: %v", err)
-		}
+		return nil
 	} else {
 		m.mutex.Unlock()
 		return fmt.Errorf("target player %s not found", hitData.TargetID)
 	}
-
-	return nil
 }
 
 // RespawnTank handles tank respawn events
@@ -278,12 +243,6 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 		// Save to KV store
 		if err := m.saveState(); err != nil {
 			log.Printf("Error saving game state after tank respawn: %v", err)
-		}
-
-		// Publish respawn event to NATS
-		respawnJSON, _ := json.Marshal(player)
-		if err := m.nc.Publish("tanks.respawn", respawnJSON); err != nil {
-			return fmt.Errorf("error publishing tank respawn event to NATS: %v", err)
 		}
 
 		log.Printf("Tank %s respawned at position (%f, %f, %f)",

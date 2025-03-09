@@ -670,13 +670,51 @@ export class GameComponent extends LitElement {
         this.collisionSystem.removeCollider(tank);
         tank.dispose();
         this.remoteTanks.delete(playerId);
+        
+        // Also remove this player's audio listener
+        if (window.SpatialAudio) {
+          window.SpatialAudio.setPlayerListener(playerId, null);
+        }
+      }
+    }
+  }
+  
+  /**
+   * Updates audio listeners for all remote players based on their positions
+   * This ensures spatial audio works correctly for all players
+   */
+  private updateRemotePlayerListeners(): void {
+    if (!window.SpatialAudio || !this.multiplayerState || !this.multiplayerState.players) {
+      return;
+    }
+    
+    // For each remote player, set their position as an audio listener
+    for (const [playerId, playerData] of Object.entries(this.multiplayerState.players)) {
+      // Skip own player - already handled separately
+      if (playerId === this.playerId) continue;
+      
+      // Create listener position from player data
+      if (playerData.position) {
+        const listenerPosition = new THREE.Vector3(
+          playerData.position.x,
+          playerData.position.y,
+          playerData.position.z
+        );
+        
+        // Set this player's listener position
+        window.SpatialAudio.setPlayerListener(playerId, listenerPosition);
       }
     }
   }
   
   // Create a new remote tank for another player
   private createRemoteTank(playerId: string, playerData: PlayerState) {
-    if (!this.scene) return;
+    if (!this.scene) {
+      console.error('Cannot create remote tank: Scene not available');
+      return;
+    }
+    
+    console.log(`Creating remote tank for player ${playerId}`, playerData);
     
     try {
       // Ensure we have position data
@@ -692,6 +730,8 @@ export class GameComponent extends LitElement {
         playerData.position.z
       );
       
+      console.log(`Remote tank position: (${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)})`);
+      
       // Create a new NPC tank with the player's name and color
       // Handle different color formats (hex string or object with r,g,b)
       let tankColor = 0xff0000; // Default red
@@ -702,6 +742,7 @@ export class GameComponent extends LitElement {
       }
       
       const tankName = playerData.name || `Player ${playerId.substring(0, 6)}`;
+      console.log(`Creating tank with name: ${tankName}, color: ${tankColor.toString(16)}`);
       
       // Create the remote tank
       const remoteTank = new NPCTank(
@@ -711,9 +752,18 @@ export class GameComponent extends LitElement {
         tankName
       );
       
+      // Verify tank was created properly
+      if (!remoteTank || !remoteTank.tank) {
+        console.error('Failed to create remote tank - tank object is missing!');
+        return;
+      }
+      
+      console.log('Remote tank created successfully');
+      
       // Set the tank's owner ID
       if (typeof remoteTank.setOwnerId === 'function') {
         remoteTank.setOwnerId(playerId);
+        console.log(`Set tank owner ID to ${playerId}`);
       }
       
       // Set initial rotation if available
@@ -732,16 +782,22 @@ export class GameComponent extends LitElement {
       // Set health if available
       if (typeof playerData.health === 'number' && typeof remoteTank.setHealth === 'function') {
         remoteTank.setHealth(playerData.health);
+        console.log(`Set tank health to ${playerData.health}`);
       }
       
-      // Add debug visualization - big blue transparent cube
+      // Scale the tank to match player tank size (ensure they're the same size)
+      remoteTank.tank.scale.set(1.0, 1.0, 1.0);
+      
+      // Add debug visualization - bright red triangle
       this.addDebugVisualToRemoteTank(remoteTank);
+      console.log('Added debug visual to remote tank');
       
       // Add to collision system
       this.collisionSystem.addCollider(remoteTank);
       
       // Store in remoteTanks map
       this.remoteTanks.set(playerId, remoteTank);
+      console.log(`Remote tank for player ${playerId} added to game`);
     } catch (error) {
       console.error('Error creating remote tank:', error);
       console.error('Problem player data:', playerData);
@@ -750,9 +806,9 @@ export class GameComponent extends LitElement {
   
   // Add debug visualization to remote tank
   private addDebugVisualToRemoteTank(remoteTank: NPCTank): void {
-    // Create a red triangle that bobs up and down
-    const triangleHeight = 5; // Height of the triangle
-    const triangleWidth = 4;  // Width of the triangle at the base
+    // Create a smaller red triangle pointing down to the tank
+    const triangleHeight = 2; // Smaller height for the triangle
+    const triangleWidth = 1.5;  // Smaller width for the triangle
     
     // Create an upside-down triangle geometry
     const geometry = new THREE.BufferGeometry();
@@ -764,32 +820,42 @@ export class GameComponent extends LitElement {
     geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
     geometry.setIndex([0, 1, 2]); // Connect vertices to form a triangle
     
-    // Create a red material
+    // Create a bright red material
     const material = new THREE.MeshBasicMaterial({
       color: 0xff0000,        // Bright red
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.9,
       side: THREE.DoubleSide  // Visible from both sides
     });
     
     // Create the triangle mesh
     const triangleMesh = new THREE.Mesh(geometry, material);
     
-    // Position it above the tank
-    triangleMesh.position.set(0, 6, 0);
+    // Position it at a good height above the tank
+    triangleMesh.position.set(0, 4, 0);
     
-    // Add animation data as properties on the mesh object
-    triangleMesh.userData = {
+    // Add animation data as properties
+    const userData = {
       bobOffset: Math.random() * Math.PI * 2, // Random start phase
       bobSpeed: 1.5 + Math.random() * 0.5     // Slightly random speed
     };
     
+    // Add only the triangle to a container
+    const markerContainer = new THREE.Object3D();
+    markerContainer.add(triangleMesh);
+    markerContainer.userData = userData;
+    
     // Add an update function for the animation
     // This will be called in the animation loop
     const animate = function() {
-      if (triangleMesh && triangleMesh.userData) {
-        triangleMesh.position.y = 6 + Math.sin(Date.now() * 0.003 + triangleMesh.userData.bobOffset) * 0.5;
-        triangleMesh.rotation.y += 0.02; // Rotate about y-axis
+      if (markerContainer && markerContainer.userData) {
+        // Bob up and down
+        markerContainer.position.y = Math.sin(Date.now() * 0.003 + markerContainer.userData.bobOffset) * 0.8;
+        
+        // Rotate for better visibility from all angles
+        markerContainer.rotation.y += 0.02;
+        
+        // Continue animation
         requestAnimationFrame(animate);
       }
     };
@@ -797,10 +863,8 @@ export class GameComponent extends LitElement {
     // Start the animation
     animate();
     
-    // Add the triangle to the tank
-    remoteTank.tank.add(triangleMesh);
-        
-    console.log('Added visuals to remote tank');
+    // Add the marker container to the tank
+    remoteTank.tank.add(markerContainer);
   }
   
   // Update an existing remote tank's position and rotation
@@ -808,21 +872,46 @@ export class GameComponent extends LitElement {
     // Don't log every position update - they happen frequently
     
     try {
+      // Verify tank still exists
+      if (!tank || !tank.tank) {
+        console.error('Cannot update remote tank: Tank reference is invalid');
+        return;
+      }
+      
       // Ensure we have position data
       if (!playerData.position) {
         console.error('Cannot update remote tank: Missing position data');
         return;
       }
       
-      // Update position with interpolation for smooth movement
-      tank.tank.position.lerp(
-        new THREE.Vector3(
-          playerData.position.x,
-          playerData.position.y,
-          playerData.position.z
-        ),
-        0.2 // Lower interpolation factor for smoother movement
+      // Create new position vector
+      const newPosition = new THREE.Vector3(
+        playerData.position.x,
+        playerData.position.y,
+        playerData.position.z
       );
+      
+      // Get current position for distance check
+      const currentPosition = tank.tank.position.clone();
+      const distance = currentPosition.distanceTo(newPosition);
+      
+      // If the tank has moved a significant distance, log it for debugging
+      if (distance > 10) {
+        console.log(`Remote tank moved a large distance: ${distance.toFixed(2)} units`);
+        console.log(`  From: (${currentPosition.x.toFixed(2)}, ${currentPosition.y.toFixed(2)}, ${currentPosition.z.toFixed(2)})`);
+        console.log(`  To: (${newPosition.x.toFixed(2)}, ${newPosition.y.toFixed(2)}, ${newPosition.z.toFixed(2)})`);
+      }
+      
+      // Update position with interpolation for smooth movement
+      tank.tank.position.lerp(newPosition, 0.2); // Lower interpolation factor for smoother movement
+      
+      // Update collider position
+      if (tank.getCollider) {
+        const collider = tank.getCollider();
+        if (collider instanceof THREE.Sphere) {
+          collider.center.copy(tank.tank.position);
+        }
+      }
       
       // Update rotations if provided
       if (typeof playerData.tankRotation === 'number') {
@@ -840,6 +929,23 @@ export class GameComponent extends LitElement {
       // Handle normal health updates for alive tanks
       if (typeof playerData.health === 'number' && typeof tank.setHealth === 'function') {
         tank.setHealth(playerData.health);
+      }
+      
+      // Update all audio positions for this tank
+      // This ensures the tank's sound effects are positioned correctly
+      try {
+        if (typeof tank.updateSoundPositions === 'function') {
+          tank.updateSoundPositions();
+        }
+      } catch (audioError) {
+        // If audio update fails, just log it but don't let it break positioning
+        console.warn('Error updating tank audio positions:', audioError);
+      }
+      
+      // Ensure tank is visible
+      if (!tank.tank.visible) {
+        console.log('Making remote tank visible again');
+        tank.tank.visible = true;
       }
       
       // Position updates happen frequently - don't log them
@@ -1707,22 +1813,32 @@ export class GameComponent extends LitElement {
     
     // Store camera position for health bar billboarding and audio
     if (this.camera) {
-      // Only update global audio listener every 10 frames
+      // Only update audio listeners every 10 frames to reduce processing
       if (this.frameCounter % 10 === 0) {
+        // Store camera position in window object for easy access
         (window as any).cameraPosition = this.camera.position;
         
-        // Update audio listener position for all spatial audio
+        // Update global audio listener for main player
         if (typeof window.SpatialAudio?.setGlobalListener === 'function') {
           window.SpatialAudio.setGlobalListener(this.camera.position);
+          
+          // Also set a player-specific listener (in case other tanks reference it specifically)
+          if (this.playerId) {
+            window.SpatialAudio.setPlayerListener(this.playerId, this.camera.position);
+          }
         }
+        
+        // Update audio listeners for all remote players
+        // This ensures each remote player can hear audio properly
+        this.updateRemotePlayerListeners();
       }
     }
     
     // Process any pending game state updates in the animation loop
     // This ensures we constantly check for remote player updates
     if (this.multiplayerState && this.scene && this.gameStateInitialized) {
-      // Check for remote players periodically in the animation loop
-      if (this.frameCounter % 60 === 0) { // Process once per second (at 60fps)
+      // Check for remote players more frequently
+      if (this.frameCounter % 10 === 0) { // Process 6 times per second (at 60fps)
         this.updateRemotePlayers();
       }
       
@@ -2262,6 +2378,7 @@ declare global {
   interface Window {
     _processedFireEvents?: Set<string>;
     cameraPosition?: THREE.Vector3;
+    SpatialAudio?: typeof SpatialAudio;
   }
   
   interface HTMLElementTagNameMap {

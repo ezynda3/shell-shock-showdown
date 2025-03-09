@@ -12,8 +12,9 @@ export class SpatialAudio {
   private duration: number | null = null;  // Original duration 
   private trimEnd: number = 0;             // Seconds to trim from end
   
-  // Shared listener position for all spatial audio
+  // Audio listener management
   private static globalListener: THREE.Vector3 | null = null;
+  private static localListeners: Map<string, THREE.Vector3> = new Map();
   
   // Doppler effect constants
   private readonly DOPPLER_FACTOR: number = 0.05;
@@ -73,14 +74,52 @@ export class SpatialAudio {
     this.updateVolumeAndDoppler();
   }
 
-  setListenerPosition(position: THREE.Vector3 | null) {
-    SpatialAudio.globalListener = position ? position.clone() : null;
+  setListenerPosition(position: THREE.Vector3 | null, listenerId: string = 'global') {
+    if (position) {
+      if (listenerId === 'global') {
+        SpatialAudio.globalListener = position.clone();
+      } else {
+        SpatialAudio.localListeners.set(listenerId, position.clone());
+      }
+    } else {
+      if (listenerId === 'global') {
+        SpatialAudio.globalListener = null;
+      } else {
+        SpatialAudio.localListeners.delete(listenerId);
+      }
+    }
     this.updateVolumeAndDoppler();
   }
   
   // Set the global listener position for all spatial audio objects
   static setGlobalListener(position: THREE.Vector3 | null) {
     SpatialAudio.globalListener = position ? position.clone() : null;
+  }
+  
+  // Set a listener position for a specific player
+  static setPlayerListener(playerId: string, position: THREE.Vector3 | null) {
+    if (position) {
+      SpatialAudio.localListeners.set(playerId, position.clone());
+    } else {
+      SpatialAudio.localListeners.delete(playerId);
+    }
+  }
+  
+  // Get all active listeners
+  static getActiveListeners(): Map<string, THREE.Vector3> {
+    const listeners = new Map<string, THREE.Vector3>();
+    
+    // Add global listener if available
+    if (SpatialAudio.globalListener) {
+      listeners.set('global', SpatialAudio.globalListener);
+    }
+    
+    // Add all local listeners
+    SpatialAudio.localListeners.forEach((position, id) => {
+      listeners.set(id, position);
+    });
+    
+    return listeners;
   }
 
   play() {
@@ -111,24 +150,45 @@ export class SpatialAudio {
   }
 
   updateVolumeAndDoppler() {
-    if (!SpatialAudio.globalListener) {
+    // Get all active listeners
+    const activeListeners = SpatialAudio.getActiveListeners();
+    
+    // If we have no listeners, use default volume
+    if (activeListeners.size === 0) {
       this.audio.volume = this.baseVolume;
       return;
     }
 
+    // Find the closest listener for volume calculation
+    let closestDistance = Infinity;
+    let closestListener: THREE.Vector3 | null = null;
+    
+    for (const [_, listenerPos] of activeListeners) {
+      const distance = this.sourcePosition.distanceTo(listenerPos);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestListener = listenerPos;
+      }
+    }
+    
+    // Safety check - this should never happen
+    if (!closestListener) {
+      this.audio.volume = this.baseVolume;
+      return;
+    }
+    
     // Calculate distance-based volume reduction
-    const distance = this.sourcePosition.distanceTo(SpatialAudio.globalListener);
-    const volumeFactor = Math.max(0, 1 - (distance / this.maxDistance));
+    const volumeFactor = Math.max(0, 1 - (closestDistance / this.maxDistance));
     
     // Apply distance-based inverse square law attenuation (more realistic)
     this.audio.volume = this.baseVolume * volumeFactor * volumeFactor;
     
     // Apply Doppler effect if object is moving
     if (this.isPlaying && this.velocity.length() > 0.01) {
-      // Calculate direction from listener to source
+      // Calculate direction from closest listener to source
       const direction = new THREE.Vector3().subVectors(
         this.sourcePosition, 
-        SpatialAudio.globalListener
+        closestListener
       ).normalize();
       
       // Project velocity onto direction vector (positive = moving away, negative = moving toward)
@@ -170,6 +230,13 @@ export class SpatialAudio {
     const clone = new SpatialAudio(this.audio.src, false, this.baseVolume, this.maxDistance, this.trimEnd);
     clone.setSourcePosition(this.sourcePosition);
     clone.setPlaybackRate(this.playbackRate);
+    
+    // Update the clone with all active listeners
+    const activeListeners = SpatialAudio.getActiveListeners();
+    for (const [listenerId, position] of activeListeners) {
+      clone.setListenerPosition(position, listenerId);
+    }
+    
     clone.play();
     return clone;
   }
@@ -207,6 +274,7 @@ export interface ITank extends ICollidable {
   getMaxBarrelElevation(): number; // Get maximum barrel elevation angle
   isMoving(): boolean; // Returns whether the tank is currently moving
   getVelocity?(): number; // Returns the current velocity of the tank
+  updateSoundPositions(): void; // Updates positions of all attached sound effects
   getDetailedColliders?(): {
     part: string;
     collider: THREE.Sphere;
@@ -224,9 +292,9 @@ export class Tank implements ITank {
   barrelPivot: THREE.Group;
   
   // Audio components
-  protected moveSound: SpatialAudio;
-  protected fireSound: SpatialAudio;
-  protected explodeSound: SpatialAudio;
+  protected moveSound: SpatialAudio | null = null;
+  protected fireSound: SpatialAudio | null = null;
+  protected explodeSound: SpatialAudio | null = null;
   protected lastMoveSoundState: boolean = false;
   
   // Tank properties
@@ -250,7 +318,7 @@ export class Tank implements ITank {
   
   // Collision properties
   private collider: THREE.Sphere;
-  private collisionRadius = 2.0; // Size of the tank's collision sphere
+  private collisionRadius = 2.0; // Size of the tank's collision sphere (must match NPCTank size)
   private lastPosition = new THREE.Vector3();
   
   // Firing properties
@@ -315,6 +383,9 @@ export class Tank implements ITank {
     this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.4, 120);
     this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.39375, 150); // Reduced by another 25% (now 75% of original)
     this.explodeSound = new SpatialAudio('/static/js/assets/sounds/tank-explode.mp3', false, 0.8, 200);
+    
+    // Initialize sound positions
+    this.updateSoundPositions();
     
     // Add to scene
     scene.add(this.tank);
@@ -543,8 +614,12 @@ export class Tank implements ITank {
   private createDetailedTurret(): void {
     // Main turret body - slightly more complex shape
     const turretGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.5, 24); // Increased segments for smoother appearance
+    
+    // Calculate darker tank color for turret
+    const turretColor = this.tankColor ? new THREE.Color(this.tankColor).multiplyScalar(0.85).getHex() : 0x3f5e49;
+    
     const turretMaterial = new THREE.MeshStandardMaterial({ 
-      color: this.tankColor ? new THREE.Color(this.tankColor).multiplyScalar(0.85).getHex() : 0x3f5e49,
+      color: turretColor,
       roughness: 0.2, // Highly polished surface
       metalness: 0.9, // Very metallic appearance
       envMapIntensity: 1.4 // Enhanced reflections for turret
@@ -560,7 +635,8 @@ export class Tank implements ITank {
     const hatchMaterial = new THREE.MeshStandardMaterial({
       color: 0x333333,
       roughness: 0.8,
-      metalness: 0.4
+      metalness: 0.4,
+      envMapIntensity: 1.0
     });
     
     const hatch = new THREE.Mesh(hatchGeometry, hatchMaterial);
@@ -731,13 +807,15 @@ export class Tank implements ITank {
     
     // Update movement sound based on movement status and engine RPM
     if (this.isCurrentlyMoving) {
-      if (!this.lastMoveSoundState) {
+      if (!this.lastMoveSoundState && this.moveSound) {
         this.moveSound.play();
         this.lastMoveSoundState = true;
       }
       // Update engine sound pitch based on RPM
-      this.moveSound.setPlaybackRate(0.8 + this.engineRPM * 0.7);
-    } else if (this.lastMoveSoundState) {
+      if (this.moveSound) {
+        this.moveSound.setPlaybackRate(0.8 + this.engineRPM * 0.7);
+      }
+    } else if (this.lastMoveSoundState && this.moveSound) {
       this.moveSound.stop();
       this.lastMoveSoundState = false;
     }
@@ -790,8 +868,10 @@ export class Tank implements ITank {
     // Handle firing - use space, 'f', or left mouse button
     if ((keys['space'] || keys[' '] || keys['f'] || keys['mousefire']) && this.canFire) {
       // Play firing sound
-      this.fireSound.setSourcePosition(this.tank.position);
-      this.fireSound.cloneAndPlay();
+      if (this.fireSound) {
+        this.fireSound.setSourcePosition(this.tank.position);
+        this.fireSound.cloneAndPlay();
+      }
       
       // Create a unique shell ID
       const shellId = `shell_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -1217,11 +1297,13 @@ export class Tank implements ITank {
       this.createDestroyedEffect();
       
       // Play explosion sound
-      this.explodeSound.setSourcePosition(this.tank.position);
-      this.explodeSound.cloneAndPlay();
+      if (this.explodeSound) {
+        this.explodeSound.setSourcePosition(this.tank.position);
+        this.explodeSound.cloneAndPlay();
+      }
       
       // Stop movement sound if it was playing
-      if (this.lastMoveSoundState) {
+      if (this.lastMoveSoundState && this.moveSound) {
         this.moveSound.stop();
         this.lastMoveSoundState = false;
       }
@@ -1886,11 +1968,11 @@ export class Tank implements ITank {
   }
   
   // Update all sound positions based on tank position
-  protected updateSoundPositions(): void {
+  updateSoundPositions(): void {
     const position = this.tank.position;
-    this.moveSound.setSourcePosition(position);
-    this.fireSound.setSourcePosition(position);
-    this.explodeSound.setSourcePosition(position);
+    if (this.moveSound) this.moveSound.setSourcePosition(position);
+    if (this.fireSound) this.fireSound.setSourcePosition(position);
+    if (this.explodeSound) this.explodeSound.setSourcePosition(position);
   }
 }
 
@@ -1925,6 +2007,13 @@ export class NPCTank implements ITank {
   
   // Add owner ID property
   private ownerId?: string;
+  
+  // Track movement properties for detailed visuals
+  private trackSegments: THREE.Mesh[] = [];
+  private wheels: THREE.Mesh[] = [];
+  private readonly TRACK_SEGMENT_COUNT: number = 8;
+  private trackRotationSpeed: number = 0;
+  private acceleration: number = 0;
   
   // Getter for tank owner ID
   getOwnerId(): string | undefined {
@@ -1978,7 +2067,7 @@ export class NPCTank implements ITank {
   
   // Collision properties
   private collider: THREE.Sphere;
-  private collisionRadius = 2.0; // Size of the tank's collision sphere
+  private collisionRadius = 2.0; // Size of the tank's collision sphere (must match Tank class)
   private lastPosition = new THREE.Vector3();
   private collisionResetTimer = 0;
   private readonly COLLISION_RESET_DELAY = 60; // Frames to wait after collision before trying new direction
@@ -2042,9 +2131,17 @@ export class NPCTank implements ITank {
     }
     
     // Initialize sound effects (at lower volume than player tank)
-    this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.3, 120);
-    this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.28125, 150); // Reduced by another 25% (now 75% of original)
-    this.explodeSound = new SpatialAudio('/static/js/assets/sounds/tank-explode.mp3', false, 0.6, 200);
+    try {
+      this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.3, 120);
+      this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.28125, 150); // Reduced by another 25% (now 75% of original)
+      this.explodeSound = new SpatialAudio('/static/js/assets/sounds/tank-explode.mp3', false, 0.6, 200);
+      
+      // Initialize sound positions
+      this.updateSoundPositions();
+    } catch (error) {
+      console.error('Error initializing sounds for remote tank:', error);
+      // Continue with tank creation even if sounds fail
+    }
     
     // Create health bar with tank name
     this.createHealthBar();
@@ -2146,12 +2243,13 @@ export class NPCTank implements ITank {
   }
 
   private createTank() {
-    // Tank body
-    const bodyGeometry = new THREE.BoxGeometry(2, 0.75, 3);
+    // Tank body - more detailed with beveled edges
+    const bodyGeometry = new THREE.BoxGeometry(2, 0.75, 3, 1, 1, 2);
     const bodyMaterial = new THREE.MeshStandardMaterial({ 
-      color: this.tankColor,
-      roughness: 0.7,
-      metalness: 0.3
+      color: this.tankColor || 0x4a7c59,  // Dark green (or custom color)
+      roughness: 0.3,  // Reduced roughness for more polished look
+      metalness: 0.8,  // Increased metalness for more metallic appearance
+      envMapIntensity: 1.2  // Enhance environmental reflections
     });
     this.tankBody = new THREE.Mesh(bodyGeometry, bodyMaterial);
     this.tankBody.position.y = 0.75 / 2;
@@ -2159,42 +2257,19 @@ export class NPCTank implements ITank {
     this.tankBody.receiveShadow = true;
     this.tank.add(this.tankBody);
     
-    // Tracks (left and right)
-    const trackGeometry = new THREE.BoxGeometry(0.4, 0.5, 3.2);
-    const trackMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0x333333, 
-      roughness: 0.9,
-      metalness: 0.2
-    });
+    // Add armor plating details to the tank body
+    this.addArmorPlates();
     
-    const leftTrack = new THREE.Mesh(trackGeometry, trackMaterial);
-    leftTrack.position.set(-1, 0.25, 0);
-    leftTrack.castShadow = true;
-    leftTrack.receiveShadow = true;
-    this.tank.add(leftTrack);
-    
-    const rightTrack = new THREE.Mesh(trackGeometry, trackMaterial);
-    rightTrack.position.set(1, 0.25, 0);
-    rightTrack.castShadow = true;
-    rightTrack.receiveShadow = true;
-    this.tank.add(rightTrack);
+    // Tracks (left and right) - more detailed with tread segments
+    this.createDetailedTracks();
     
     // Create turret group for Y-axis rotation
     this.turretPivot = new THREE.Group();
     this.turretPivot.position.set(0, 1.0, 0); // Position at top of tank body, slightly higher
     this.tank.add(this.turretPivot);
     
-    // Turret base (dome)
-    const turretGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.5, 16);
-    const turretMaterial = new THREE.MeshStandardMaterial({ 
-      color: this.getTurretColor(),
-      roughness: 0.7,
-      metalness: 0.3
-    });
-    this.turret = new THREE.Mesh(turretGeometry, turretMaterial);
-    this.turret.castShadow = true;
-    this.turret.receiveShadow = true;
-    this.turretPivot.add(this.turret);
+    // Turret base - more detailed with hatches and details
+    this.createDetailedTurret();
     
     // Create a group for the barrel - this will handle the elevation
     const barrelGroup = new THREE.Group();
@@ -2203,33 +2278,243 @@ export class NPCTank implements ITank {
     barrelGroup.position.set(0, 0, 0.8); // 0.8 is the radius of the turret
     this.turretPivot.add(barrelGroup);
     
-    // Create the barrel using a rotated cylinder
-    const barrelGeometry = new THREE.CylinderGeometry(0.2, 0.2, 2, 16);
-    const barrelMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0x333333, 
-      roughness: 0.7,
-      metalness: 0.5
-    });
-    
-    this.barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
-    
-    // Rotate the cylinder to point forward (perpendicular to tank)
-    this.barrel.rotation.x = Math.PI / 2;
-    
-    // Position the barrel so one end is at the pivot point
-    this.barrel.position.set(0, 0, 1); // Half the length of the barrel
-    
-    this.barrel.castShadow = true;
-    barrelGroup.add(this.barrel);
+    // Create a more detailed barrel with muzzle brake
+    this.createDetailedBarrel(barrelGroup);
     
     // Store reference to the barrelGroup for elevation control
     this.barrelPivot = barrelGroup;
     
     // Set initial barrel elevation to exactly horizontal (0 degrees)
     this.barrelPivot.rotation.x = 0;
+  }
+  
+  private addArmorPlates(): void {
+    // Front glacis plate
+    const frontPlateGeometry = new THREE.BoxGeometry(1.9, 0.4, 0.2);
+    const armorMaterial = new THREE.MeshStandardMaterial({
+      color: this.tankColor || 0x4a7c59,
+      roughness: 0.25, // Smoother for modern armor plating
+      metalness: 0.85, // Very metallic for armored plates
+      envMapIntensity: 1.3 // Enhanced reflections for armor plates
+    });
     
-    // Ensure the barrel is properly oriented for horizontal firing
-    this.barrel.rotation.x = Math.PI / 2; // Barrel cylinder points along z-axis
+    const frontPlate = new THREE.Mesh(frontPlateGeometry, armorMaterial);
+    frontPlate.position.set(0, 0.5, -1.4);
+    frontPlate.rotation.x = Math.PI / 8; // Angled slightly
+    frontPlate.castShadow = true;
+    this.tank.add(frontPlate);
+    
+    // Side skirt armor (left)
+    const sideSkirtGeometry = new THREE.BoxGeometry(0.1, 0.3, 2.8);
+    const leftSkirt = new THREE.Mesh(sideSkirtGeometry, armorMaterial);
+    leftSkirt.position.set(-1.05, 0.4, 0);
+    leftSkirt.castShadow = true;
+    this.tank.add(leftSkirt);
+    
+    // Side skirt armor (right)
+    const rightSkirt = new THREE.Mesh(sideSkirtGeometry, armorMaterial);
+    rightSkirt.position.set(1.05, 0.4, 0);
+    rightSkirt.castShadow = true;
+    this.tank.add(rightSkirt);
+  }
+  
+  private createDetailedTracks(): void {
+    // Track base
+    const trackBaseGeometry = new THREE.BoxGeometry(0.4, 0.5, 3.2);
+    const trackMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0x1a1a1a, // Darker color for better depth
+      roughness: 0.6, // Slightly rough texture but still metallic
+      metalness: 0.7, // More metallic for modern tank tracks
+      envMapIntensity: 0.8 // Some reflections but not too shiny
+    });
+    
+    // Left track base
+    const leftTrack = new THREE.Mesh(trackBaseGeometry, trackMaterial);
+    leftTrack.position.set(-1, 0.25, 0);
+    leftTrack.castShadow = true;
+    leftTrack.receiveShadow = true;
+    this.tank.add(leftTrack);
+    
+    // Right track base
+    const rightTrack = new THREE.Mesh(trackBaseGeometry, trackMaterial);
+    rightTrack.position.set(1, 0.25, 0);
+    rightTrack.castShadow = true;
+    rightTrack.receiveShadow = true;
+    this.tank.add(rightTrack);
+    
+    // Track treads - add segments for visual detail
+    const treadsPerSide = this.TRACK_SEGMENT_COUNT; // Number of visible tread segments
+    const treadSegmentGeometry = new THREE.BoxGeometry(0.5, 0.1, 0.32); // Slightly larger treads
+    const treadMaterial = new THREE.MeshStandardMaterial({
+      color: 0x111111, // Darker for better contrast
+      roughness: 0.6, // More polished than before but still textured
+      metalness: 0.65, // More metallic for modern tank tracks
+      envMapIntensity: 0.7 // Some reflections but not too shiny
+    });
+    
+    // Create tread segments for both tracks and store references for animation
+    for (let i = 0; i < treadsPerSide; i++) {
+      const leftTread = new THREE.Mesh(treadSegmentGeometry, treadMaterial);
+      leftTread.position.set(-1, 0.05, -1.4 + i * (3 / treadsPerSide));
+      leftTread.castShadow = true;
+      this.tank.add(leftTread);
+      this.trackSegments.push(leftTread);
+      
+      const rightTread = new THREE.Mesh(treadSegmentGeometry, treadMaterial);
+      rightTread.position.set(1, 0.05, -1.4 + i * (3 / treadsPerSide));
+      rightTread.castShadow = true;
+      this.tank.add(rightTread);
+      this.trackSegments.push(rightTread);
+    }
+    
+    // Add drive wheels at the front and back
+    const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 18); // More segments for smoother wheels
+    const wheelMaterial = new THREE.MeshStandardMaterial({
+      color: 0x222222, // Darker for contrast and depth
+      roughness: 0.4, // Smoother for modern tank wheels
+      metalness: 0.8, // More metallic for realistic wheels
+      envMapIntensity: 1.2 // Better reflections for wheels
+    });
+    
+    // Front wheels
+    const leftFrontWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    leftFrontWheel.rotation.z = Math.PI / 2;
+    leftFrontWheel.position.set(-1, 0.3, -1.4);
+    this.tank.add(leftFrontWheel);
+    this.wheels.push(leftFrontWheel);
+    
+    const rightFrontWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    rightFrontWheel.rotation.z = Math.PI / 2;
+    rightFrontWheel.position.set(1, 0.3, -1.4);
+    this.tank.add(rightFrontWheel);
+    this.wheels.push(rightFrontWheel);
+    
+    // Rear wheels
+    const leftRearWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    leftRearWheel.rotation.z = Math.PI / 2;
+    leftRearWheel.position.set(-1, 0.3, 1.4);
+    this.tank.add(leftRearWheel);
+    this.wheels.push(leftRearWheel);
+    
+    const rightRearWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    rightRearWheel.rotation.z = Math.PI / 2;
+    rightRearWheel.position.set(1, 0.3, 1.4);
+    this.tank.add(rightRearWheel);
+    this.wheels.push(rightRearWheel);
+    
+    // Add road wheels in between
+    const smallWheelGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.08, 8);
+    const roadWheelPositions = [-0.8, -0.2, 0.4, 1.0]; // Z positions along track
+    
+    for (const zPos of roadWheelPositions) {
+      const leftRoadWheel = new THREE.Mesh(smallWheelGeometry, wheelMaterial);
+      leftRoadWheel.rotation.z = Math.PI / 2;
+      leftRoadWheel.position.set(-1, 0.25, zPos);
+      this.tank.add(leftRoadWheel);
+      this.wheels.push(leftRoadWheel);
+      
+      const rightRoadWheel = new THREE.Mesh(smallWheelGeometry, wheelMaterial);
+      rightRoadWheel.rotation.z = Math.PI / 2;
+      rightRoadWheel.position.set(1, 0.25, zPos);
+      this.tank.add(rightRoadWheel);
+      this.wheels.push(rightRoadWheel);
+    }
+  }
+  
+  private createDetailedTurret(): void {
+    // Main turret body - slightly more complex shape
+    const turretGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.5, 24); // Increased segments for smoother appearance
+    
+    // Get darker tank color for turret
+    const turretColor = this.getTurretColor();
+    
+    const turretMaterial = new THREE.MeshStandardMaterial({ 
+      color: turretColor,
+      roughness: 0.2, // Highly polished surface
+      metalness: 0.9, // Very metallic appearance
+      envMapIntensity: 1.4 // Enhanced reflections for turret
+    });
+    
+    this.turret = new THREE.Mesh(turretGeometry, turretMaterial);
+    this.turret.castShadow = true;
+    this.turret.receiveShadow = true;
+    this.turretPivot.add(this.turret);
+    
+    // Add turret details - commander's hatch
+    const hatchGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 8);
+    const hatchMaterial = new THREE.MeshStandardMaterial({
+      color: 0x333333,
+      roughness: 0.8,
+      metalness: 0.4
+    });
+    
+    const hatch = new THREE.Mesh(hatchGeometry, hatchMaterial);
+    hatch.position.set(0, 0.3, 0);
+    hatch.castShadow = true;
+    this.turretPivot.add(hatch);
+    
+    // Add antenna
+    const antennaGeometry = new THREE.CylinderGeometry(0.02, 0.01, 1.0, 4);
+    const antennaMaterial = new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      roughness: 0.5,
+      metalness: 0.8
+    });
+    
+    const antenna = new THREE.Mesh(antennaGeometry, antennaMaterial);
+    antenna.position.set(-0.5, 0.6, -0.2);
+    antenna.castShadow = true;
+    this.turretPivot.add(antenna);
+    
+    // Add mantlet at barrel base
+    const mantletGeometry = new THREE.BoxGeometry(0.8, 0.6, 0.35); // Slightly larger for more presence
+    const mantletMaterial = new THREE.MeshStandardMaterial({
+      color: 0x1a1a1a, // Darker color for better contrast
+      roughness: 0.2, // Smoother for modern tank mantlet
+      metalness: 0.9, // Highly metallic for professional look
+      envMapIntensity: 1.5 // Strong reflections for mantlet
+    });
+    
+    const mantlet = new THREE.Mesh(mantletGeometry, mantletMaterial);
+    mantlet.position.set(0, 0, 0.8);
+    mantlet.castShadow = true;
+    this.turretPivot.add(mantlet);
+  }
+  
+  private createDetailedBarrel(barrelGroup: THREE.Group): void {
+    // Main barrel (thicker at base, thinner at muzzle)
+    const barrelGeometry = new THREE.CylinderGeometry(0.2, 0.15, 2.2, 16); // More segments for smoother barrel
+    const barrelMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0x222222, // Darker color for better contrast
+      roughness: 0.1, // Very smooth for gun barrel
+      metalness: 0.95, // Highly metallic for realistic gun barrel
+      envMapIntensity: 1.6 // Strong reflections
+    });
+    
+    this.barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
+    
+    // Rotate the cylinder to point forward
+    this.barrel.rotation.x = Math.PI / 2;
+    
+    // Position the barrel so one end is at the pivot point
+    this.barrel.position.set(0, 0, 1.1); // Half the length of the barrel
+    
+    this.barrel.castShadow = true;
+    barrelGroup.add(this.barrel);
+    
+    // Add muzzle brake
+    const muzzleBrakeGeometry = new THREE.CylinderGeometry(0.25, 0.25, 0.35, 16); // Larger, smoother muzzle brake
+    const muzzleBrakeMaterial = new THREE.MeshStandardMaterial({
+      color: 0x111111, // Darker for contrast
+      roughness: 0.15, // Very smooth
+      metalness: 0.98, // Almost fully metallic
+      envMapIntensity: 1.8 // Strong reflections for muzzle
+    });
+    
+    const muzzleBrake = new THREE.Mesh(muzzleBrakeGeometry, muzzleBrakeMaterial);
+    muzzleBrake.rotation.x = Math.PI / 2;
+    muzzleBrake.position.set(0, 0, 2.2);
+    barrelGroup.add(muzzleBrake);
   }
 
   private getTurretColor(): number {
@@ -2671,11 +2956,13 @@ export class NPCTank implements ITank {
       this.createDestroyedEffect();
       
       // Play explosion sound
-      this.explodeSound.setSourcePosition(this.tank.position);
-      this.explodeSound.cloneAndPlay();
+      if (this.explodeSound) {
+        this.explodeSound.setSourcePosition(this.tank.position);
+        this.explodeSound.cloneAndPlay();
+      }
       
       // Stop movement sound if it was playing
-      if (this.lastMoveSoundState) {
+      if (this.lastMoveSoundState && this.moveSound) {
         this.moveSound.stop();
         this.lastMoveSoundState = false;
       }

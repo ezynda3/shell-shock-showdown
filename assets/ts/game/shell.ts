@@ -596,11 +596,39 @@ export class Shell implements ICollidable {
     // Start animation
     requestAnimationFrame(animateExplosion);
     
-    // Add sound effect
-    if (typeof Audio !== 'undefined') {
+    // Add sound effect using SpatialAudio system
+    if (window.SpatialAudio) {
+      try {
+        // Create spatial audio for the explosion
+        const explosionSound = new window.SpatialAudio(
+          '/static/js/assets/sounds/shell-explosion.mp3', 
+          false, // not looping 
+          0.2 + (sizeScale * 0.3), // volume based on size
+          200  // audible from far away
+        );
+        
+        // Set the position of the explosion
+        explosionSound.setSourcePosition(position);
+        
+        // Play the sound spatially
+        explosionSound.cloneAndPlay();
+      } catch(e) {
+        console.warn('Spatial audio failed:', e);
+        
+        // Fallback to basic Audio API
+        try {
+          const explosionSound = new Audio('/static/js/assets/sounds/shell-explosion.mp3');
+          explosionSound.volume = 0.2 + (sizeScale * 0.3);
+          explosionSound.play().catch(e => console.warn('Audio play failed:', e));
+        } catch(e) {
+          console.warn('Audio not supported');
+        }
+      }
+    } else {
+      // Fallback if SpatialAudio isn't available
       try {
         const explosionSound = new Audio('/static/js/assets/sounds/shell-explosion.mp3');
-        explosionSound.volume = 0.2 + (sizeScale * 0.3); // Volume based on explosion size
+        explosionSound.volume = 0.2 + (sizeScale * 0.3);
         explosionSound.play().catch(e => console.warn('Audio play failed:', e));
       } catch(e) {
         console.warn('Audio not supported');

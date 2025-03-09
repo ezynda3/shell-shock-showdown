@@ -11,7 +11,6 @@ import (
 	"github.com/mark3labs/pro-saaskit/game"
 	"github.com/mark3labs/pro-saaskit/middleware"
 	"github.com/mark3labs/pro-saaskit/views"
-	"github.com/nats-io/nats.go"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
 	datastar "github.com/starfederation/datastar/sdk/go"
@@ -27,7 +26,7 @@ type Signals struct {
 	TankRespawn string `json:"tankRespawn"` // New signal for tank respawning
 }
 
-func setupIndexRoutes(router *router.Router[*core.RequestEvent], nc *nats.Conn, gameManager *game.Manager) error {
+func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *game.Manager) error {
 	// Create a group for protected routes
 	protected := router.Group("")
 	protected.BindFunc(middleware.AuthGuard)

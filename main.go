@@ -72,7 +72,7 @@ func main() {
 	log.Println("KV store initialized")
 
 	// Initialize game manager
-	gameManager, err := game.NewManager(ctx, nc, kv)
+	gameManager, err := game.NewManager(ctx, kv)
 	if err != nil {
 		log.Fatalf("Failed to initialize game manager: %v", err)
 	}
@@ -82,7 +82,7 @@ func main() {
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		// Setup our custom routes first with game manager
-		err := routes.SetupRoutes(ctx, se.Router, nc, js, gameManager)
+		err := routes.SetupRoutes(ctx, se.Router, gameManager)
 		if err != nil {
 			return err
 		}

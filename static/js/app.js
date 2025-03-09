@@ -29341,7 +29341,22 @@ class Shell {
       requestAnimationFrame(animateExplosion);
     };
     requestAnimationFrame(animateExplosion);
-    if (typeof Audio !== "undefined") {
+    if (window.SpatialAudio) {
+      try {
+        const explosionSound = new window.SpatialAudio("/static/js/assets/sounds/shell-explosion.mp3", false, 0.2 + sizeScale * 0.3, 200);
+        explosionSound.setSourcePosition(position);
+        explosionSound.cloneAndPlay();
+      } catch (e) {
+        console.warn("Spatial audio failed:", e);
+        try {
+          const explosionSound = new Audio("/static/js/assets/sounds/shell-explosion.mp3");
+          explosionSound.volume = 0.2 + sizeScale * 0.3;
+          explosionSound.play().catch((e2) => console.warn("Audio play failed:", e2));
+        } catch (e2) {
+          console.warn("Audio not supported");
+        }
+      }
+    } else {
       try {
         const explosionSound = new Audio("/static/js/assets/sounds/shell-explosion.mp3");
         explosionSound.volume = 0.2 + sizeScale * 0.3;
@@ -29422,6 +29437,7 @@ class SpatialAudio {
   duration = null;
   trimEnd = 0;
   static globalListener = null;
+  static localListeners = new Map;
   DOPPLER_FACTOR = 0.05;
   lastPosition;
   velocity = new Vector3;
@@ -29458,12 +29474,41 @@ class SpatialAudio {
     this.sourcePosition.copy(position);
     this.updateVolumeAndDoppler();
   }
-  setListenerPosition(position) {
-    SpatialAudio.globalListener = position ? position.clone() : null;
+  setListenerPosition(position, listenerId = "global") {
+    if (position) {
+      if (listenerId === "global") {
+        SpatialAudio.globalListener = position.clone();
+      } else {
+        SpatialAudio.localListeners.set(listenerId, position.clone());
+      }
+    } else {
+      if (listenerId === "global") {
+        SpatialAudio.globalListener = null;
+      } else {
+        SpatialAudio.localListeners.delete(listenerId);
+      }
+    }
     this.updateVolumeAndDoppler();
   }
   static setGlobalListener(position) {
     SpatialAudio.globalListener = position ? position.clone() : null;
+  }
+  static setPlayerListener(playerId, position) {
+    if (position) {
+      SpatialAudio.localListeners.set(playerId, position.clone());
+    } else {
+      SpatialAudio.localListeners.delete(playerId);
+    }
+  }
+  static getActiveListeners() {
+    const listeners = new Map;
+    if (SpatialAudio.globalListener) {
+      listeners.set("global", SpatialAudio.globalListener);
+    }
+    SpatialAudio.localListeners.forEach((position, id) => {
+      listeners.set(id, position);
+    });
+    return listeners;
   }
   play() {
     if (!this.isPlaying) {
@@ -29484,15 +29529,28 @@ class SpatialAudio {
     }
   }
   updateVolumeAndDoppler() {
-    if (!SpatialAudio.globalListener) {
+    const activeListeners = SpatialAudio.getActiveListeners();
+    if (activeListeners.size === 0) {
       this.audio.volume = this.baseVolume;
       return;
     }
-    const distance = this.sourcePosition.distanceTo(SpatialAudio.globalListener);
-    const volumeFactor = Math.max(0, 1 - distance / this.maxDistance);
+    let closestDistance = Infinity;
+    let closestListener = null;
+    for (const [_, listenerPos] of activeListeners) {
+      const distance = this.sourcePosition.distanceTo(listenerPos);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestListener = listenerPos;
+      }
+    }
+    if (!closestListener) {
+      this.audio.volume = this.baseVolume;
+      return;
+    }
+    const volumeFactor = Math.max(0, 1 - closestDistance / this.maxDistance);
     this.audio.volume = this.baseVolume * volumeFactor * volumeFactor;
     if (this.isPlaying && this.velocity.length() > 0.01) {
-      const direction = new Vector3().subVectors(this.sourcePosition, SpatialAudio.globalListener).normalize();
+      const direction = new Vector3().subVectors(this.sourcePosition, closestListener).normalize();
       const relativeSpeed = this.velocity.dot(direction);
       const dopplerShift = 1 - relativeSpeed * this.DOPPLER_FACTOR;
       const newRate = this.playbackRate * Math.max(0.8, Math.min(1.2, dopplerShift));
@@ -29518,6 +29576,10 @@ class SpatialAudio {
     const clone = new SpatialAudio(this.audio.src, false, this.baseVolume, this.maxDistance, this.trimEnd);
     clone.setSourcePosition(this.sourcePosition);
     clone.setPlaybackRate(this.playbackRate);
+    const activeListeners = SpatialAudio.getActiveListeners();
+    for (const [listenerId, position] of activeListeners) {
+      clone.setListenerPosition(position, listenerId);
+    }
     clone.play();
     return clone;
   }
@@ -29535,9 +29597,9 @@ class Tank {
   turretPivot;
   barrel;
   barrelPivot;
-  moveSound;
-  fireSound;
-  explodeSound;
+  moveSound = null;
+  fireSound = null;
+  explodeSound = null;
   lastMoveSoundState = false;
   tankSpeed = 2.5;
   tankRotationSpeed = 0.04;
@@ -29589,6 +29651,7 @@ class Tank {
     this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.4, 120);
     this.fireSound = new SpatialAudio("/static/js/assets/sounds/tank-fire.mp3", false, 0.39375, 150);
     this.explodeSound = new SpatialAudio("/static/js/assets/sounds/tank-explode.mp3", false, 0.8, 200);
+    this.updateSoundPositions();
     scene.add(this.tank);
   }
   createTank() {
@@ -29747,8 +29810,9 @@ class Tank {
   }
   createDetailedTurret() {
     const turretGeometry = new CylinderGeometry(0.8, 0.8, 0.5, 24);
+    const turretColor = this.tankColor ? new Color(this.tankColor).multiplyScalar(0.85).getHex() : 4152905;
     const turretMaterial = new MeshStandardMaterial({
-      color: this.tankColor ? new Color(this.tankColor).multiplyScalar(0.85).getHex() : 4152905,
+      color: turretColor,
       roughness: 0.2,
       metalness: 0.9,
       envMapIntensity: 1.4
@@ -29761,7 +29825,8 @@ class Tank {
     const hatchMaterial = new MeshStandardMaterial({
       color: 3355443,
       roughness: 0.8,
-      metalness: 0.4
+      metalness: 0.4,
+      envMapIntensity: 1
     });
     const hatch = new Mesh(hatchGeometry, hatchMaterial);
     hatch.position.set(0, 0.3, 0);
@@ -29871,12 +29936,14 @@ class Tank {
       this.animateTracks();
     }
     if (this.isCurrentlyMoving) {
-      if (!this.lastMoveSoundState) {
+      if (!this.lastMoveSoundState && this.moveSound) {
         this.moveSound.play();
         this.lastMoveSoundState = true;
       }
-      this.moveSound.setPlaybackRate(0.8 + this.engineRPM * 0.7);
-    } else if (this.lastMoveSoundState) {
+      if (this.moveSound) {
+        this.moveSound.setPlaybackRate(0.8 + this.engineRPM * 0.7);
+      }
+    } else if (this.lastMoveSoundState && this.moveSound) {
       this.moveSound.stop();
       this.lastMoveSoundState = false;
     }
@@ -29905,8 +29972,10 @@ class Tank {
       }
     }
     if ((keys["space"] || keys[" "] || keys["f"] || keys["mousefire"]) && this.canFire) {
-      this.fireSound.setSourcePosition(this.tank.position);
-      this.fireSound.cloneAndPlay();
+      if (this.fireSound) {
+        this.fireSound.setSourcePosition(this.tank.position);
+        this.fireSound.cloneAndPlay();
+      }
       const shellId = `shell_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const newShell = this.fireShell(shellId);
       const fireEventId = `fire_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -30144,9 +30213,11 @@ class Tank {
       this.health = 0;
       this.isDestroyed = true;
       this.createDestroyedEffect();
-      this.explodeSound.setSourcePosition(this.tank.position);
-      this.explodeSound.cloneAndPlay();
-      if (this.lastMoveSoundState) {
+      if (this.explodeSound) {
+        this.explodeSound.setSourcePosition(this.tank.position);
+        this.explodeSound.cloneAndPlay();
+      }
+      if (this.lastMoveSoundState && this.moveSound) {
         this.moveSound.stop();
         this.lastMoveSoundState = false;
       }
@@ -30584,9 +30655,12 @@ class Tank {
   }
   updateSoundPositions() {
     const position = this.tank.position;
-    this.moveSound.setSourcePosition(position);
-    this.fireSound.setSourcePosition(position);
-    this.explodeSound.setSourcePosition(position);
+    if (this.moveSound)
+      this.moveSound.setSourcePosition(position);
+    if (this.fireSound)
+      this.fireSound.setSourcePosition(position);
+    if (this.explodeSound)
+      this.explodeSound.setSourcePosition(position);
   }
 }
 function generateRandomTankName() {
@@ -30667,6 +30741,11 @@ class NPCTank {
   barrel;
   barrelPivot;
   ownerId;
+  trackSegments = [];
+  wheels = [];
+  TRACK_SEGMENT_COUNT = 8;
+  trackRotationSpeed = 0;
+  acceleration = 0;
   getOwnerId() {
     return this.ownerId;
   }
@@ -30741,9 +30820,14 @@ class NPCTank {
     if (this.movementPattern === "patrol") {
       this.setupPatrolPoints();
     }
-    this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.3, 120);
-    this.fireSound = new SpatialAudio("/static/js/assets/sounds/tank-fire.mp3", false, 0.28125, 150);
-    this.explodeSound = new SpatialAudio("/static/js/assets/sounds/tank-explode.mp3", false, 0.6, 200);
+    try {
+      this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.3, 120);
+      this.fireSound = new SpatialAudio("/static/js/assets/sounds/tank-fire.mp3", false, 0.28125, 150);
+      this.explodeSound = new SpatialAudio("/static/js/assets/sounds/tank-explode.mp3", false, 0.6, 200);
+      this.updateSoundPositions();
+    } catch (error) {
+      console.error("Error initializing sounds for remote tank:", error);
+    }
     this.createHealthBar();
     scene.add(this.tank);
   }
@@ -30799,63 +30883,203 @@ class NPCTank {
     this.healthBarTexture.needsUpdate = true;
   }
   createTank() {
-    const bodyGeometry = new BoxGeometry(2, 0.75, 3);
+    const bodyGeometry = new BoxGeometry(2, 0.75, 3, 1, 1, 2);
     const bodyMaterial = new MeshStandardMaterial({
-      color: this.tankColor,
-      roughness: 0.7,
-      metalness: 0.3
+      color: this.tankColor || 4881497,
+      roughness: 0.3,
+      metalness: 0.8,
+      envMapIntensity: 1.2
     });
     this.tankBody = new Mesh(bodyGeometry, bodyMaterial);
     this.tankBody.position.y = 0.75 / 2;
     this.tankBody.castShadow = true;
     this.tankBody.receiveShadow = true;
     this.tank.add(this.tankBody);
-    const trackGeometry = new BoxGeometry(0.4, 0.5, 3.2);
-    const trackMaterial = new MeshStandardMaterial({
-      color: 3355443,
-      roughness: 0.9,
-      metalness: 0.2
+    this.addArmorPlates();
+    this.createDetailedTracks();
+    this.turretPivot = new Group;
+    this.turretPivot.position.set(0, 1, 0);
+    this.tank.add(this.turretPivot);
+    this.createDetailedTurret();
+    const barrelGroup = new Group;
+    barrelGroup.position.set(0, 0, 0.8);
+    this.turretPivot.add(barrelGroup);
+    this.createDetailedBarrel(barrelGroup);
+    this.barrelPivot = barrelGroup;
+    this.barrelPivot.rotation.x = 0;
+  }
+  addArmorPlates() {
+    const frontPlateGeometry = new BoxGeometry(1.9, 0.4, 0.2);
+    const armorMaterial = new MeshStandardMaterial({
+      color: this.tankColor || 4881497,
+      roughness: 0.25,
+      metalness: 0.85,
+      envMapIntensity: 1.3
     });
-    const leftTrack = new Mesh(trackGeometry, trackMaterial);
+    const frontPlate = new Mesh(frontPlateGeometry, armorMaterial);
+    frontPlate.position.set(0, 0.5, -1.4);
+    frontPlate.rotation.x = Math.PI / 8;
+    frontPlate.castShadow = true;
+    this.tank.add(frontPlate);
+    const sideSkirtGeometry = new BoxGeometry(0.1, 0.3, 2.8);
+    const leftSkirt = new Mesh(sideSkirtGeometry, armorMaterial);
+    leftSkirt.position.set(-1.05, 0.4, 0);
+    leftSkirt.castShadow = true;
+    this.tank.add(leftSkirt);
+    const rightSkirt = new Mesh(sideSkirtGeometry, armorMaterial);
+    rightSkirt.position.set(1.05, 0.4, 0);
+    rightSkirt.castShadow = true;
+    this.tank.add(rightSkirt);
+  }
+  createDetailedTracks() {
+    const trackBaseGeometry = new BoxGeometry(0.4, 0.5, 3.2);
+    const trackMaterial = new MeshStandardMaterial({
+      color: 1710618,
+      roughness: 0.6,
+      metalness: 0.7,
+      envMapIntensity: 0.8
+    });
+    const leftTrack = new Mesh(trackBaseGeometry, trackMaterial);
     leftTrack.position.set(-1, 0.25, 0);
     leftTrack.castShadow = true;
     leftTrack.receiveShadow = true;
     this.tank.add(leftTrack);
-    const rightTrack = new Mesh(trackGeometry, trackMaterial);
+    const rightTrack = new Mesh(trackBaseGeometry, trackMaterial);
     rightTrack.position.set(1, 0.25, 0);
     rightTrack.castShadow = true;
     rightTrack.receiveShadow = true;
     this.tank.add(rightTrack);
-    this.turretPivot = new Group;
-    this.turretPivot.position.set(0, 1, 0);
-    this.tank.add(this.turretPivot);
-    const turretGeometry = new CylinderGeometry(0.8, 0.8, 0.5, 16);
+    const treadsPerSide = this.TRACK_SEGMENT_COUNT;
+    const treadSegmentGeometry = new BoxGeometry(0.5, 0.1, 0.32);
+    const treadMaterial = new MeshStandardMaterial({
+      color: 1118481,
+      roughness: 0.6,
+      metalness: 0.65,
+      envMapIntensity: 0.7
+    });
+    for (let i = 0;i < treadsPerSide; i++) {
+      const leftTread = new Mesh(treadSegmentGeometry, treadMaterial);
+      leftTread.position.set(-1, 0.05, -1.4 + i * (3 / treadsPerSide));
+      leftTread.castShadow = true;
+      this.tank.add(leftTread);
+      this.trackSegments.push(leftTread);
+      const rightTread = new Mesh(treadSegmentGeometry, treadMaterial);
+      rightTread.position.set(1, 0.05, -1.4 + i * (3 / treadsPerSide));
+      rightTread.castShadow = true;
+      this.tank.add(rightTread);
+      this.trackSegments.push(rightTread);
+    }
+    const wheelGeometry = new CylinderGeometry(0.3, 0.3, 0.1, 18);
+    const wheelMaterial = new MeshStandardMaterial({
+      color: 2236962,
+      roughness: 0.4,
+      metalness: 0.8,
+      envMapIntensity: 1.2
+    });
+    const leftFrontWheel = new Mesh(wheelGeometry, wheelMaterial);
+    leftFrontWheel.rotation.z = Math.PI / 2;
+    leftFrontWheel.position.set(-1, 0.3, -1.4);
+    this.tank.add(leftFrontWheel);
+    this.wheels.push(leftFrontWheel);
+    const rightFrontWheel = new Mesh(wheelGeometry, wheelMaterial);
+    rightFrontWheel.rotation.z = Math.PI / 2;
+    rightFrontWheel.position.set(1, 0.3, -1.4);
+    this.tank.add(rightFrontWheel);
+    this.wheels.push(rightFrontWheel);
+    const leftRearWheel = new Mesh(wheelGeometry, wheelMaterial);
+    leftRearWheel.rotation.z = Math.PI / 2;
+    leftRearWheel.position.set(-1, 0.3, 1.4);
+    this.tank.add(leftRearWheel);
+    this.wheels.push(leftRearWheel);
+    const rightRearWheel = new Mesh(wheelGeometry, wheelMaterial);
+    rightRearWheel.rotation.z = Math.PI / 2;
+    rightRearWheel.position.set(1, 0.3, 1.4);
+    this.tank.add(rightRearWheel);
+    this.wheels.push(rightRearWheel);
+    const smallWheelGeometry = new CylinderGeometry(0.2, 0.2, 0.08, 8);
+    const roadWheelPositions = [-0.8, -0.2, 0.4, 1];
+    for (const zPos of roadWheelPositions) {
+      const leftRoadWheel = new Mesh(smallWheelGeometry, wheelMaterial);
+      leftRoadWheel.rotation.z = Math.PI / 2;
+      leftRoadWheel.position.set(-1, 0.25, zPos);
+      this.tank.add(leftRoadWheel);
+      this.wheels.push(leftRoadWheel);
+      const rightRoadWheel = new Mesh(smallWheelGeometry, wheelMaterial);
+      rightRoadWheel.rotation.z = Math.PI / 2;
+      rightRoadWheel.position.set(1, 0.25, zPos);
+      this.tank.add(rightRoadWheel);
+      this.wheels.push(rightRoadWheel);
+    }
+  }
+  createDetailedTurret() {
+    const turretGeometry = new CylinderGeometry(0.8, 0.8, 0.5, 24);
+    const turretColor = this.getTurretColor();
     const turretMaterial = new MeshStandardMaterial({
-      color: this.getTurretColor(),
-      roughness: 0.7,
-      metalness: 0.3
+      color: turretColor,
+      roughness: 0.2,
+      metalness: 0.9,
+      envMapIntensity: 1.4
     });
     this.turret = new Mesh(turretGeometry, turretMaterial);
     this.turret.castShadow = true;
     this.turret.receiveShadow = true;
     this.turretPivot.add(this.turret);
-    const barrelGroup = new Group;
-    barrelGroup.position.set(0, 0, 0.8);
-    this.turretPivot.add(barrelGroup);
-    const barrelGeometry = new CylinderGeometry(0.2, 0.2, 2, 16);
-    const barrelMaterial = new MeshStandardMaterial({
+    const hatchGeometry = new CylinderGeometry(0.3, 0.3, 0.1, 8);
+    const hatchMaterial = new MeshStandardMaterial({
       color: 3355443,
-      roughness: 0.7,
-      metalness: 0.5
+      roughness: 0.8,
+      metalness: 0.4
+    });
+    const hatch = new Mesh(hatchGeometry, hatchMaterial);
+    hatch.position.set(0, 0.3, 0);
+    hatch.castShadow = true;
+    this.turretPivot.add(hatch);
+    const antennaGeometry = new CylinderGeometry(0.02, 0.01, 1, 4);
+    const antennaMaterial = new MeshStandardMaterial({
+      color: 1118481,
+      roughness: 0.5,
+      metalness: 0.8
+    });
+    const antenna = new Mesh(antennaGeometry, antennaMaterial);
+    antenna.position.set(-0.5, 0.6, -0.2);
+    antenna.castShadow = true;
+    this.turretPivot.add(antenna);
+    const mantletGeometry = new BoxGeometry(0.8, 0.6, 0.35);
+    const mantletMaterial = new MeshStandardMaterial({
+      color: 1710618,
+      roughness: 0.2,
+      metalness: 0.9,
+      envMapIntensity: 1.5
+    });
+    const mantlet = new Mesh(mantletGeometry, mantletMaterial);
+    mantlet.position.set(0, 0, 0.8);
+    mantlet.castShadow = true;
+    this.turretPivot.add(mantlet);
+  }
+  createDetailedBarrel(barrelGroup) {
+    const barrelGeometry = new CylinderGeometry(0.2, 0.15, 2.2, 16);
+    const barrelMaterial = new MeshStandardMaterial({
+      color: 2236962,
+      roughness: 0.1,
+      metalness: 0.95,
+      envMapIntensity: 1.6
     });
     this.barrel = new Mesh(barrelGeometry, barrelMaterial);
     this.barrel.rotation.x = Math.PI / 2;
-    this.barrel.position.set(0, 0, 1);
+    this.barrel.position.set(0, 0, 1.1);
     this.barrel.castShadow = true;
     barrelGroup.add(this.barrel);
-    this.barrelPivot = barrelGroup;
-    this.barrelPivot.rotation.x = 0;
-    this.barrel.rotation.x = Math.PI / 2;
+    const muzzleBrakeGeometry = new CylinderGeometry(0.25, 0.25, 0.35, 16);
+    const muzzleBrakeMaterial = new MeshStandardMaterial({
+      color: 1118481,
+      roughness: 0.15,
+      metalness: 0.98,
+      envMapIntensity: 1.8
+    });
+    const muzzleBrake = new Mesh(muzzleBrakeGeometry, muzzleBrakeMaterial);
+    muzzleBrake.rotation.x = Math.PI / 2;
+    muzzleBrake.position.set(0, 0, 2.2);
+    barrelGroup.add(muzzleBrake);
   }
   getTurretColor() {
     const color = new Color(this.tankColor);
@@ -31096,9 +31320,11 @@ class NPCTank {
       this.health = 0;
       this.isDestroyed = true;
       this.createDestroyedEffect();
-      this.explodeSound.setSourcePosition(this.tank.position);
-      this.explodeSound.cloneAndPlay();
-      if (this.lastMoveSoundState) {
+      if (this.explodeSound) {
+        this.explodeSound.setSourcePosition(this.tank.position);
+        this.explodeSound.cloneAndPlay();
+      }
+      if (this.lastMoveSoundState && this.moveSound) {
         this.moveSound.stop();
         this.lastMoveSoundState = false;
       }
@@ -32226,18 +32452,38 @@ class GameComponent extends LitElement {
         this.collisionSystem.removeCollider(tank);
         tank.dispose();
         this.remoteTanks.delete(playerId);
+        if (window.SpatialAudio) {
+          window.SpatialAudio.setPlayerListener(playerId, null);
+        }
+      }
+    }
+  }
+  updateRemotePlayerListeners() {
+    if (!window.SpatialAudio || !this.multiplayerState || !this.multiplayerState.players) {
+      return;
+    }
+    for (const [playerId, playerData] of Object.entries(this.multiplayerState.players)) {
+      if (playerId === this.playerId)
+        continue;
+      if (playerData.position) {
+        const listenerPosition = new Vector3(playerData.position.x, playerData.position.y, playerData.position.z);
+        window.SpatialAudio.setPlayerListener(playerId, listenerPosition);
       }
     }
   }
   createRemoteTank(playerId, playerData) {
-    if (!this.scene)
+    if (!this.scene) {
+      console.error("Cannot create remote tank: Scene not available");
       return;
+    }
+    console.log(`Creating remote tank for player ${playerId}`, playerData);
     try {
       if (!playerData.position) {
         console.error("Remote player data missing position:", playerData);
         return;
       }
       const position = new Vector3(playerData.position.x, playerData.position.y, playerData.position.z);
+      console.log(`Remote tank position: (${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)})`);
       let tankColor = 16711680;
       if (playerData.color) {
         if (typeof playerData.color === "string" && playerData.color.startsWith("#")) {
@@ -32245,9 +32491,16 @@ class GameComponent extends LitElement {
         }
       }
       const tankName = playerData.name || `Player ${playerId.substring(0, 6)}`;
+      console.log(`Creating tank with name: ${tankName}, color: ${tankColor.toString(16)}`);
       const remoteTank = new NPCTank(this.scene, position, tankColor, tankName);
+      if (!remoteTank || !remoteTank.tank) {
+        console.error("Failed to create remote tank - tank object is missing!");
+        return;
+      }
+      console.log("Remote tank created successfully");
       if (typeof remoteTank.setOwnerId === "function") {
         remoteTank.setOwnerId(playerId);
+        console.log(`Set tank owner ID to ${playerId}`);
       }
       if (typeof playerData.tankRotation === "number") {
         remoteTank.tank.rotation.y = playerData.tankRotation;
@@ -32260,18 +32513,22 @@ class GameComponent extends LitElement {
       }
       if (typeof playerData.health === "number" && typeof remoteTank.setHealth === "function") {
         remoteTank.setHealth(playerData.health);
+        console.log(`Set tank health to ${playerData.health}`);
       }
+      remoteTank.tank.scale.set(1, 1, 1);
       this.addDebugVisualToRemoteTank(remoteTank);
+      console.log("Added debug visual to remote tank");
       this.collisionSystem.addCollider(remoteTank);
       this.remoteTanks.set(playerId, remoteTank);
+      console.log(`Remote tank for player ${playerId} added to game`);
     } catch (error) {
       console.error("Error creating remote tank:", error);
       console.error("Problem player data:", playerData);
     }
   }
   addDebugVisualToRemoteTank(remoteTank) {
-    const triangleHeight = 5;
-    const triangleWidth = 4;
+    const triangleHeight = 2;
+    const triangleWidth = 1.5;
     const geometry = new BufferGeometry;
     const vertices = new Float32Array([
       0,
@@ -32289,33 +32546,53 @@ class GameComponent extends LitElement {
     const material = new MeshBasicMaterial({
       color: 16711680,
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.9,
       side: DoubleSide
     });
     const triangleMesh = new Mesh(geometry, material);
-    triangleMesh.position.set(0, 6, 0);
-    triangleMesh.userData = {
+    triangleMesh.position.set(0, 4, 0);
+    const userData = {
       bobOffset: Math.random() * Math.PI * 2,
       bobSpeed: 1.5 + Math.random() * 0.5
     };
+    const markerContainer = new Object3D;
+    markerContainer.add(triangleMesh);
+    markerContainer.userData = userData;
     const animate = function() {
-      if (triangleMesh && triangleMesh.userData) {
-        triangleMesh.position.y = 6 + Math.sin(Date.now() * 0.003 + triangleMesh.userData.bobOffset) * 0.5;
-        triangleMesh.rotation.y += 0.02;
+      if (markerContainer && markerContainer.userData) {
+        markerContainer.position.y = Math.sin(Date.now() * 0.003 + markerContainer.userData.bobOffset) * 0.8;
+        markerContainer.rotation.y += 0.02;
         requestAnimationFrame(animate);
       }
     };
     animate();
-    remoteTank.tank.add(triangleMesh);
-    console.log("Added visuals to remote tank");
+    remoteTank.tank.add(markerContainer);
   }
   updateRemoteTankPosition(tank, playerData) {
     try {
+      if (!tank || !tank.tank) {
+        console.error("Cannot update remote tank: Tank reference is invalid");
+        return;
+      }
       if (!playerData.position) {
         console.error("Cannot update remote tank: Missing position data");
         return;
       }
-      tank.tank.position.lerp(new Vector3(playerData.position.x, playerData.position.y, playerData.position.z), 0.2);
+      const newPosition = new Vector3(playerData.position.x, playerData.position.y, playerData.position.z);
+      const currentPosition = tank.tank.position.clone();
+      const distance = currentPosition.distanceTo(newPosition);
+      if (distance > 10) {
+        console.log(`Remote tank moved a large distance: ${distance.toFixed(2)} units`);
+        console.log(`  From: (${currentPosition.x.toFixed(2)}, ${currentPosition.y.toFixed(2)}, ${currentPosition.z.toFixed(2)})`);
+        console.log(`  To: (${newPosition.x.toFixed(2)}, ${newPosition.y.toFixed(2)}, ${newPosition.z.toFixed(2)})`);
+      }
+      tank.tank.position.lerp(newPosition, 0.2);
+      if (tank.getCollider) {
+        const collider = tank.getCollider();
+        if (collider instanceof Sphere) {
+          collider.center.copy(tank.tank.position);
+        }
+      }
       if (typeof playerData.tankRotation === "number") {
         tank.tank.rotation.y = this.lerpAngle(tank.tank.rotation.y, playerData.tankRotation, 0.2);
       }
@@ -32327,6 +32604,17 @@ class GameComponent extends LitElement {
       }
       if (typeof playerData.health === "number" && typeof tank.setHealth === "function") {
         tank.setHealth(playerData.health);
+      }
+      try {
+        if (typeof tank.updateSoundPositions === "function") {
+          tank.updateSoundPositions();
+        }
+      } catch (audioError) {
+        console.warn("Error updating tank audio positions:", audioError);
+      }
+      if (!tank.tank.visible) {
+        console.log("Making remote tank visible again");
+        tank.tank.visible = true;
       }
     } catch (error) {
       console.error("Error updating remote tank:", error);
@@ -32887,11 +33175,15 @@ class GameComponent extends LitElement {
         window.cameraPosition = this.camera.position;
         if (typeof window.SpatialAudio?.setGlobalListener === "function") {
           window.SpatialAudio.setGlobalListener(this.camera.position);
+          if (this.playerId) {
+            window.SpatialAudio.setPlayerListener(this.playerId, this.camera.position);
+          }
         }
+        this.updateRemotePlayerListeners();
       }
     }
     if (this.multiplayerState && this.scene && this.gameStateInitialized) {
-      if (this.frameCounter % 60 === 0) {
+      if (this.frameCounter % 10 === 0) {
         this.updateRemotePlayers();
       }
       if (this.multiplayerState.shells && this.multiplayerState.shells.length > 0) {
