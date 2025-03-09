@@ -9,10 +9,11 @@ import { Shell } from './shell';
  * - ITank: Interface defining the common API for all tank types
  * - BaseTank: Abstract base class that implements common tank functionality shared by all tank types
  * - Tank: Player-controlled tank with camera following and user input controls
- * - NPCTank: AI/Remote controlled tank with autonomous movement patterns
+ * - RemoteTank: Remote player-controlled tank that receives movement data over the network
+ * - NPCTank: AI-controlled tank with autonomous movement patterns (extends RemoteTank)
  * 
  * The tanks have common rendering logic, collision detection, and health management,
- * while differing in their control mechanisms (user input vs AI) and specific behaviors.
+ * while differing in their control mechanisms (user input vs network vs AI) and specific behaviors.
  */
 
 // Audio helper for tank sounds with spatial awareness
@@ -316,7 +317,7 @@ export interface ITank extends ICollidable {
 
 /**
  * BaseTank - Abstract base class that implements shared functionality
- * between player-controlled Tank and AI/remote controlled NPCTank classes
+ * between player-controlled Tank and AI/remote controlled RemoteTank classes
  */
 export abstract class BaseTank implements ITank {
   // Tank components
@@ -419,7 +420,7 @@ export abstract class BaseTank implements ITank {
   // Common methods for all tank types
   //----------------------------------------------
   
-  // Tank creation methods (shared between Tank and NPCTank)
+  // Tank creation methods (shared between Tank and RemoteTank)
   protected addArmorPlates(): void {
     // Front glacis plate
     const frontPlateGeometry = new THREE.BoxGeometry(1.9, 0.4, 0.2);
@@ -3244,21 +3245,21 @@ function generateRandomTankName(): string {
   return `${randomAdjective} ${randomNoun}`;
 }
 
-export class NPCTank extends BaseTank {
-  // NPC behavior properties
-  private movementPattern: 'circle' | 'zigzag' | 'random' | 'patrol';
-  private movementTimer = 0;
-  private changeDirectionInterval: number;
-  private currentDirection = 0; // Angle in radians
-  private targetPosition = new THREE.Vector3();
-  private patrolPoints: THREE.Vector3[] = [];
-  private currentPatrolIndex = 0;
-  private collisionResetTimer = 0;
-  private readonly COLLISION_RESET_DELAY = 60; // Frames to wait after collision before trying new direction
+export class RemoteTank extends BaseTank {
+  // Remote tank properties
+  protected movementPattern: 'circle' | 'zigzag' | 'random' | 'patrol';
+  protected movementTimer = 0;
+  protected changeDirectionInterval: number;
+  protected currentDirection = 0; // Angle in radians
+  protected targetPosition = new THREE.Vector3();
+  protected patrolPoints: THREE.Vector3[] = [];
+  protected currentPatrolIndex = 0;
+  protected collisionResetTimer = 0;
+  protected readonly COLLISION_RESET_DELAY = 60; // Frames to wait after collision before trying new direction
   
-  // AI targeting properties
-  private readonly FIRE_PROBABILITY = 0.03; // 3% chance to fire each frame when canFire is true
-  private readonly TARGETING_DISTANCE = 500; // Distance at which the NPC starts targeting the player
+  // Targeting properties
+  protected readonly FIRE_PROBABILITY = 0.03; // 3% chance to fire each frame when canFire is true
+  protected readonly TARGETING_DISTANCE = 500; // Distance at which the remote tank starts targeting the player
 
   constructor(scene: THREE.Scene, position: THREE.Vector3, color = 0xff0000, name?: string) {
     // Generate a random name if none provided
@@ -3805,8 +3806,8 @@ export class NPCTank extends BaseTank {
         // Skip self and non-tank objects
         if (collider === this || collider.getType() !== 'tank') continue;
         
-        // Find the player tank (assumption: only one tank that's not an NPCTank)
-        if (!(collider instanceof NPCTank)) {
+        // Find the player tank (assumption: only one tank that's not a RemoteTank)
+        if (!(collider instanceof RemoteTank)) {
           playerTank = collider;
           break;
         }
@@ -4831,5 +4832,203 @@ export class NPCTank extends BaseTank {
     
     // Start animation
     requestAnimationFrame(updateSparks);
+  }
+}
+
+/**
+ * NPCTank - AI controlled tank that moves autonomously
+ * Extends RemoteTank to inherit remote tank functionality but adds AI behavior
+ */
+export class NPCTank extends RemoteTank {
+  // AI-specific behavior properties
+  private readonly AI_AGGRESSION: number = 0.6; // 0-1 scale of how aggressive the AI is
+  private readonly AI_MOVEMENT_CHANGE_CHANCE: number = 0.005; // Chance to change movement pattern
+  private readonly AI_TARGETING_ACCURACY: number = 0.8; // 0-1 scale of aiming accuracy
+  
+  constructor(scene: THREE.Scene, position: THREE.Vector3, color = 0xff0000, name?: string) {
+    // Call parent constructor
+    super(scene, position, color, name);
+    
+    // Override with more aggressive settings for NPCs
+    this.FIRE_PROBABILITY = 0.05; // Higher fire rate than remote tanks
+    
+    // Make tanks move a bit faster
+    this.tankSpeed = 0.3; // Faster than RemoteTank's default of 0.2
+    
+    // Randomize movement pattern for each NPC tank
+    const patterns: ('circle' | 'zigzag' | 'random' | 'patrol')[] = ['circle', 'zigzag', 'random', 'patrol'];
+    this.movementPattern = patterns[Math.floor(Math.random() * patterns.length)];
+    
+    // Randomize direction change interval (2-5 seconds at 60fps)
+    this.changeDirectionInterval = Math.floor(Math.random() * 180) + 120;
+    
+    // If patrol pattern is selected, set up patrol points
+    if (this.movementPattern === 'patrol') {
+      this.setupPatrolPoints();
+    }
+  }
+  
+  // Override update method to add more autonomous behavior
+  update(keys?: { [key: string]: boolean }, colliders?: ICollidable[]): Shell | null {
+    this.movementTimer++;
+    
+    // If tank is destroyed, don't process movement or firing
+    if (this.isDestroyed) {
+      return null;
+    }
+    
+    // Store the current position before movement
+    this.lastPosition.copy(this.tank.position);
+    
+    // Update sound positions
+    this.updateSoundPositions();
+    
+    // Reset movement state
+    this.isCurrentlyMoving = false;
+    this.velocity = 0;
+    
+    // Handle reloading using timestamps
+    if (!this.canFire) {
+      const currentTime = Date.now();
+      if (currentTime - this.lastFireTime >= this.FIRE_COOLDOWN_MS) {
+        this.canFire = true;
+      }
+    }
+    
+    // If we're in collision recovery mode, decrement the timer
+    if (this.collisionResetTimer > 0) {
+      this.collisionResetTimer--;
+      
+      // If timer expired, pick a new direction
+      if (this.collisionResetTimer === 0) {
+        this.currentDirection = Math.random() * Math.PI * 2;
+      }
+      
+      // Don't move while in collision recovery
+      return null;
+    }
+    
+    // Randomly change movement pattern occasionally
+    if (Math.random() < this.AI_MOVEMENT_CHANGE_CHANCE) {
+      const patterns: ('circle' | 'zigzag' | 'random' | 'patrol')[] = ['circle', 'zigzag', 'random', 'patrol'];
+      this.movementPattern = patterns[Math.floor(Math.random() * patterns.length)];
+      
+      // If switching to patrol, set up patrol points
+      if (this.movementPattern === 'patrol') {
+        this.setupPatrolPoints();
+      }
+    }
+    
+    // Execute movement based on pattern
+    switch (this.movementPattern) {
+      case 'circle':
+        this.moveInCircle();
+        break;
+      case 'zigzag':
+        this.moveInZigzag();
+        break;
+      case 'random':
+        this.moveRandomly();
+        break;
+      case 'patrol':
+        this.moveInPatrol();
+        break;
+    }
+    
+    // Update movement sound based on movement status
+    if (this.isCurrentlyMoving) {
+      if (!this.lastMoveSoundState && this.moveSound) {
+        this.moveSound.play();
+        this.lastMoveSoundState = true;
+      }
+    } else if (this.lastMoveSoundState && this.moveSound) {
+      this.moveSound.stop();
+      this.lastMoveSoundState = false;
+    }
+    
+    // Look for player tank to target
+    let playerTank: ICollidable | null = null;
+    if (colliders) {
+      for (const collider of colliders) {
+        // Skip self and non-tank objects
+        if (collider === this || collider.getType() !== 'tank') continue;
+        
+        // Find the player tank (assumption: only one tank that's not a RemoteTank)
+        if (!(collider instanceof RemoteTank)) {
+          playerTank = collider;
+          break;
+        }
+      }
+    }
+    
+    // If we found the player tank and it's within targeting distance
+    if (playerTank) {
+      const distanceToPlayer = this.tank.position.distanceTo(playerTank.getPosition());
+      
+      if (distanceToPlayer < this.TARGETING_DISTANCE) {
+        // Adjust turret to point toward player
+        this.aimAtTarget(playerTank.getPosition());
+        
+        // Decide whether to fire
+        if (this.canFire && Math.random() < this.FIRE_PROBABILITY) {
+          // Play firing sound
+          if (this.fireSound) {
+            this.fireSound.setSourcePosition(this.tank.position);
+            this.fireSound.cloneAndPlay();
+          }
+          
+          return this.fireShell();
+        }
+      } else {
+        // Randomly rotate the turret for visual interest if player not in range
+        this.turretPivot.rotation.y += (Math.sin(this.movementTimer * 0.01) * 0.5) * this.turretRotationSpeed;
+        
+        // Randomly adjust barrel elevation
+        const barrelTarget = Math.sin(this.movementTimer * 0.005) * (this.maxBarrelElevation - this.minBarrelElevation) / 2;
+        this.barrelPivot.rotation.x += (barrelTarget - this.barrelPivot.rotation.x) * 0.01;
+      }
+    } else {
+      // No player found, just rotate turret randomly
+      this.turretPivot.rotation.y += (Math.sin(this.movementTimer * 0.01) * 0.5) * this.turretRotationSpeed;
+      
+      // Randomly adjust barrel elevation
+      const barrelTarget = Math.sin(this.movementTimer * 0.005) * (this.maxBarrelElevation - this.minBarrelElevation) / 2;
+      this.barrelPivot.rotation.x += (barrelTarget - this.barrelPivot.rotation.x) * 0.01;
+    }
+    
+    // Update collider position
+    this.collider.center.copy(this.tank.position);
+    
+    // Handle collisions
+    if (colliders) {
+      for (const collider of colliders) {
+        // Skip self-collision
+        if (collider === this) continue;
+        
+        // Check for collision
+        if (this.checkCollision(collider)) {
+          this.handleCollision();
+          break;
+        }
+      }
+    }
+    
+    return null;
+  }
+  
+  // Override aiming for better AI control
+  protected aimAtTarget(targetPosition: THREE.Vector3): void {
+    // Get base targeting logic from parent
+    super.aimAtTarget(targetPosition);
+    
+    // Add AI-specific accuracy variation based on AI_TARGETING_ACCURACY
+    // Lower accuracy means more variation in aiming
+    const accuracyVariation = (1 - this.AI_TARGETING_ACCURACY) * 0.1;
+    
+    // Add random variation to turret rotation
+    this.turretPivot.rotation.y += (Math.random() - 0.5) * accuracyVariation;
+    
+    // Add random variation to barrel elevation
+    this.barrelPivot.rotation.x += (Math.random() - 0.5) * accuracyVariation;
   }
 }

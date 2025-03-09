@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ICollidable, ITank, NPCTank } from './tank';
+import { ICollidable, ITank, RemoteTank } from './tank';
 
 export class Shell implements ICollidable {
   // Shell instance properties
@@ -311,8 +311,8 @@ export class Shell implements ICollidable {
     if (other.getType() === 'tank') {
       const tank = other as ITank;
       
-      // Check if this is a player-tank hit or an NPC-tank hit
-      const isPlayerTank = !(tank instanceof NPCTank);
+      // Check if this is a player-tank hit or a remote/NPC tank hit
+      const isPlayerTank = !(tank instanceof RemoteTank);
       
       // Base damage - 25% regardless, ensuring 4 hits to destroy
       let damageAmount = 25;

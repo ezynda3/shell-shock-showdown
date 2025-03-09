@@ -29159,7 +29159,7 @@ class Shell {
     this.createExplosion(this.mesh.position.clone());
     if (other.getType() === "tank") {
       const tank = other;
-      const isPlayerTank = !(tank instanceof NPCTank);
+      const isPlayerTank = !(tank instanceof RemoteTank);
       let damageAmount = 25;
       if (tank.getDetailedColliders && tank.getDetailedColliders().length > 0) {
         const shellPosition = this.mesh.position.clone();
@@ -31496,7 +31496,7 @@ function generateRandomTankName() {
   return `${randomAdjective} ${randomNoun}`;
 }
 
-class NPCTank extends BaseTank {
+class RemoteTank extends BaseTank {
   movementPattern;
   movementTimer = 0;
   changeDirectionInterval;
@@ -31867,7 +31867,7 @@ class NPCTank extends BaseTank {
       for (const collider of colliders) {
         if (collider === this || collider.getType() !== "tank")
           continue;
-        if (!(collider instanceof NPCTank)) {
+        if (!(collider instanceof RemoteTank)) {
           playerTank = collider;
           break;
         }
@@ -32476,6 +32476,126 @@ class NPCTank extends BaseTank {
   }
 }
 
+class NPCTank extends RemoteTank {
+  AI_AGGRESSION = 0.6;
+  AI_MOVEMENT_CHANGE_CHANCE = 0.005;
+  AI_TARGETING_ACCURACY = 0.8;
+  constructor(scene, position, color = 16711680, name) {
+    super(scene, position, color, name);
+    this.FIRE_PROBABILITY = 0.05;
+    this.tankSpeed = 0.3;
+    const patterns = ["circle", "zigzag", "random", "patrol"];
+    this.movementPattern = patterns[Math.floor(Math.random() * patterns.length)];
+    this.changeDirectionInterval = Math.floor(Math.random() * 180) + 120;
+    if (this.movementPattern === "patrol") {
+      this.setupPatrolPoints();
+    }
+  }
+  update(keys, colliders) {
+    this.movementTimer++;
+    if (this.isDestroyed) {
+      return null;
+    }
+    this.lastPosition.copy(this.tank.position);
+    this.updateSoundPositions();
+    this.isCurrentlyMoving = false;
+    this.velocity = 0;
+    if (!this.canFire) {
+      const currentTime = Date.now();
+      if (currentTime - this.lastFireTime >= this.FIRE_COOLDOWN_MS) {
+        this.canFire = true;
+      }
+    }
+    if (this.collisionResetTimer > 0) {
+      this.collisionResetTimer--;
+      if (this.collisionResetTimer === 0) {
+        this.currentDirection = Math.random() * Math.PI * 2;
+      }
+      return null;
+    }
+    if (Math.random() < this.AI_MOVEMENT_CHANGE_CHANCE) {
+      const patterns = ["circle", "zigzag", "random", "patrol"];
+      this.movementPattern = patterns[Math.floor(Math.random() * patterns.length)];
+      if (this.movementPattern === "patrol") {
+        this.setupPatrolPoints();
+      }
+    }
+    switch (this.movementPattern) {
+      case "circle":
+        this.moveInCircle();
+        break;
+      case "zigzag":
+        this.moveInZigzag();
+        break;
+      case "random":
+        this.moveRandomly();
+        break;
+      case "patrol":
+        this.moveInPatrol();
+        break;
+    }
+    if (this.isCurrentlyMoving) {
+      if (!this.lastMoveSoundState && this.moveSound) {
+        this.moveSound.play();
+        this.lastMoveSoundState = true;
+      }
+    } else if (this.lastMoveSoundState && this.moveSound) {
+      this.moveSound.stop();
+      this.lastMoveSoundState = false;
+    }
+    let playerTank = null;
+    if (colliders) {
+      for (const collider of colliders) {
+        if (collider === this || collider.getType() !== "tank")
+          continue;
+        if (!(collider instanceof RemoteTank)) {
+          playerTank = collider;
+          break;
+        }
+      }
+    }
+    if (playerTank) {
+      const distanceToPlayer = this.tank.position.distanceTo(playerTank.getPosition());
+      if (distanceToPlayer < this.TARGETING_DISTANCE) {
+        this.aimAtTarget(playerTank.getPosition());
+        if (this.canFire && Math.random() < this.FIRE_PROBABILITY) {
+          if (this.fireSound) {
+            this.fireSound.setSourcePosition(this.tank.position);
+            this.fireSound.cloneAndPlay();
+          }
+          return this.fireShell();
+        }
+      } else {
+        this.turretPivot.rotation.y += Math.sin(this.movementTimer * 0.01) * 0.5 * this.turretRotationSpeed;
+        const barrelTarget = Math.sin(this.movementTimer * 0.005) * (this.maxBarrelElevation - this.minBarrelElevation) / 2;
+        this.barrelPivot.rotation.x += (barrelTarget - this.barrelPivot.rotation.x) * 0.01;
+      }
+    } else {
+      this.turretPivot.rotation.y += Math.sin(this.movementTimer * 0.01) * 0.5 * this.turretRotationSpeed;
+      const barrelTarget = Math.sin(this.movementTimer * 0.005) * (this.maxBarrelElevation - this.minBarrelElevation) / 2;
+      this.barrelPivot.rotation.x += (barrelTarget - this.barrelPivot.rotation.x) * 0.01;
+    }
+    this.collider.center.copy(this.tank.position);
+    if (colliders) {
+      for (const collider of colliders) {
+        if (collider === this)
+          continue;
+        if (this.checkCollision(collider)) {
+          this.handleCollision();
+          break;
+        }
+      }
+    }
+    return null;
+  }
+  aimAtTarget(targetPosition) {
+    super.aimAtTarget(targetPosition);
+    const accuracyVariation = (1 - this.AI_TARGETING_ACCURACY) * 0.1;
+    this.turretPivot.rotation.y += (Math.random() - 0.5) * accuracyVariation;
+    this.barrelPivot.rotation.x += (Math.random() - 0.5) * accuracyVariation;
+  }
+}
+
 // assets/ts/game/stats.ts
 class GameStats extends LitElement {
   frameTimeHistory = [];
@@ -32823,7 +32943,7 @@ class GameComponent extends LitElement {
   playerTank;
   remoteTanks = new Map;
   npcTanks = [];
-  NUM_NPC_TANKS = 0;
+  NUM_NPC_TANKS = 15;
   SOLO_PLAYER_NPC_COUNT = 25;
   lodDistance = 300;
   collisionSystem = new CollisionSystem;
@@ -33487,7 +33607,7 @@ class GameComponent extends LitElement {
       }
       const tankName = playerData.name || `Player ${playerId.substring(0, 6)}`;
       console.log(`Creating tank with name: ${tankName}, color: ${tankColor.toString(16)}`);
-      const remoteTank = new NPCTank(this.scene, position, tankColor, tankName);
+      const remoteTank = new RemoteTank(this.scene, position, tankColor, tankName);
       if (!remoteTank || !remoteTank.tank) {
         console.error("Failed to create remote tank - tank object is missing!");
         return;

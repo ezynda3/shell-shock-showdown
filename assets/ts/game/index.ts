@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, query, property } from 'lit/decorators.js';
 import * as THREE from 'three';
 import { MapGenerator } from './map';
-import { Tank, NPCTank, ITank, ICollidable, SpatialAudio } from './tank';
+import { Tank, RemoteTank, NPCTank, ITank, ICollidable, SpatialAudio } from './tank';
 import { CollisionSystem } from './collision';
 import { Shell } from './shell';
 import './stats'; // Import stats component
@@ -191,10 +191,10 @@ export class GameComponent extends LitElement {
   
   // Tank instances
   private playerTank?: Tank;
-  private remoteTanks: Map<string, NPCTank> = new Map();
+  private remoteTanks: Map<string, RemoteTank> = new Map();
   private npcTanks: NPCTank[] = [];
   // Base NPC count; can be increased when only a single player is online
-  private readonly NUM_NPC_TANKS = 0;
+  private readonly NUM_NPC_TANKS = 15; // Changed from 0 to add NPCs for testing
   private readonly SOLO_PLAYER_NPC_COUNT = 25;
   
   // Performance settings
@@ -1067,7 +1067,7 @@ export class GameComponent extends LitElement {
       console.log(`Creating tank with name: ${tankName}, color: ${tankColor.toString(16)}`);
       
       // Create the remote tank
-      const remoteTank = new NPCTank(
+      const remoteTank = new RemoteTank(
         this.scene,
         position,
         tankColor,
@@ -1127,7 +1127,7 @@ export class GameComponent extends LitElement {
   }
   
   // Add debug visualization to remote tank
-  private addDebugVisualToRemoteTank(remoteTank: NPCTank): void {
+  private addDebugVisualToRemoteTank(remoteTank: RemoteTank): void {
     // Create a smaller red triangle pointing down to the tank
     const triangleHeight = 2; // Smaller height for the triangle
     const triangleWidth = 1.5;  // Smaller width for the triangle
@@ -1190,7 +1190,7 @@ export class GameComponent extends LitElement {
   }
   
   // Update an existing remote tank's position and rotation
-  private updateRemoteTankPosition(tank: NPCTank, playerData: PlayerState) {
+  private updateRemoteTankPosition(tank: RemoteTank, playerData: PlayerState) {
     // Don't log every position update - they happen frequently
     
     try {
@@ -1839,7 +1839,7 @@ export class GameComponent extends LitElement {
         Math.sin(angle) * distance
       );
       
-      // Create tank with color from the colors array and a random name
+      // Create AI-controlled tank with color from the colors array and a random name
       const npcTank = new NPCTank(
         this.scene,
         position,
