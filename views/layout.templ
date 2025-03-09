@@ -24,26 +24,21 @@ templ Layout(loggedIn bool, appURL string) {
 			<meta name="keywords" content="tank game, multiplayer game, browser game, shell shock, tank battles, online game"/>
 			<meta name="author" content="Mark3Labs"/>
 			<meta name="theme-color" content="#7c3aed"/>
-			
 			<!-- Canonical URL -->
 			<link rel="canonical" href={ appURL }/>
-			
 			<!-- Open Graph / Facebook -->
 			<meta property="og:type" content="website"/>
 			<meta property="og:url" content={ appURL }/>
 			<meta property="og:title" content="Shell Shock Showdown - Multiplayer Tank Battle Game"/>
 			<meta property="og:description" content="Join the ultimate multiplayer tank battle arena. Customize your tank, team up with friends, and dominate the battlefield."/>
 			<meta property="og:image" content={ appURL + "/static/img/splash.webp" }/>
-
 			<!-- Twitter -->
 			<meta property="twitter:card" content="summary_large_image"/>
 			<meta property="twitter:url" content={ appURL }/>
 			<meta property="twitter:title" content="Shell Shock Showdown - Multiplayer Tank Battle Game"/>
 			<meta property="twitter:description" content="Join the ultimate multiplayer tank battle arena. Customize your tank, team up with friends, and dominate the battlefield."/>
 			<meta property="twitter:image" content={ appURL + "/static/img/splash.webp" }/>
-			<meta name="twitter:creator" content="@Mark3Labs"/>
-			<meta name="twitter:site" content="@Mark3Labs"/>
-			
+			<meta name="twitter:creator" content="@what_the_func"/>
 			<!-- Schema.org markup for Google -->
 			@templ.Raw(`
 			<script type="application/ld+json">
@@ -74,10 +69,8 @@ templ Layout(loggedIn bool, appURL string) {
 			}
 			</script>
 			`)
-			
 			<!-- Favicon -->
 			<link rel="icon" type="image/png" href="/static/img/favicon.png"/>
-			
 			<!-- Fonts -->
 			<link rel="preconnect" href="https://rsms.me/"/>
 			<link rel="stylesheet" href="https://rsms.me/inter/inter.css"/>

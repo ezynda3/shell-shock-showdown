@@ -50,7 +50,7 @@ func NewManager(ctx context.Context, kv jetstream.KeyValue) (*Manager, error) {
 	if err := manager.loadState(); err != nil {
 		// Only log the error, but don't fail initialization
 		log.Printf("Error loading initial game state: %v, starting with fresh state", err)
-		
+
 		// Save initial state to KV
 		if err := manager.saveState(); err != nil {
 			return nil, fmt.Errorf("failed to save initial game state: %v", err)
@@ -67,21 +67,21 @@ func NewManager(ctx context.Context, kv jetstream.KeyValue) (*Manager, error) {
 func (m *Manager) GetState() GameState {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	// Create a deep copy to avoid race conditions
 	stateCopy := GameState{
 		Players: make(map[string]PlayerState, len(m.state.Players)),
 		Shells:  make([]ShellState, len(m.state.Shells)),
 	}
-	
+
 	// Copy players
 	for id, player := range m.state.Players {
 		stateCopy.Players[id] = player
 	}
-	
+
 	// Copy shells
 	copy(stateCopy.Shells, m.state.Shells)
-	
+
 	return stateCopy
 }
 
@@ -239,7 +239,7 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 		m.state.Players[respawnData.PlayerID] = player
 
 		m.mutex.Unlock()
-		
+
 		// Save to KV store
 		if err := m.saveState(); err != nil {
 			log.Printf("Error saving game state after tank respawn: %v", err)
@@ -250,7 +250,7 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 			player.Position.X,
 			player.Position.Y,
 			player.Position.Z)
-		
+
 		return nil
 	} else {
 		m.mutex.Unlock()
@@ -279,14 +279,14 @@ func (m *Manager) loadState() error {
 	// Unmarshal game state
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	if err := json.Unmarshal(entry.Value(), &m.state); err != nil {
 		return err
 	}
 
 	log.Printf("Loaded game state from KV store with %d players and %d shells",
 		len(m.state.Players), len(m.state.Shells))
-	
+
 	return nil
 }
 
@@ -311,7 +311,7 @@ func (m *Manager) saveState() error {
 func (m *Manager) runStateCleanup() {
 	for {
 		m.cleanupGameState()
-		
+
 		// Save current game state to KV store
 		if err := m.saveState(); err != nil {
 			log.Printf("Error saving game state during cleanup: %v", err)
@@ -329,7 +329,7 @@ func (m *Manager) WatchState(ctx context.Context) (jetstream.KeyWatcher, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create KV watcher: %v", err)
 	}
-	
+
 	return watcher, nil
 }
 
