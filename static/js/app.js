@@ -31506,18 +31506,18 @@ class NPCTank extends BaseTank {
   currentPatrolIndex = 0;
   collisionResetTimer = 0;
   COLLISION_RESET_DELAY = 60;
-  FIRE_PROBABILITY = 0.01;
-  TARGETING_DISTANCE = 300;
+  FIRE_PROBABILITY = 0.03;
+  TARGETING_DISTANCE = 500;
   constructor(scene, position, color = 16711680, name) {
     const tankName = name || generateRandomTankName();
     super(scene, position, color, tankName);
-    this.tankSpeed = 0.1;
-    this.tankRotationSpeed = 0.03;
-    this.turretRotationSpeed = 0.02;
-    this.barrelElevationSpeed = 0.01;
-    this.RELOAD_TIME = 180;
-    this.FIRE_COOLDOWN_MS = 3000;
-    this.SHELL_SPEED = 4.8;
+    this.tankSpeed = 0.2;
+    this.tankRotationSpeed = 0.04;
+    this.turretRotationSpeed = 0.03;
+    this.barrelElevationSpeed = 0.02;
+    this.RELOAD_TIME = 120;
+    this.FIRE_COOLDOWN_MS = 2000;
+    this.SHELL_SPEED = 5.5;
     this.createTank();
     const patterns = ["circle", "zigzag", "random", "patrol"];
     this.movementPattern = patterns[Math.floor(Math.random() * patterns.length)];
@@ -31791,15 +31791,30 @@ class NPCTank extends BaseTank {
     return color.getHex();
   }
   setupPatrolPoints() {
-    const pointCount = Math.floor(Math.random() * 3) + 4;
-    const radius = Math.random() * 50 + 50;
+    const pointCount = Math.floor(Math.random() * 5) + 4;
+    const baseRadius = Math.random() * 100 + 80;
     for (let i = 0;i < pointCount; i++) {
       const angle = i / pointCount * Math.PI * 2;
-      const x = this.tank.position.x + Math.cos(angle) * radius;
-      const z = this.tank.position.z + Math.sin(angle) * radius;
+      const pointRadius = baseRadius * (0.7 + Math.random() * 0.6);
+      const x = this.tank.position.x + Math.cos(angle) * pointRadius;
+      const z = this.tank.position.z + Math.sin(angle) * pointRadius;
       this.patrolPoints.push(new Vector3(x, 0, z));
     }
-    this.targetPosition.copy(this.patrolPoints[0]);
+    if (Math.random() < 0.5 && this.patrolPoints.length > 3) {
+      const extraPoints = [];
+      for (let i = 0;i < 2; i++) {
+        const idx1 = Math.floor(Math.random() * this.patrolPoints.length);
+        const idx2 = (idx1 + 1) % this.patrolPoints.length;
+        const p1 = this.patrolPoints[idx1];
+        const p2 = this.patrolPoints[idx2];
+        const midX = (p1.x + p2.x) / 2 + (Math.random() - 0.5) * 30;
+        const midZ = (p1.z + p2.z) / 2 + (Math.random() - 0.5) * 30;
+        extraPoints.push(new Vector3(midX, 0, midZ));
+      }
+      this.patrolPoints = this.patrolPoints.concat(extraPoints);
+    }
+    this.currentPatrolIndex = Math.floor(Math.random() * this.patrolPoints.length);
+    this.targetPosition.copy(this.patrolPoints[this.currentPatrolIndex]);
   }
   update(keys, colliders) {
     this.movementTimer++;
@@ -31892,6 +31907,9 @@ class NPCTank extends BaseTank {
   }
   aimAtTarget(targetPosition) {
     const direction = new Vector3().subVectors(targetPosition, this.tank.position);
+    const aimVariation = 0.05;
+    direction.x += (Math.random() - 0.5) * aimVariation * direction.length();
+    direction.z += (Math.random() - 0.5) * aimVariation * direction.length();
     let targetTurretAngle = Math.atan2(direction.x, direction.z) - this.tank.rotation.y;
     while (targetTurretAngle > Math.PI)
       targetTurretAngle -= Math.PI * 2;
@@ -31908,10 +31926,14 @@ class NPCTank extends BaseTank {
     const horizontalDistance = new Vector2(direction.x, direction.z).length();
     const heightDifference = targetPosition.y - this.tank.position.y;
     let targetElevation = Math.min(0, -Math.atan2(heightDifference, horizontalDistance));
+    targetElevation += (Math.random() - 0.5) * 0.04;
     targetElevation = Math.max(this.minBarrelElevation, Math.min(this.maxBarrelElevation, targetElevation));
     const elevationDifference = targetElevation - this.barrelPivot.rotation.x;
-    const elevationAmount = Math.sign(elevationDifference) * Math.min(Math.abs(elevationDifference), this.barrelElevationSpeed);
+    const elevationSpeedFactor = Math.min(1, 0.3 + Math.abs(elevationDifference) * 2);
+    const elevationAmount = Math.sign(elevationDifference) * Math.min(Math.abs(elevationDifference), this.barrelElevationSpeed * elevationSpeedFactor);
     this.barrelPivot.rotation.x += elevationAmount;
+    this.turretPivot.rotation.y += (Math.random() - 0.5) * 0.002;
+    this.barrelPivot.rotation.x += (Math.random() - 0.5) * 0.001;
   }
   fireShell() {
     this.canFire = false;
@@ -31957,39 +31979,49 @@ class NPCTank extends BaseTank {
     return false;
   }
   moveInCircle() {
-    this.currentDirection += 0.005;
-    this.tank.position.x += Math.cos(this.currentDirection) * this.tankSpeed;
-    this.tank.position.z += Math.sin(this.currentDirection) * this.tankSpeed;
+    this.currentDirection += 0.008;
+    const speedVariation = 1 + Math.sin(this.movementTimer * 0.02) * 0.3;
+    this.tank.position.x += Math.cos(this.currentDirection) * this.tankSpeed * speedVariation;
+    this.tank.position.z += Math.sin(this.currentDirection) * this.tankSpeed * speedVariation;
     this.tank.rotation.y = this.currentDirection + Math.PI / 2;
     this.isCurrentlyMoving = true;
-    this.velocity = this.tankSpeed;
+    this.velocity = this.tankSpeed * speedVariation;
   }
   moveInZigzag() {
-    if (this.movementTimer % this.changeDirectionInterval === 0) {
+    if (this.movementTimer % this.changeDirectionInterval === 0 || Math.random() < 0.005) {
       this.currentDirection = Math.random() * Math.PI * 2;
     }
-    const zigzagFactor = Math.sin(this.movementTimer * 0.1) * 0.5;
+    const zigzagFactor = Math.sin(this.movementTimer * 0.15) * 0.7;
     const forwardX = Math.cos(this.currentDirection);
     const forwardZ = Math.sin(this.currentDirection);
     const sideX = Math.cos(this.currentDirection + Math.PI / 2);
     const sideZ = Math.sin(this.currentDirection + Math.PI / 2);
-    this.tank.position.x += (forwardX + sideX * zigzagFactor) * this.tankSpeed;
-    this.tank.position.z += (forwardZ + sideZ * zigzagFactor) * this.tankSpeed;
+    const speedVariation = 1 + Math.sin(this.movementTimer * 0.03) * 0.2;
+    this.tank.position.x += (forwardX + sideX * zigzagFactor) * this.tankSpeed * speedVariation;
+    this.tank.position.z += (forwardZ + sideZ * zigzagFactor) * this.tankSpeed * speedVariation;
     const targetRotation = Math.atan2(forwardZ + sideZ * zigzagFactor, forwardX + sideX * zigzagFactor) + Math.PI / 2;
-    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.2;
     this.isCurrentlyMoving = true;
-    this.velocity = this.tankSpeed;
+    this.velocity = this.tankSpeed * speedVariation;
   }
   moveRandomly() {
-    if (this.movementTimer % this.changeDirectionInterval === 0) {
+    if (this.movementTimer % this.changeDirectionInterval === 0 || Math.random() < 0.01) {
       this.currentDirection = Math.random() * Math.PI * 2;
+      if (Math.random() < 0.3) {
+        this.tankSpeed *= 1.5;
+        setTimeout(() => {
+          this.tankSpeed = 0.2;
+        }, 333);
+      }
     }
-    this.tank.position.x += Math.cos(this.currentDirection) * this.tankSpeed;
-    this.tank.position.z += Math.sin(this.currentDirection) * this.tankSpeed;
+    this.currentDirection += (Math.random() - 0.5) * 0.05;
+    const speedVariation = 1 + Math.sin(this.movementTimer * 0.02) * 0.15 + Math.random() * 0.1;
+    this.tank.position.x += Math.cos(this.currentDirection) * this.tankSpeed * speedVariation;
+    this.tank.position.z += Math.sin(this.currentDirection) * this.tankSpeed * speedVariation;
     const targetRotation = this.currentDirection + Math.PI / 2;
-    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.15;
     this.isCurrentlyMoving = true;
-    this.velocity = this.tankSpeed;
+    this.velocity = this.tankSpeed * speedVariation;
   }
   moveInPatrol() {
     if (this.patrolPoints.length === 0)
@@ -31998,15 +32030,22 @@ class NPCTank extends BaseTank {
     const direction = new Vector2(targetPoint.x - this.tank.position.x, targetPoint.z - this.tank.position.z);
     if (direction.length() < 5) {
       this.currentPatrolIndex = (this.currentPatrolIndex + 1) % this.patrolPoints.length;
+      if (Math.random() < 0.3) {
+        this.collisionResetTimer = 30;
+        this.turretPivot.rotation.y += (Math.random() - 0.5) * 0.5;
+      }
       return;
     }
     direction.normalize();
-    this.tank.position.x += direction.x * this.tankSpeed;
-    this.tank.position.z += direction.y * this.tankSpeed;
+    const variationX = Math.sin(this.movementTimer * 0.05) * 0.2;
+    const variationZ = Math.cos(this.movementTimer * 0.04) * 0.2;
+    const speedVariation = 1 + Math.sin(this.movementTimer * 0.03) * 0.15;
+    this.tank.position.x += (direction.x + variationX) * this.tankSpeed * speedVariation;
+    this.tank.position.z += (direction.y + variationZ) * this.tankSpeed * speedVariation;
     const targetRotation = Math.atan2(direction.y, direction.x) + Math.PI / 2;
-    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.15;
     this.isCurrentlyMoving = true;
-    this.velocity = this.tankSpeed;
+    this.velocity = this.tankSpeed * speedVariation;
   }
   dispose() {
     this.scene.remove(this.tank);
@@ -33005,6 +33044,87 @@ class GameComponent extends LitElement {
       color: #ff3333; /* Red for the victim's name */
       font-weight: bold;
     }
+
+    /* Mobile touch controls */
+    .touch-controls {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 900;
+      display: none; /* Hidden by default, shown for mobile */
+    }
+
+    @media (max-width: 1024px), (pointer: coarse) {
+      .touch-controls {
+        display: block;
+      }
+    }
+
+    /* Movement joystick */
+    .joystick-container {
+      position: absolute;
+      bottom: 50px;
+      left: 50px;
+      width: 150px;
+      height: 150px;
+      background: rgba(255, 255, 255, 0.2);
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-radius: 50%;
+      pointer-events: all;
+      touch-action: none;
+    }
+
+    .joystick-thumb {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 60px;
+      height: 60px;
+      background: rgba(255, 255, 255, 0.8);
+      border-radius: 50%;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Fire button */
+    .fire-button {
+      position: absolute;
+      bottom: 50px;
+      right: 50px;
+      width: 100px;
+      height: 100px;
+      background: rgba(255, 0, 0, 0.5);
+      border: 3px solid rgba(255, 255, 255, 0.4);
+      border-radius: 50%;
+      pointer-events: all;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-weight: bold;
+      color: white;
+      font-size: 18px;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+      touch-action: none;
+    }
+
+    .fire-button:active {
+      background: rgba(255, 0, 0, 0.8);
+      transform: scale(0.95);
+    }
+
+    /* Turret rotation area */
+    .turret-control {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 70%;
+      height: 70%;
+      pointer-events: all;
+      touch-action: none;
+    }
   `;
   render() {
     return html`
@@ -33026,6 +33146,20 @@ class GameComponent extends LitElement {
             <div class="wasted-text">Wasted</div>
           </div>
           
+          <!-- Touch controls for mobile devices -->
+          <div class="touch-controls">
+            <!-- Movement joystick -->
+            <div class="joystick-container" id="joystick-container">
+              <div class="joystick-thumb" id="joystick-thumb"></div>
+            </div>
+            
+            <!-- Turret rotation control area -->
+            <div class="turret-control" id="turret-control"></div>
+            
+            <!-- Fire button -->
+            <div class="fire-button" id="fire-button">FIRE</div>
+          </div>
+          
           <!-- Kill notifications container -->
           <div class="kill-notifications">
             ${this.killNotifications.map((notification) => html`
@@ -33038,9 +33172,20 @@ class GameComponent extends LitElement {
       </div>
     `;
   }
+  isMobile = false;
+  joystickActive = false;
+  joystickPosition = { x: 0, y: 0 };
+  fireButtonActive = false;
+  joystickContainer;
+  joystickThumb;
+  fireButton;
+  turretControlArea;
+  lastTouchX = 0;
+  lastTouchY = 0;
   firstUpdated() {
     this.initThree();
     this.initKeyboardControls();
+    this.initTouchControls();
     this.animate();
     this.handleTankDestroyed = this.handleTankDestroyed.bind(this);
     document.addEventListener("tank-destroyed", this.handleTankDestroyed);
@@ -33051,6 +33196,141 @@ class GameComponent extends LitElement {
     this.handleTankRespawn = this.handleTankRespawn.bind(this);
     document.addEventListener("tank-respawn", this.handleTankRespawn);
     this.updateStats();
+    this.detectMobileDevice();
+  }
+  detectMobileDevice() {
+    this.isMobile = "ontouchstart" in window || navigator.maxTouchPoints > 0 || typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+    console.log(`Device detected as ${this.isMobile ? "mobile/touch" : "desktop"}`);
+  }
+  initTouchControls() {
+    this.joystickContainer = this.shadowRoot?.getElementById("joystick-container");
+    this.joystickThumb = this.shadowRoot?.getElementById("joystick-thumb");
+    this.fireButton = this.shadowRoot?.getElementById("fire-button");
+    this.turretControlArea = this.shadowRoot?.getElementById("turret-control");
+    if (!this.joystickContainer || !this.joystickThumb || !this.fireButton || !this.turretControlArea) {
+      console.error("Could not find all touch control elements");
+      return;
+    }
+    this.joystickContainer.addEventListener("touchstart", this.handleJoystickStart.bind(this), { passive: false });
+    this.joystickContainer.addEventListener("touchmove", this.handleJoystickMove.bind(this), { passive: false });
+    this.joystickContainer.addEventListener("touchend", this.handleJoystickEnd.bind(this), { passive: false });
+    this.joystickContainer.addEventListener("touchcancel", this.handleJoystickEnd.bind(this), { passive: false });
+    this.fireButton.addEventListener("touchstart", this.handleFireButtonStart.bind(this), { passive: false });
+    this.fireButton.addEventListener("touchend", this.handleFireButtonEnd.bind(this), { passive: false });
+    this.fireButton.addEventListener("touchcancel", this.handleFireButtonEnd.bind(this), { passive: false });
+    this.turretControlArea.addEventListener("touchstart", this.handleTurretTouchStart.bind(this), { passive: false });
+    this.turretControlArea.addEventListener("touchmove", this.handleTurretTouchMove.bind(this), { passive: false });
+    this.turretControlArea.addEventListener("touchend", () => {
+    }, { passive: false });
+  }
+  handleJoystickStart(event) {
+    event.preventDefault();
+    this.joystickActive = true;
+    this.updateJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
+  }
+  handleJoystickMove(event) {
+    event.preventDefault();
+    if (this.joystickActive) {
+      this.updateJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
+    }
+  }
+  handleJoystickEnd(event) {
+    event.preventDefault();
+    this.joystickActive = false;
+    this.resetJoystick();
+    this.keys["w"] = false;
+    this.keys["s"] = false;
+    this.keys["a"] = false;
+    this.keys["d"] = false;
+  }
+  updateJoystickPosition(touchX, touchY) {
+    if (!this.joystickContainer || !this.joystickThumb)
+      return;
+    const rect = this.joystickContainer.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    let deltaX = touchX - centerX;
+    let deltaY = touchY - centerY;
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    const maxRadius = rect.width / 2;
+    if (distance > maxRadius) {
+      const angle = Math.atan2(deltaY, deltaX);
+      deltaX = Math.cos(angle) * maxRadius;
+      deltaY = Math.sin(angle) * maxRadius;
+    }
+    this.joystickThumb.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+    this.joystickPosition = {
+      x: deltaX / maxRadius,
+      y: deltaY / maxRadius
+    };
+    this.updateMovementKeysFromJoystick();
+  }
+  resetJoystick() {
+    if (!this.joystickThumb)
+      return;
+    this.joystickThumb.style.transform = "translate(-50%, -50%)";
+    this.joystickPosition = { x: 0, y: 0 };
+  }
+  updateMovementKeysFromJoystick() {
+    const deadzone = 0.2;
+    if (this.joystickPosition.y < -deadzone) {
+      this.keys["w"] = true;
+      this.keys["s"] = false;
+    } else if (this.joystickPosition.y > deadzone) {
+      this.keys["w"] = false;
+      this.keys["s"] = true;
+    } else {
+      this.keys["w"] = false;
+      this.keys["s"] = false;
+    }
+    if (this.joystickPosition.x < -deadzone) {
+      this.keys["a"] = true;
+      this.keys["d"] = false;
+    } else if (this.joystickPosition.x > deadzone) {
+      this.keys["a"] = false;
+      this.keys["d"] = true;
+    } else {
+      this.keys["a"] = false;
+      this.keys["d"] = false;
+    }
+  }
+  handleFireButtonStart(event) {
+    event.preventDefault();
+    this.fireButtonActive = true;
+    this.keys["mousefire"] = true;
+    if (this.fireButton) {
+      this.fireButton.style.backgroundColor = "rgba(255, 0, 0, 0.8)";
+      this.fireButton.style.transform = "scale(0.95)";
+    }
+  }
+  handleFireButtonEnd(event) {
+    event.preventDefault();
+    this.fireButtonActive = false;
+    this.keys["mousefire"] = false;
+    if (this.fireButton) {
+      this.fireButton.style.backgroundColor = "rgba(255, 0, 0, 0.5)";
+      this.fireButton.style.transform = "scale(1)";
+    }
+  }
+  handleTurretTouchStart(event) {
+    event.preventDefault();
+    this.lastTouchX = event.touches[0].clientX;
+    this.lastTouchY = event.touches[0].clientY;
+  }
+  handleTurretTouchMove(event) {
+    event.preventDefault();
+    if (!this.playerTank)
+      return;
+    const touchX = event.touches[0].clientX;
+    const touchY = event.touches[0].clientY;
+    const deltaX = touchX - this.lastTouchX;
+    const deltaY = touchY - this.lastTouchY;
+    this.lastTouchX = touchX;
+    this.lastTouchY = touchY;
+    const turretSensitivity = 0.0025;
+    this.playerTank.turretPivot.rotation.y -= deltaX * turretSensitivity;
+    const barrelSensitivity = 0.0025;
+    this.playerTank.barrelPivot.rotation.x = Math.max(this.playerTank.getMinBarrelElevation(), Math.min(this.playerTank.getMaxBarrelElevation(), this.playerTank.barrelPivot.rotation.x + deltaY * barrelSensitivity));
   }
   handleTankRespawn(event) {
     const respawnData = event.detail;
@@ -33133,6 +33413,9 @@ class GameComponent extends LitElement {
         tank.dispose();
       }
       this.npcTanks = [];
+    }
+    if (this.frameCounter % 300 === 0) {
+      console.log(`Current player count: ${playerCount}, NPC tanks: ${this.npcTanks.length}`);
     }
     for (const [playerId, playerData] of Object.entries(this.multiplayerState.players)) {
       if (playerId === this.playerId) {
@@ -33396,6 +33679,21 @@ class GameComponent extends LitElement {
     this.canvas.removeEventListener("mousemove", this.handleMouseMove);
     this.canvas.removeEventListener("mousedown", this.handleMouseDown);
     this.canvas.removeEventListener("mouseup", this.handleMouseUp);
+    if (this.joystickContainer) {
+      this.joystickContainer.removeEventListener("touchstart", this.handleJoystickStart);
+      this.joystickContainer.removeEventListener("touchmove", this.handleJoystickMove);
+      this.joystickContainer.removeEventListener("touchend", this.handleJoystickEnd);
+      this.joystickContainer.removeEventListener("touchcancel", this.handleJoystickEnd);
+    }
+    if (this.fireButton) {
+      this.fireButton.removeEventListener("touchstart", this.handleFireButtonStart);
+      this.fireButton.removeEventListener("touchend", this.handleFireButtonEnd);
+      this.fireButton.removeEventListener("touchcancel", this.handleFireButtonEnd);
+    }
+    if (this.turretControlArea) {
+      this.turretControlArea.removeEventListener("touchstart", this.handleTurretTouchStart);
+      this.turretControlArea.removeEventListener("touchmove", this.handleTurretTouchMove);
+    }
     if (document.pointerLockElement === this.canvas) {
       document.exitPointerLock();
     }
@@ -33950,26 +34248,29 @@ class GameComponent extends LitElement {
       this.lastPlayerHealth = currentHealth;
     }
     if (this.npcTanks.length > 0 && this.playerTank) {
-      const tanksPerFrame = 2;
-      const startIdx = this.frameCounter % Math.ceil(this.npcTanks.length / tanksPerFrame) * tanksPerFrame;
-      const endIdx = Math.min(startIdx + tanksPerFrame, this.npcTanks.length);
-      for (let i = startIdx;i < endIdx; i++) {
-        const npcTank = this.npcTanks[i];
-        const distanceToPlayer = this.playerTank.tank.position.distanceTo(npcTank.tank.position);
-        let newShell = null;
-        if (distanceToPlayer < this.lodDistance) {
-          newShell = npcTank.update({}, allColliders);
-        } else if (distanceToPlayer < this.lodDistance * 2) {
-          if (Math.random() < 0.5) {
+      const isInSoloMode = !this.multiplayerState || !this.multiplayerState.players || Object.keys(this.multiplayerState.players).length <= 1;
+      if (isInSoloMode) {
+        const tanksPerFrame = 2;
+        const startIdx = this.frameCounter % Math.ceil(this.npcTanks.length / tanksPerFrame) * tanksPerFrame;
+        const endIdx = Math.min(startIdx + tanksPerFrame, this.npcTanks.length);
+        for (let i = startIdx;i < endIdx; i++) {
+          const npcTank = this.npcTanks[i];
+          const distanceToPlayer = this.playerTank.tank.position.distanceTo(npcTank.tank.position);
+          let newShell = null;
+          if (distanceToPlayer < this.lodDistance) {
             newShell = npcTank.update({}, allColliders);
+          } else if (distanceToPlayer < this.lodDistance * 2) {
+            if (Math.random() < 0.5) {
+              newShell = npcTank.update({}, allColliders);
+            }
+          } else {
+            if (Math.random() < 0.2) {
+              newShell = npcTank.update({}, allColliders);
+            }
           }
-        } else {
-          if (Math.random() < 0.2) {
-            newShell = npcTank.update({}, allColliders);
+          if (newShell) {
+            this.addShell(newShell);
           }
-        }
-        if (newShell) {
-          this.addShell(newShell);
         }
       }
     }

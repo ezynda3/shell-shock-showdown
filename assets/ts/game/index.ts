@@ -436,6 +436,87 @@ export class GameComponent extends LitElement {
       color: #ff3333; /* Red for the victim's name */
       font-weight: bold;
     }
+
+    /* Mobile touch controls */
+    .touch-controls {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 900;
+      display: none; /* Hidden by default, shown for mobile */
+    }
+
+    @media (max-width: 1024px), (pointer: coarse) {
+      .touch-controls {
+        display: block;
+      }
+    }
+
+    /* Movement joystick */
+    .joystick-container {
+      position: absolute;
+      bottom: 50px;
+      left: 50px;
+      width: 150px;
+      height: 150px;
+      background: rgba(255, 255, 255, 0.2);
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-radius: 50%;
+      pointer-events: all;
+      touch-action: none;
+    }
+
+    .joystick-thumb {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 60px;
+      height: 60px;
+      background: rgba(255, 255, 255, 0.8);
+      border-radius: 50%;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Fire button */
+    .fire-button {
+      position: absolute;
+      bottom: 50px;
+      right: 50px;
+      width: 100px;
+      height: 100px;
+      background: rgba(255, 0, 0, 0.5);
+      border: 3px solid rgba(255, 255, 255, 0.4);
+      border-radius: 50%;
+      pointer-events: all;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-weight: bold;
+      color: white;
+      font-size: 18px;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+      touch-action: none;
+    }
+
+    .fire-button:active {
+      background: rgba(255, 0, 0, 0.8);
+      transform: scale(0.95);
+    }
+
+    /* Turret rotation area */
+    .turret-control {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 70%;
+      height: 70%;
+      pointer-events: all;
+      touch-action: none;
+    }
   `;
 
   render() {
@@ -458,6 +539,20 @@ export class GameComponent extends LitElement {
             <div class="wasted-text">Wasted</div>
           </div>
           
+          <!-- Touch controls for mobile devices -->
+          <div class="touch-controls">
+            <!-- Movement joystick -->
+            <div class="joystick-container" id="joystick-container">
+              <div class="joystick-thumb" id="joystick-thumb"></div>
+            </div>
+            
+            <!-- Turret rotation control area -->
+            <div class="turret-control" id="turret-control"></div>
+            
+            <!-- Fire button -->
+            <div class="fire-button" id="fire-button">FIRE</div>
+          </div>
+          
           <!-- Kill notifications container -->
           <div class="kill-notifications">
             ${this.killNotifications.map(notification => html`
@@ -471,9 +566,22 @@ export class GameComponent extends LitElement {
     `;
   }
 
+  // Touch controls properties
+  private isMobile: boolean = false;
+  private joystickActive: boolean = false;
+  private joystickPosition = { x: 0, y: 0 };
+  private fireButtonActive: boolean = false;
+  private joystickContainer?: HTMLElement;
+  private joystickThumb?: HTMLElement;
+  private fireButton?: HTMLElement;
+  private turretControlArea?: HTMLElement;
+  private lastTouchX: number = 0;
+  private lastTouchY: number = 0;
+
   firstUpdated() {
     this.initThree();
     this.initKeyboardControls();
+    this.initTouchControls();
     this.animate();
     
     // Listen for tank destroyed events
@@ -494,6 +602,213 @@ export class GameComponent extends LitElement {
     
     // Initialize game stats
     this.updateStats();
+
+    // Check if device is mobile/touch
+    this.detectMobileDevice();
+  }
+
+  // Detect if user is on a mobile/touch device
+  private detectMobileDevice(): void {
+    this.isMobile = 
+      ('ontouchstart' in window) || 
+      (navigator.maxTouchPoints > 0) || 
+      (typeof window.matchMedia === 'function' && window.matchMedia("(pointer: coarse)").matches);
+    
+    console.log(`Device detected as ${this.isMobile ? 'mobile/touch' : 'desktop'}`);
+  }
+
+  // Initialize touch controls for mobile devices
+  private initTouchControls(): void {
+    // Get references to touch control elements
+    this.joystickContainer = this.shadowRoot?.getElementById('joystick-container') as HTMLElement;
+    this.joystickThumb = this.shadowRoot?.getElementById('joystick-thumb') as HTMLElement;
+    this.fireButton = this.shadowRoot?.getElementById('fire-button') as HTMLElement;
+    this.turretControlArea = this.shadowRoot?.getElementById('turret-control') as HTMLElement;
+
+    if (!this.joystickContainer || !this.joystickThumb || !this.fireButton || !this.turretControlArea) {
+      console.error('Could not find all touch control elements');
+      return;
+    }
+
+    // Movement joystick handlers
+    this.joystickContainer.addEventListener('touchstart', this.handleJoystickStart.bind(this), { passive: false });
+    this.joystickContainer.addEventListener('touchmove', this.handleJoystickMove.bind(this), { passive: false });
+    this.joystickContainer.addEventListener('touchend', this.handleJoystickEnd.bind(this), { passive: false });
+    this.joystickContainer.addEventListener('touchcancel', this.handleJoystickEnd.bind(this), { passive: false });
+
+    // Fire button handlers
+    this.fireButton.addEventListener('touchstart', this.handleFireButtonStart.bind(this), { passive: false });
+    this.fireButton.addEventListener('touchend', this.handleFireButtonEnd.bind(this), { passive: false });
+    this.fireButton.addEventListener('touchcancel', this.handleFireButtonEnd.bind(this), { passive: false });
+
+    // Turret rotation area handlers
+    this.turretControlArea.addEventListener('touchstart', this.handleTurretTouchStart.bind(this), { passive: false });
+    this.turretControlArea.addEventListener('touchmove', this.handleTurretTouchMove.bind(this), { passive: false });
+    this.turretControlArea.addEventListener('touchend', () => {}, { passive: false });
+  }
+
+  // Joystick handlers
+  private handleJoystickStart(event: TouchEvent): void {
+    event.preventDefault();
+    this.joystickActive = true;
+    this.updateJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
+  }
+
+  private handleJoystickMove(event: TouchEvent): void {
+    event.preventDefault();
+    if (this.joystickActive) {
+      this.updateJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
+    }
+  }
+
+  private handleJoystickEnd(event: TouchEvent): void {
+    event.preventDefault();
+    this.joystickActive = false;
+    this.resetJoystick();
+    
+    // Reset movement keys
+    this.keys['w'] = false;
+    this.keys['s'] = false;
+    this.keys['a'] = false;
+    this.keys['d'] = false;
+  }
+
+  private updateJoystickPosition(touchX: number, touchY: number): void {
+    if (!this.joystickContainer || !this.joystickThumb) return;
+
+    // Get joystick container position and dimensions
+    const rect = this.joystickContainer.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    
+    // Calculate joystick movement (distance from center)
+    let deltaX = touchX - centerX;
+    let deltaY = touchY - centerY;
+    
+    // Calculate the distance from center
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    
+    // Limit the joystick movement to the container radius
+    const maxRadius = rect.width / 2;
+    if (distance > maxRadius) {
+      const angle = Math.atan2(deltaY, deltaX);
+      deltaX = Math.cos(angle) * maxRadius;
+      deltaY = Math.sin(angle) * maxRadius;
+    }
+    
+    // Move the joystick thumb
+    this.joystickThumb.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+    
+    // Store joystick position normalized to -1 to 1 range
+    this.joystickPosition = {
+      x: deltaX / maxRadius,
+      y: deltaY / maxRadius
+    };
+    
+    // Convert joystick position to key presses for tank movement
+    this.updateMovementKeysFromJoystick();
+  }
+
+  private resetJoystick(): void {
+    if (!this.joystickThumb) return;
+    
+    // Reset joystick thumb position to center
+    this.joystickThumb.style.transform = 'translate(-50%, -50%)';
+    
+    // Reset joystick position
+    this.joystickPosition = { x: 0, y: 0 };
+  }
+
+  private updateMovementKeysFromJoystick(): void {
+    const deadzone = 0.2; // Ignore small movements
+    
+    // Forward/backward (W/S keys)
+    if (this.joystickPosition.y < -deadzone) {
+      this.keys['w'] = true;
+      this.keys['s'] = false;
+    } else if (this.joystickPosition.y > deadzone) {
+      this.keys['w'] = false;
+      this.keys['s'] = true;
+    } else {
+      this.keys['w'] = false;
+      this.keys['s'] = false;
+    }
+    
+    // Left/right rotation (A/D keys)
+    if (this.joystickPosition.x < -deadzone) {
+      this.keys['a'] = true;
+      this.keys['d'] = false;
+    } else if (this.joystickPosition.x > deadzone) {
+      this.keys['a'] = false;
+      this.keys['d'] = true;
+    } else {
+      this.keys['a'] = false;
+      this.keys['d'] = false;
+    }
+  }
+
+  // Fire button handlers
+  private handleFireButtonStart(event: TouchEvent): void {
+    event.preventDefault();
+    this.fireButtonActive = true;
+    this.keys['mousefire'] = true;
+    
+    // Visual feedback
+    if (this.fireButton) {
+      this.fireButton.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
+      this.fireButton.style.transform = 'scale(0.95)';
+    }
+  }
+
+  private handleFireButtonEnd(event: TouchEvent): void {
+    event.preventDefault();
+    this.fireButtonActive = false;
+    this.keys['mousefire'] = false;
+    
+    // Reset visual state
+    if (this.fireButton) {
+      this.fireButton.style.backgroundColor = 'rgba(255, 0, 0, 0.5)';
+      this.fireButton.style.transform = 'scale(1)';
+    }
+  }
+
+  // Turret rotation handlers
+  private handleTurretTouchStart(event: TouchEvent): void {
+    event.preventDefault();
+    
+    // Store initial touch position
+    this.lastTouchX = event.touches[0].clientX;
+    this.lastTouchY = event.touches[0].clientY;
+  }
+
+  private handleTurretTouchMove(event: TouchEvent): void {
+    event.preventDefault();
+    
+    if (!this.playerTank) return;
+    
+    // Calculate movement delta
+    const touchX = event.touches[0].clientX;
+    const touchY = event.touches[0].clientY;
+    const deltaX = touchX - this.lastTouchX;
+    const deltaY = touchY - this.lastTouchY;
+    
+    // Update last touch position
+    this.lastTouchX = touchX;
+    this.lastTouchY = touchY;
+    
+    // Apply turret rotation based on horizontal movement
+    const turretSensitivity = 0.0025;
+    this.playerTank.turretPivot.rotation.y -= deltaX * turretSensitivity;
+    
+    // Apply barrel elevation based on vertical movement
+    const barrelSensitivity = 0.0025;
+    this.playerTank.barrelPivot.rotation.x = Math.max(
+      this.playerTank.getMinBarrelElevation(),
+      Math.min(
+        this.playerTank.getMaxBarrelElevation(),
+        this.playerTank.barrelPivot.rotation.x + deltaY * barrelSensitivity
+      )
+    );
   }
   
   // Handle tank respawn events
@@ -619,6 +934,11 @@ export class GameComponent extends LitElement {
         tank.dispose();
       }
       this.npcTanks = [];
+    }
+    
+    // Debug log player count
+    if (this.frameCounter % 300 === 0) { // Log every ~5 seconds
+      console.log(`Current player count: ${playerCount}, NPC tanks: ${this.npcTanks.length}`);
     }
     
     // Process each player in the game state
@@ -1075,6 +1395,25 @@ export class GameComponent extends LitElement {
     this.canvas.removeEventListener('mousemove', this.handleMouseMove);
     this.canvas.removeEventListener('mousedown', this.handleMouseDown);
     this.canvas.removeEventListener('mouseup', this.handleMouseUp);
+    
+    // Remove touch control event listeners
+    if (this.joystickContainer) {
+      this.joystickContainer.removeEventListener('touchstart', this.handleJoystickStart);
+      this.joystickContainer.removeEventListener('touchmove', this.handleJoystickMove);
+      this.joystickContainer.removeEventListener('touchend', this.handleJoystickEnd);
+      this.joystickContainer.removeEventListener('touchcancel', this.handleJoystickEnd);
+    }
+    
+    if (this.fireButton) {
+      this.fireButton.removeEventListener('touchstart', this.handleFireButtonStart);
+      this.fireButton.removeEventListener('touchend', this.handleFireButtonEnd);
+      this.fireButton.removeEventListener('touchcancel', this.handleFireButtonEnd);
+    }
+    
+    if (this.turretControlArea) {
+      this.turretControlArea.removeEventListener('touchstart', this.handleTurretTouchStart);
+      this.turretControlArea.removeEventListener('touchmove', this.handleTurretTouchMove);
+    }
     
     // Exit pointer lock if active
     if (document.pointerLockElement === this.canvas) {
@@ -1928,40 +2267,48 @@ export class GameComponent extends LitElement {
       this.lastPlayerHealth = currentHealth;
     }
     
-    // Update NPC tanks with optimized frequency
+    // Update NPC tanks with optimized frequency (only in solo mode)
     if (this.npcTanks.length > 0 && this.playerTank) {
-      // Process up to 2 tanks per frame for consistent performance
-      const tanksPerFrame = 2;
-      const startIdx = (this.frameCounter % Math.ceil(this.npcTanks.length / tanksPerFrame)) * tanksPerFrame;
-      const endIdx = Math.min(startIdx + tanksPerFrame, this.npcTanks.length);
+      // Only update NPC tanks in solo player mode
+      // Check if we have 1 or fewer players in the game state
+      const isInSoloMode = !this.multiplayerState || 
+                          !this.multiplayerState.players || 
+                          Object.keys(this.multiplayerState.players).length <= 1;
       
-      for (let i = startIdx; i < endIdx; i++) {
-        const npcTank = this.npcTanks[i];
+      if (isInSoloMode) {
+        // Process up to 2 tanks per frame for consistent performance
+        const tanksPerFrame = 2;
+        const startIdx = (this.frameCounter % Math.ceil(this.npcTanks.length / tanksPerFrame)) * tanksPerFrame;
+        const endIdx = Math.min(startIdx + tanksPerFrame, this.npcTanks.length);
         
-        // Get distance to player
-        const distanceToPlayer = this.playerTank.tank.position.distanceTo(npcTank.tank.position);
-        
-        // Determine update frequency based on distance
-        let newShell: Shell | null = null;
-        
-        if (distanceToPlayer < this.lodDistance) {
-          // Close tanks always update
-          newShell = npcTank.update({}, allColliders);
-        } else if (distanceToPlayer < this.lodDistance * 2) {
-          // Mid-range tanks update with 50% chance
-          if (Math.random() < 0.5) {
+        for (let i = startIdx; i < endIdx; i++) {
+          const npcTank = this.npcTanks[i];
+          
+          // Get distance to player
+          const distanceToPlayer = this.playerTank.tank.position.distanceTo(npcTank.tank.position);
+          
+          // Determine update frequency based on distance
+          let newShell: Shell | null = null;
+          
+          if (distanceToPlayer < this.lodDistance) {
+            // Close tanks always update
             newShell = npcTank.update({}, allColliders);
+          } else if (distanceToPlayer < this.lodDistance * 2) {
+            // Mid-range tanks update with 50% chance
+            if (Math.random() < 0.5) {
+              newShell = npcTank.update({}, allColliders);
+            }
+          } else {
+            // Distant tanks update very infrequently (20% chance)
+            if (Math.random() < 0.2) {
+              newShell = npcTank.update({}, allColliders);
+            }
           }
-        } else {
-          // Distant tanks update very infrequently (20% chance)
-          if (Math.random() < 0.2) {
-            newShell = npcTank.update({}, allColliders);
+          
+          // Add new shell if one was fired
+          if (newShell) {
+            this.addShell(newShell);
           }
-        }
-        
-        // Add new shell if one was fired
-        if (newShell) {
-          this.addShell(newShell);
         }
       }
     }

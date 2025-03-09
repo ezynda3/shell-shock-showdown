@@ -3257,8 +3257,8 @@ export class NPCTank extends BaseTank {
   private readonly COLLISION_RESET_DELAY = 60; // Frames to wait after collision before trying new direction
   
   // AI targeting properties
-  private readonly FIRE_PROBABILITY = 0.01; // 1% chance to fire each frame when canFire is true
-  private readonly TARGETING_DISTANCE = 300; // Distance at which the NPC starts targeting the player
+  private readonly FIRE_PROBABILITY = 0.03; // 3% chance to fire each frame when canFire is true
+  private readonly TARGETING_DISTANCE = 500; // Distance at which the NPC starts targeting the player
 
   constructor(scene: THREE.Scene, position: THREE.Vector3, color = 0xff0000, name?: string) {
     // Generate a random name if none provided
@@ -3267,14 +3267,14 @@ export class NPCTank extends BaseTank {
     // Initialize with base class constructor
     super(scene, position, color, tankName);
     
-    // Override values from base class with NPC-specific settings
-    this.tankSpeed = 0.1;
-    this.tankRotationSpeed = 0.03;
-    this.turretRotationSpeed = 0.02;
-    this.barrelElevationSpeed = 0.01;
-    this.RELOAD_TIME = 180;           // 3 second cooldown at 60fps - slower than player
-    this.FIRE_COOLDOWN_MS = 3000;     // 3 second cooldown in milliseconds
-    this.SHELL_SPEED = 4.8;           // 4x from 1.2 but still slower than player
+    // Override values from base class with more aggressive NPC-specific settings
+    this.tankSpeed = 0.2;              // Faster movement
+    this.tankRotationSpeed = 0.04;     // Faster rotation
+    this.turretRotationSpeed = 0.03;   // Faster turret rotation
+    this.barrelElevationSpeed = 0.02;  // Faster barrel adjustment
+    this.RELOAD_TIME = 120;            // 2 second cooldown at 60fps - quicker reloading
+    this.FIRE_COOLDOWN_MS = 2000;      // 2 second cooldown in milliseconds
+    this.SHELL_SPEED = 5.5;            // Faster shells
     
     // Create tank model
     this.createTank();
@@ -3683,19 +3683,50 @@ export class NPCTank extends BaseTank {
   }
 
   private setupPatrolPoints() {
-    // Create a patrol path with 4-6 points around the tank's starting position
-    const pointCount = Math.floor(Math.random() * 3) + 4;
-    const radius = Math.random() * 50 + 50; // 50-100 units radius
+    // Create a patrol path with 4-8 points around the tank's starting position
+    const pointCount = Math.floor(Math.random() * 5) + 4;
+    const baseRadius = Math.random() * 100 + 80; // 80-180 units radius
     
     for (let i = 0; i < pointCount; i++) {
       const angle = (i / pointCount) * Math.PI * 2;
-      const x = this.tank.position.x + Math.cos(angle) * radius;
-      const z = this.tank.position.z + Math.sin(angle) * radius;
+      
+      // Vary each point's radius to create more interesting paths
+      const pointRadius = baseRadius * (0.7 + Math.random() * 0.6);
+      
+      // Create patrol point
+      const x = this.tank.position.x + Math.cos(angle) * pointRadius;
+      const z = this.tank.position.z + Math.sin(angle) * pointRadius;
       this.patrolPoints.push(new THREE.Vector3(x, 0, z));
     }
     
-    // Set initial target to first patrol point
-    this.targetPosition.copy(this.patrolPoints[0]);
+    // Add some intermediate points for more complex paths
+    if (Math.random() < 0.5 && this.patrolPoints.length > 3) {
+      // Create a couple of extra points between existing ones
+      const extraPoints: THREE.Vector3[] = [];
+      
+      for (let i = 0; i < 2; i++) {
+        const idx1 = Math.floor(Math.random() * this.patrolPoints.length);
+        const idx2 = (idx1 + 1) % this.patrolPoints.length;
+        
+        // Create a point between two existing points with some offset
+        const p1 = this.patrolPoints[idx1];
+        const p2 = this.patrolPoints[idx2];
+        
+        const midX = (p1.x + p2.x) / 2 + (Math.random() - 0.5) * 30;
+        const midZ = (p1.z + p2.z) / 2 + (Math.random() - 0.5) * 30;
+        
+        extraPoints.push(new THREE.Vector3(midX, 0, midZ));
+      }
+      
+      // Add the extra points to the path
+      this.patrolPoints = this.patrolPoints.concat(extraPoints);
+    }
+    
+    // Randomize start point
+    this.currentPatrolIndex = Math.floor(Math.random() * this.patrolPoints.length);
+    
+    // Set initial target
+    this.targetPosition.copy(this.patrolPoints[this.currentPatrolIndex]);
   }
 
   update(keys?: { [key: string]: boolean }, colliders?: ICollidable[]): Shell | null {
@@ -3839,6 +3870,11 @@ export class NPCTank extends BaseTank {
     // Calculate direction to target
     const direction = new THREE.Vector3().subVectors(targetPosition, this.tank.position);
     
+    // Add small random offsets for imperfect aiming (more realistic)
+    const aimVariation = 0.05; // Lower = more accurate
+    direction.x += (Math.random() - 0.5) * aimVariation * direction.length();
+    direction.z += (Math.random() - 0.5) * aimVariation * direction.length();
+    
     // Calculate turret angle (y-axis rotation)
     let targetTurretAngle = Math.atan2(direction.x, direction.z) - this.tank.rotation.y;
     
@@ -3854,7 +3890,7 @@ export class NPCTank extends BaseTank {
     while (normalizedDifference > Math.PI) normalizedDifference -= Math.PI * 2;
     while (normalizedDifference < -Math.PI) normalizedDifference += Math.PI * 2;
     
-    // Apply rotation with speed limit
+    // Apply rotation with speed limit and smoother movement
     const rotationAmount = Math.sign(normalizedDifference) * 
                           Math.min(Math.abs(normalizedDifference), this.turretRotationSpeed);
     this.turretPivot.rotation.y += rotationAmount;
@@ -3869,15 +3905,27 @@ export class NPCTank extends BaseTank {
     // Use negative of atan2 because of how the barrel coordinate system works
     let targetElevation = Math.min(0, -Math.atan2(heightDifference, horizontalDistance));
     
+    // Add slight random variation to elevation for imperfect aiming
+    targetElevation += (Math.random() - 0.5) * 0.04;
+    
     // Clamp to min/max elevation
     targetElevation = Math.max(this.minBarrelElevation, 
                              Math.min(this.maxBarrelElevation, targetElevation));
     
-    // Smooth barrel movement
+    // Smooth barrel movement with variable speed based on distance to target angle
     const elevationDifference = targetElevation - this.barrelPivot.rotation.x;
+    
+    // Faster movement when far from target angle, slower when close (smoother aiming)
+    const elevationSpeedFactor = Math.min(1, 0.3 + Math.abs(elevationDifference) * 2);
     const elevationAmount = Math.sign(elevationDifference) * 
-                           Math.min(Math.abs(elevationDifference), this.barrelElevationSpeed);
+                           Math.min(Math.abs(elevationDifference), 
+                                   this.barrelElevationSpeed * elevationSpeedFactor);
+    
     this.barrelPivot.rotation.x += elevationAmount;
+    
+    // Add slight random wobble to aiming for more realistic effect
+    this.turretPivot.rotation.y += (Math.random() - 0.5) * 0.002;
+    this.barrelPivot.rotation.x += (Math.random() - 0.5) * 0.001;
   }
   
   private fireShell(): Shell {
@@ -3992,29 +4040,32 @@ export class NPCTank extends BaseTank {
   }
 
   private moveInCircle() {
-    // Move in a circular pattern
-    this.currentDirection += 0.005;
+    // Move in a circular pattern with varying radius
+    this.currentDirection += 0.008; // Faster circular movement
     
-    // Apply movement
-    this.tank.position.x += Math.cos(this.currentDirection) * this.tankSpeed;
-    this.tank.position.z += Math.sin(this.currentDirection) * this.tankSpeed;
+    // Add some variation to the movement with sine wave
+    const speedVariation = 1.0 + Math.sin(this.movementTimer * 0.02) * 0.3;
+    
+    // Apply movement with variation
+    this.tank.position.x += Math.cos(this.currentDirection) * this.tankSpeed * speedVariation;
+    this.tank.position.z += Math.sin(this.currentDirection) * this.tankSpeed * speedVariation;
     
     // Rotate tank to face movement direction
     this.tank.rotation.y = this.currentDirection + Math.PI / 2;
     
     // Update movement status
     this.isCurrentlyMoving = true;
-    this.velocity = this.tankSpeed;
+    this.velocity = this.tankSpeed * speedVariation;
   }
 
   private moveInZigzag() {
-    // Change direction at intervals
-    if (this.movementTimer % this.changeDirectionInterval === 0) {
+    // Change direction at intervals but with some randomness
+    if (this.movementTimer % this.changeDirectionInterval === 0 || Math.random() < 0.005) {
       this.currentDirection = Math.random() * Math.PI * 2;
     }
     
-    // Apply zigzag by adding sine wave to movement
-    const zigzagFactor = Math.sin(this.movementTimer * 0.1) * 0.5;
+    // Apply zigzag by adding sine wave to movement with more pronounced effect
+    const zigzagFactor = Math.sin(this.movementTimer * 0.15) * 0.7;
     
     // Calculate forward and side direction vectors
     const forwardX = Math.cos(this.currentDirection);
@@ -4022,42 +4073,61 @@ export class NPCTank extends BaseTank {
     const sideX = Math.cos(this.currentDirection + Math.PI / 2);
     const sideZ = Math.sin(this.currentDirection + Math.PI / 2);
     
-    // Apply movement with zigzag
-    this.tank.position.x += (forwardX + sideX * zigzagFactor) * this.tankSpeed;
-    this.tank.position.z += (forwardZ + sideZ * zigzagFactor) * this.tankSpeed;
+    // Speed varies over time for more natural movement
+    const speedVariation = 1.0 + Math.sin(this.movementTimer * 0.03) * 0.2;
     
-    // Rotate tank to face movement direction
+    // Apply movement with zigzag
+    this.tank.position.x += (forwardX + sideX * zigzagFactor) * this.tankSpeed * speedVariation;
+    this.tank.position.z += (forwardZ + sideZ * zigzagFactor) * this.tankSpeed * speedVariation;
+    
+    // Rotate tank to face movement direction more responsively
     const targetRotation = Math.atan2(forwardZ + sideZ * zigzagFactor, forwardX + sideX * zigzagFactor) + Math.PI / 2;
-    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.2; // Faster turning
     
     // Update movement status
     this.isCurrentlyMoving = true;
-    this.velocity = this.tankSpeed;
+    this.velocity = this.tankSpeed * speedVariation;
   }
 
   private moveRandomly() {
-    // Change direction at random intervals
-    if (this.movementTimer % this.changeDirectionInterval === 0) {
+    // Change direction at random intervals with occasional spontaneous changes
+    if (this.movementTimer % this.changeDirectionInterval === 0 || Math.random() < 0.01) {
       this.currentDirection = Math.random() * Math.PI * 2;
+      
+      // Sometimes perform a quick burst of speed after changing direction
+      if (Math.random() < 0.3) {
+        this.tankSpeed *= 1.5; // Temporary speed boost
+        
+        // Reset speed after a short delay (20 frames)
+        setTimeout(() => {
+          this.tankSpeed = 0.2; // Reset to base speed
+        }, 333); // ~20 frames at 60fps
+      }
     }
     
-    // Apply movement
-    this.tank.position.x += Math.cos(this.currentDirection) * this.tankSpeed;
-    this.tank.position.z += Math.sin(this.currentDirection) * this.tankSpeed;
+    // Add some slight steering randomness
+    this.currentDirection += (Math.random() - 0.5) * 0.05;
     
-    // Rotate tank to face movement direction
+    // Speed varies based on a sine wave and random factor
+    const speedVariation = 1.0 + Math.sin(this.movementTimer * 0.02) * 0.15 + Math.random() * 0.1;
+    
+    // Apply movement
+    this.tank.position.x += Math.cos(this.currentDirection) * this.tankSpeed * speedVariation;
+    this.tank.position.z += Math.sin(this.currentDirection) * this.tankSpeed * speedVariation;
+    
+    // Rotate tank to face movement direction with more responsive turning
     const targetRotation = this.currentDirection + Math.PI / 2;
-    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.15;
     
     // Update movement status
     this.isCurrentlyMoving = true;
-    this.velocity = this.tankSpeed;
+    this.velocity = this.tankSpeed * speedVariation;
   }
 
   private moveInPatrol() {
     if (this.patrolPoints.length === 0) return;
     
-    // Move toward current patrol point
+    // Get current target patrol point
     const targetPoint = this.patrolPoints[this.currentPatrolIndex];
     const direction = new THREE.Vector2(
       targetPoint.x - this.tank.position.x,
@@ -4068,23 +4138,38 @@ export class NPCTank extends BaseTank {
     if (direction.length() < 5) {
       // Move to next patrol point
       this.currentPatrolIndex = (this.currentPatrolIndex + 1) % this.patrolPoints.length;
+      
+      // Occasionally pause at patrol points
+      if (Math.random() < 0.3) {
+        this.collisionResetTimer = 30; // Stop for a moment
+        
+        // Turn turret randomly while stopped
+        this.turretPivot.rotation.y += (Math.random() - 0.5) * 0.5;
+      }
       return;
     }
     
     // Normalize direction
     direction.normalize();
     
-    // Apply movement
-    this.tank.position.x += direction.x * this.tankSpeed;
-    this.tank.position.z += direction.y * this.tankSpeed;
+    // Add some slight variability to patrol path
+    const variationX = Math.sin(this.movementTimer * 0.05) * 0.2;
+    const variationZ = Math.cos(this.movementTimer * 0.04) * 0.2;
     
-    // Rotate tank to face movement direction
+    // Speed varies slightly for more natural movement
+    const speedVariation = 1.0 + Math.sin(this.movementTimer * 0.03) * 0.15;
+    
+    // Apply movement with variation
+    this.tank.position.x += (direction.x + variationX) * this.tankSpeed * speedVariation;
+    this.tank.position.z += (direction.y + variationZ) * this.tankSpeed * speedVariation;
+    
+    // Rotate tank to face movement direction with smoother turning
     const targetRotation = Math.atan2(direction.y, direction.x) + Math.PI / 2;
-    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.1;
+    this.tank.rotation.y += (targetRotation - this.tank.rotation.y) * 0.15;
     
     // Update movement status
     this.isCurrentlyMoving = true;
-    this.velocity = this.tankSpeed;
+    this.velocity = this.tankSpeed * speedVariation;
   }
 
   dispose() {
