@@ -588,8 +588,10 @@ export class GameComponent extends LitElement {
   private isMobile: boolean = false;
   private joystickActive: boolean = false;
   private joystickPosition = { x: 0, y: 0 };
+  private joystickTouchId: number | null = null;
   private turretJoystickActive: boolean = false;
   private turretJoystickPosition = { x: 0, y: 0 };
+  private turretJoystickTouchId: number | null = null;
   private fireButtonActive: boolean = false;
   private joystickContainer?: HTMLElement;
   private joystickThumb?: HTMLElement;
@@ -675,26 +677,53 @@ export class GameComponent extends LitElement {
   private handleJoystickStart(event: TouchEvent): void {
     event.preventDefault();
     this.joystickActive = true;
-    this.updateJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
+    
+    // Store the touch identifier for tracking this specific touch
+    if (event.touches.length > 0) {
+      const touch = event.touches[0];
+      this.joystickTouchId = touch.identifier;
+      this.updateJoystickPosition(touch.clientX, touch.clientY);
+    }
   }
 
   private handleJoystickMove(event: TouchEvent): void {
     event.preventDefault();
-    if (this.joystickActive) {
-      this.updateJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
+    if (this.joystickActive && this.joystickTouchId !== null) {
+      // Find the touch with matching ID
+      for (let i = 0; i < event.touches.length; i++) {
+        const touch = event.touches[i];
+        if (touch.identifier === this.joystickTouchId) {
+          this.updateJoystickPosition(touch.clientX, touch.clientY);
+          break;
+        }
+      }
     }
   }
 
   private handleJoystickEnd(event: TouchEvent): void {
     event.preventDefault();
-    this.joystickActive = false;
-    this.resetJoystick();
     
-    // Reset movement keys
-    this.keys['w'] = false;
-    this.keys['s'] = false;
-    this.keys['a'] = false;
-    this.keys['d'] = false;
+    // Only reset if our tracked touch is ending
+    // Check the changedTouches list to see which touches ended
+    let touchEnded = false;
+    for (let i = 0; i < event.changedTouches.length; i++) {
+      if (event.changedTouches[i].identifier === this.joystickTouchId) {
+        touchEnded = true;
+        break;
+      }
+    }
+    
+    if (touchEnded) {
+      this.joystickActive = false;
+      this.joystickTouchId = null;
+      this.resetJoystick();
+      
+      // Reset movement keys
+      this.keys['w'] = false;
+      this.keys['s'] = false;
+      this.keys['a'] = false;
+      this.keys['d'] = false;
+    }
   }
 
   private updateJoystickPosition(touchX: number, touchY: number): void {
@@ -800,20 +829,47 @@ export class GameComponent extends LitElement {
   private handleTurretJoystickStart(event: TouchEvent): void {
     event.preventDefault();
     this.turretJoystickActive = true;
-    this.updateTurretJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
+    
+    // Store the touch identifier for tracking this specific touch
+    if (event.touches.length > 0) {
+      const touch = event.touches[0];
+      this.turretJoystickTouchId = touch.identifier;
+      this.updateTurretJoystickPosition(touch.clientX, touch.clientY);
+    }
   }
 
   private handleTurretJoystickMove(event: TouchEvent): void {
     event.preventDefault();
-    if (this.turretJoystickActive) {
-      this.updateTurretJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
+    if (this.turretJoystickActive && this.turretJoystickTouchId !== null) {
+      // Find the touch with matching ID
+      for (let i = 0; i < event.touches.length; i++) {
+        const touch = event.touches[i];
+        if (touch.identifier === this.turretJoystickTouchId) {
+          this.updateTurretJoystickPosition(touch.clientX, touch.clientY);
+          break;
+        }
+      }
     }
   }
 
   private handleTurretJoystickEnd(event: TouchEvent): void {
     event.preventDefault();
-    this.turretJoystickActive = false;
-    this.resetTurretJoystick();
+    
+    // Only reset if our tracked touch is ending
+    // Check the changedTouches list to see which touches ended
+    let touchEnded = false;
+    for (let i = 0; i < event.changedTouches.length; i++) {
+      if (event.changedTouches[i].identifier === this.turretJoystickTouchId) {
+        touchEnded = true;
+        break;
+      }
+    }
+    
+    if (touchEnded) {
+      this.turretJoystickActive = false;
+      this.turretJoystickTouchId = null;
+      this.resetTurretJoystick();
+    }
   }
 
   private updateTurretJoystickPosition(touchX: number, touchY: number): void {

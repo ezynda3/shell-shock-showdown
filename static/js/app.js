@@ -33313,8 +33313,10 @@ class GameComponent extends LitElement {
   isMobile = false;
   joystickActive = false;
   joystickPosition = { x: 0, y: 0 };
+  joystickTouchId = null;
   turretJoystickActive = false;
   turretJoystickPosition = { x: 0, y: 0 };
+  turretJoystickTouchId = null;
   fireButtonActive = false;
   joystickContainer;
   joystickThumb;
@@ -33368,22 +33370,42 @@ class GameComponent extends LitElement {
   handleJoystickStart(event) {
     event.preventDefault();
     this.joystickActive = true;
-    this.updateJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
+    if (event.touches.length > 0) {
+      const touch = event.touches[0];
+      this.joystickTouchId = touch.identifier;
+      this.updateJoystickPosition(touch.clientX, touch.clientY);
+    }
   }
   handleJoystickMove(event) {
     event.preventDefault();
-    if (this.joystickActive) {
-      this.updateJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
+    if (this.joystickActive && this.joystickTouchId !== null) {
+      for (let i = 0;i < event.touches.length; i++) {
+        const touch = event.touches[i];
+        if (touch.identifier === this.joystickTouchId) {
+          this.updateJoystickPosition(touch.clientX, touch.clientY);
+          break;
+        }
+      }
     }
   }
   handleJoystickEnd(event) {
     event.preventDefault();
-    this.joystickActive = false;
-    this.resetJoystick();
-    this.keys["w"] = false;
-    this.keys["s"] = false;
-    this.keys["a"] = false;
-    this.keys["d"] = false;
+    let touchEnded = false;
+    for (let i = 0;i < event.changedTouches.length; i++) {
+      if (event.changedTouches[i].identifier === this.joystickTouchId) {
+        touchEnded = true;
+        break;
+      }
+    }
+    if (touchEnded) {
+      this.joystickActive = false;
+      this.joystickTouchId = null;
+      this.resetJoystick();
+      this.keys["w"] = false;
+      this.keys["s"] = false;
+      this.keys["a"] = false;
+      this.keys["d"] = false;
+    }
   }
   updateJoystickPosition(touchX, touchY) {
     if (!this.joystickContainer || !this.joystickThumb)
@@ -33457,18 +33479,38 @@ class GameComponent extends LitElement {
   handleTurretJoystickStart(event) {
     event.preventDefault();
     this.turretJoystickActive = true;
-    this.updateTurretJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
+    if (event.touches.length > 0) {
+      const touch = event.touches[0];
+      this.turretJoystickTouchId = touch.identifier;
+      this.updateTurretJoystickPosition(touch.clientX, touch.clientY);
+    }
   }
   handleTurretJoystickMove(event) {
     event.preventDefault();
-    if (this.turretJoystickActive) {
-      this.updateTurretJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
+    if (this.turretJoystickActive && this.turretJoystickTouchId !== null) {
+      for (let i = 0;i < event.touches.length; i++) {
+        const touch = event.touches[i];
+        if (touch.identifier === this.turretJoystickTouchId) {
+          this.updateTurretJoystickPosition(touch.clientX, touch.clientY);
+          break;
+        }
+      }
     }
   }
   handleTurretJoystickEnd(event) {
     event.preventDefault();
-    this.turretJoystickActive = false;
-    this.resetTurretJoystick();
+    let touchEnded = false;
+    for (let i = 0;i < event.changedTouches.length; i++) {
+      if (event.changedTouches[i].identifier === this.turretJoystickTouchId) {
+        touchEnded = true;
+        break;
+      }
+    }
+    if (touchEnded) {
+      this.turretJoystickActive = false;
+      this.turretJoystickTouchId = null;
+      this.resetTurretJoystick();
+    }
   }
   updateTurretJoystickPosition(touchX, touchY) {
     if (!this.turretJoystickContainer || !this.turretJoystickThumb || !this.playerTank)
