@@ -47,7 +47,7 @@ func Login(configs []core.OAuth2ProviderConfig) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"relative flex min-h-screen items-center justify-center\"><!-- Full-screen background image --><div class=\"absolute inset-0 z-0\"><img src=\"/static/img/splash.png\" alt=\"Background\" class=\"h-full w-full object-cover\"><div class=\"absolute inset-0 bg-black/50 backdrop-blur-sm\"></div></div><!-- Semi-transparent card with login buttons --><div class=\"relative z-10 w-full max-w-md px-4\"><div class=\"rounded-xl border border-gray-200 bg-gray-800 p-6 shadow-xl\"><div id=\"oauth-providers\" class=\"grid grid-cols-1 gap-3\"><!-- Provider buttons will be populated here --></div></div></div></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"relative flex min-h-screen items-center justify-center\"><!-- Full-screen background image --><div class=\"absolute inset-0 z-0\"><img src=\"/static/img/splash.webp\" alt=\"Background\" class=\"h-full w-full object-cover\"><div class=\"absolute inset-0 bg-black/50 backdrop-blur-sm\"></div></div><!-- Semi-transparent card with login buttons --><div class=\"relative z-10 w-full max-w-md px-4\"><div class=\"rounded-xl border border-gray-200 bg-gray-800 p-6 shadow-xl\"><div id=\"oauth-providers\" class=\"grid grid-cols-1 gap-3\"><!-- Provider buttons will be populated here --></div></div></div></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

@@ -73,9 +73,9 @@ func Layout(loggedIn bool, appURL string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var4 string
-		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(appURL + "/static/img/splash.png")
+		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(appURL + "/static/img/splash.webp")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/layout.templ`, Line: 36, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/layout.templ`, Line: 36, Col: 73}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -99,9 +99,9 @@ func Layout(loggedIn bool, appURL string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var6 string
-		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(appURL + "/static/img/splash.png")
+		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(appURL + "/static/img/splash.webp")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/layout.templ`, Line: 43, Col: 77}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/layout.templ`, Line: 43, Col: 78}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 		if templ_7745c5c3_Err != nil {
@@ -118,7 +118,7 @@ func Layout(loggedIn bool, appURL string) templ.Component {
 				"@type": "VideoGame",
 				"name": "Shell Shock Showdown",
 				"description": "Join the ultimate multiplayer tank battle arena. Customize your tank, team up with friends, and dominate the battlefield.",
-				"image": "`+appURL+`/static/img/splash.png",
+				"image": "`+appURL+`/static/img/splash.webp",
 				"url": "`+appURL+`",
 				"publisher": {
 					"@type": "Organization",
