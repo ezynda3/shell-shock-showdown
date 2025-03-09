@@ -1960,15 +1960,33 @@ export class Tank extends BaseTank {
   private trackSegments: THREE.Mesh[] = [];
   private wheels: THREE.Mesh[] = [];
   
+  // New input intensity properties for analog control from touch joysticks
+  private inputIntensities: {[key: string]: number} = {
+    'forward': 0,
+    'backward': 0,
+    'left': 0,
+    'right': 0
+  };
+  
+  // Method to set input intensity for analog control (called from joystick handlers)
+  public setInputIntensity(direction: 'forward' | 'backward' | 'left' | 'right', intensity: number): void {
+    this.inputIntensities[direction] = Math.max(0, Math.min(1, intensity));
+  }
+  
   // Method to handle physics-based movement
   private updateMovementWithPhysics(keys: {[key: string]: boolean}) {
     // Reset velocity variables
     this.velocity = 0;
     
-    // Determine target acceleration based on inputs
-    const targetAcceleration = 
-      keys['w'] || keys['W'] ? this.maxAcceleration : 
-      keys['s'] || keys['S'] ? -this.maxAcceleration : 0;
+    // Determine target acceleration based on inputs - now considers both key presses and analog intensity
+    let forwardInput = keys['w'] || keys['W'] ? 1 : this.inputIntensities['forward'];
+    let backwardInput = keys['s'] || keys['S'] ? 1 : this.inputIntensities['backward'];
+    
+    // Digital input overrides analog
+    const targetAcceleration = forwardInput > 0 ? 
+                              this.maxAcceleration * forwardInput : 
+                              backwardInput > 0 ? 
+                              -this.maxAcceleration * backwardInput : 0;
     
     // Gradually change acceleration (smoother feel)
     this.acceleration = this.acceleration * 0.9 + targetAcceleration * 0.1;
@@ -1977,7 +1995,7 @@ export class Tank extends BaseTank {
     this.velocity += this.acceleration;
     
     // Apply friction/drag when no input
-    if (!keys['w'] && !keys['W'] && !keys['s'] && !keys['S']) {
+    if (forwardInput < 0.05 && backwardInput < 0.05) {
       this.velocity *= 0.92; // Quicker slowdown for better control at high speeds
     }
     
@@ -1999,14 +2017,21 @@ export class Tank extends BaseTank {
       this.engineRPM = 0;
     }
     
-    // Tank rotation with inertia
-    if (keys['a'] || keys['A']) {
-      this.tank.rotation.y += this.tankRotationSpeed * (1.0 - Math.abs(this.velocity) * 0.5); // Slower rotation at high speed
+    // Tank rotation with inertia - combine keyboard and analog inputs
+    let leftInput = keys['a'] || keys['A'] ? 1 : this.inputIntensities['left'];
+    let rightInput = keys['d'] || keys['D'] ? 1 : this.inputIntensities['right'];
+    
+    // Apply left rotation with variable intensity
+    if (leftInput > 0.05) {
+      const rotationModifier = 1.0 - Math.abs(this.velocity) * 0.5; // Slower rotation at high speed
+      this.tank.rotation.y += this.tankRotationSpeed * leftInput * rotationModifier;
       this.isCurrentlyMoving = true;
     }
     
-    if (keys['d'] || keys['D']) {
-      this.tank.rotation.y -= this.tankRotationSpeed * (1.0 - Math.abs(this.velocity) * 0.5); // Slower rotation at high speed
+    // Apply right rotation with variable intensity
+    if (rightInput > 0.05) {
+      const rotationModifier = 1.0 - Math.abs(this.velocity) * 0.5; // Slower rotation at high speed
+      this.tank.rotation.y -= this.tankRotationSpeed * rightInput * rotationModifier;
       this.isCurrentlyMoving = true;
     }
   }

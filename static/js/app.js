@@ -30648,12 +30648,23 @@ class Tank extends BaseTank {
   TRACK_SEGMENT_COUNT = 8;
   trackSegments = [];
   wheels = [];
+  inputIntensities = {
+    forward: 0,
+    backward: 0,
+    left: 0,
+    right: 0
+  };
+  setInputIntensity(direction, intensity) {
+    this.inputIntensities[direction] = Math.max(0, Math.min(1, intensity));
+  }
   updateMovementWithPhysics(keys) {
     this.velocity = 0;
-    const targetAcceleration = keys["w"] || keys["W"] ? this.maxAcceleration : keys["s"] || keys["S"] ? -this.maxAcceleration : 0;
+    let forwardInput = keys["w"] || keys["W"] ? 1 : this.inputIntensities["forward"];
+    let backwardInput = keys["s"] || keys["S"] ? 1 : this.inputIntensities["backward"];
+    const targetAcceleration = forwardInput > 0 ? this.maxAcceleration * forwardInput : backwardInput > 0 ? -this.maxAcceleration * backwardInput : 0;
     this.acceleration = this.acceleration * 0.9 + targetAcceleration * 0.1;
     this.velocity += this.acceleration;
-    if (!keys["w"] && !keys["W"] && !keys["s"] && !keys["S"]) {
+    if (forwardInput < 0.05 && backwardInput < 0.05) {
       this.velocity *= 0.92;
     }
     const maxSpeed = 3;
@@ -30668,12 +30679,16 @@ class Tank extends BaseTank {
       this.velocity = 0;
       this.engineRPM = 0;
     }
-    if (keys["a"] || keys["A"]) {
-      this.tank.rotation.y += this.tankRotationSpeed * (1 - Math.abs(this.velocity) * 0.5);
+    let leftInput = keys["a"] || keys["A"] ? 1 : this.inputIntensities["left"];
+    let rightInput = keys["d"] || keys["D"] ? 1 : this.inputIntensities["right"];
+    if (leftInput > 0.05) {
+      const rotationModifier = 1 - Math.abs(this.velocity) * 0.5;
+      this.tank.rotation.y += this.tankRotationSpeed * leftInput * rotationModifier;
       this.isCurrentlyMoving = true;
     }
-    if (keys["d"] || keys["D"]) {
-      this.tank.rotation.y -= this.tankRotationSpeed * (1 - Math.abs(this.velocity) * 0.5);
+    if (rightInput > 0.05) {
+      const rotationModifier = 1 - Math.abs(this.velocity) * 0.5;
+      this.tank.rotation.y -= this.tankRotationSpeed * rightInput * rotationModifier;
       this.isCurrentlyMoving = true;
     }
   }
@@ -33187,15 +33202,16 @@ class GameComponent extends LitElement {
     /* Movement joystick (left) */
     .joystick-container {
       position: absolute;
-      bottom: 50px;
-      left: 50px;
-      width: 120px;  /* Smaller size */
-      height: 120px; /* Smaller size */
-      background: rgba(255, 255, 255, 0.2);
-      border: 2px solid rgba(255, 255, 255, 0.4);
+      bottom: 80px;
+      left: 80px;
+      width: 150px;  /* Increased size for easier touch control */
+      height: 150px; /* Increased size for easier touch control */
+      background: rgba(50, 205, 50, 0.15); /* Light green tint */
+      border: 3px solid rgba(50, 205, 50, 0.5); /* Green border */
       border-radius: 50%;
       pointer-events: all;
       touch-action: none;
+      box-shadow: 0 0 15px rgba(50, 205, 50, 0.3);
     }
 
     .joystick-thumb {
@@ -33203,25 +33219,27 @@ class GameComponent extends LitElement {
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 50px;   /* Smaller thumb */
-      height: 50px;  /* Smaller thumb */
-      background: rgba(255, 255, 255, 0.8);
+      width: 60px;   /* Larger thumb for better visibility */
+      height: 60px;  /* Larger thumb for better visibility */
+      background: rgba(255, 255, 255, 0.9);
+      border: 2px solid rgba(50, 205, 50, 0.8);
       border-radius: 50%;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 0 12px rgba(0, 0, 0, 0.4);
     }
 
     /* Turret control joystick (right) */
     .turret-joystick-container {
       position: absolute;
-      bottom: 50px;
-      right: 50px;
-      width: 120px;  /* Same size as movement joystick */
-      height: 120px; /* Same size as movement joystick */
-      background: rgba(255, 255, 255, 0.2);
-      border: 2px solid rgba(255, 255, 255, 0.4);
+      bottom: 80px;
+      right: 80px;
+      width: 150px;  /* Same increased size as movement joystick */
+      height: 150px; /* Same increased size as movement joystick */
+      background: rgba(30, 144, 255, 0.15); /* Light blue tint */
+      border: 3px solid rgba(30, 144, 255, 0.5); /* Blue border */
       border-radius: 50%;
       pointer-events: all;
       touch-action: none;
+      box-shadow: 0 0 15px rgba(30, 144, 255, 0.3);
     }
     
     .turret-joystick-thumb {
@@ -33229,23 +33247,41 @@ class GameComponent extends LitElement {
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 50px;   /* Same size as movement thumb */
-      height: 50px;  /* Same size as movement thumb */
-      background: rgba(255, 255, 255, 0.8);
+      width: 60px;   /* Larger thumb */
+      height: 60px;  /* Larger thumb */
+      background: rgba(255, 255, 255, 0.9);
+      border: 2px solid rgba(30, 144, 255, 0.8);
       border-radius: 50%;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 0 12px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Directional indicators for joysticks */
+    .joystick-container::before, .turret-joystick-container::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 60%;
+      height: 60%;
+      transform: translate(-50%, -50%);
+      background-image: radial-gradient(circle, transparent 60%, rgba(255, 255, 255, 0.2) 60%, rgba(255, 255, 255, 0.2) 70%, transparent 70%),
+                        conic-gradient(transparent 0deg, rgba(255, 255, 255, 0.3) 0deg, rgba(255, 255, 255, 0.3) 45deg, transparent 45deg, 
+                                       transparent 135deg, rgba(255, 255, 255, 0.3) 135deg, rgba(255, 255, 255, 0.3) 180deg, 
+                                       transparent 180deg, transparent 270deg, rgba(255, 255, 255, 0.3) 270deg, rgba(255, 255, 255, 0.3) 315deg, transparent 315deg);
+      border-radius: 50%;
+      pointer-events: none;
     }
 
     /* Fire button */
     .fire-button {
       position: absolute;
-      bottom: 50px;
+      bottom: 110px;
       left: 50%;     /* Center horizontally */
       transform: translateX(-50%); /* Center horizontally */
-      width: 80px;   /* Smaller size */
-      height: 80px;  /* Smaller size */
-      background: rgba(255, 0, 0, 0.5);
-      border: 3px solid rgba(255, 255, 255, 0.4);
+      width: 100px;   /* Increased size */
+      height: 100px;  /* Increased size */
+      background: rgba(255, 30, 30, 0.7); /* More vibrant red */
+      border: 4px solid rgba(255, 255, 255, 0.7);
       border-radius: 50%;
       pointer-events: all;
       display: flex;
@@ -33253,39 +33289,55 @@ class GameComponent extends LitElement {
       align-items: center;
       font-weight: bold;
       color: white;
-      font-size: 16px;  /* Smaller text */
-      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+      font-size: 20px;  /* Larger text */
+      text-shadow: 0 2px 3px rgba(0, 0, 0, 0.9);
       touch-action: none;
+      box-shadow: 0 0 20px rgba(255, 30, 30, 0.5);
     }
 
     .fire-button:active {
-      background: rgba(255, 0, 0, 0.8);
-      transform: translateX(-50%) scale(0.95);
+      background: rgba(255, 30, 30, 0.9);
+      transform: translateX(-50%) scale(0.92);
+      box-shadow: 0 0 25px rgba(255, 30, 30, 0.8);
     }
     
     /* Fullscreen button */
     .fullscreen-button {
       position: absolute;
-      top: 15px;
-      right: 15px;
-      width: 40px;
-      height: 40px;
+      top: 20px;
+      right: 20px;
+      width: 50px;
+      height: 50px;
       background: rgba(0, 0, 0, 0.6);
-      border: 2px solid rgba(255, 255, 255, 0.4);
+      border: 3px solid rgba(255, 255, 255, 0.6);
       border-radius: 50%;
       pointer-events: all;
       display: flex;
       justify-content: center;
       align-items: center;
       color: white;
-      font-size: 18px;
+      font-size: 22px;
       z-index: 1000;
       touch-action: none;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
     }
     
     .fullscreen-button:active {
       background: rgba(0, 0, 0, 0.8);
       transform: scale(0.95);
+    }
+    
+    /* Visual label for joysticks */
+    .joystick-label {
+      position: absolute;
+      top: -30px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.8);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+      white-space: nowrap;
+      pointer-events: none;
     }
   `;
   render() {
@@ -33313,11 +33365,13 @@ class GameComponent extends LitElement {
           <div class="touch-controls">
             <!-- Movement joystick -->
             <div class="joystick-container" id="joystick-container">
+              <div class="joystick-label">MOVE</div>
               <div class="joystick-thumb" id="joystick-thumb"></div>
             </div>
             
             <!-- Turret joystick -->
             <div class="turret-joystick-container" id="turret-joystick-container">
+              <div class="joystick-label">AIM</div>
               <div class="turret-joystick-thumb" id="turret-joystick-thumb"></div>
             </div>
             
@@ -33460,9 +33514,11 @@ class GameComponent extends LitElement {
       deltaY = Math.sin(angle) * maxRadius;
     }
     this.joystickThumb.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+    const normalizedX = deltaX / maxRadius;
+    const normalizedY = deltaY / maxRadius;
     this.joystickPosition = {
-      x: deltaX / maxRadius,
-      y: deltaY / maxRadius
+      x: Math.sign(normalizedX) * Math.pow(Math.abs(normalizedX), 1.5),
+      y: Math.sign(normalizedY) * Math.pow(Math.abs(normalizedY), 1.5)
     };
     this.updateMovementKeysFromJoystick();
   }
@@ -33473,26 +33529,46 @@ class GameComponent extends LitElement {
     this.joystickPosition = { x: 0, y: 0 };
   }
   updateMovementKeysFromJoystick() {
-    const deadzone = 0.2;
+    const deadzone = 0.15;
     if (this.joystickPosition.y < -deadzone) {
       this.keys["w"] = true;
       this.keys["s"] = false;
+      if (this.playerTank && typeof this.playerTank.setInputIntensity === "function") {
+        this.playerTank.setInputIntensity("forward", Math.abs(this.joystickPosition.y));
+      }
     } else if (this.joystickPosition.y > deadzone) {
       this.keys["w"] = false;
       this.keys["s"] = true;
+      if (this.playerTank && typeof this.playerTank.setInputIntensity === "function") {
+        this.playerTank.setInputIntensity("backward", Math.abs(this.joystickPosition.y));
+      }
     } else {
       this.keys["w"] = false;
       this.keys["s"] = false;
+      if (this.playerTank && typeof this.playerTank.setInputIntensity === "function") {
+        this.playerTank.setInputIntensity("forward", 0);
+        this.playerTank.setInputIntensity("backward", 0);
+      }
     }
     if (this.joystickPosition.x < -deadzone) {
       this.keys["a"] = true;
       this.keys["d"] = false;
+      if (this.playerTank && typeof this.playerTank.setInputIntensity === "function") {
+        this.playerTank.setInputIntensity("left", Math.abs(this.joystickPosition.x));
+      }
     } else if (this.joystickPosition.x > deadzone) {
       this.keys["a"] = false;
       this.keys["d"] = true;
+      if (this.playerTank && typeof this.playerTank.setInputIntensity === "function") {
+        this.playerTank.setInputIntensity("right", Math.abs(this.joystickPosition.x));
+      }
     } else {
       this.keys["a"] = false;
       this.keys["d"] = false;
+      if (this.playerTank && typeof this.playerTank.setInputIntensity === "function") {
+        this.playerTank.setInputIntensity("left", 0);
+        this.playerTank.setInputIntensity("right", 0);
+      }
     }
   }
   handleFireButtonStart(event) {
@@ -33565,13 +33641,21 @@ class GameComponent extends LitElement {
       deltaY = Math.sin(angle) * maxRadius;
     }
     this.turretJoystickThumb.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+    const normalizedX = deltaX / maxRadius;
+    const normalizedY = deltaY / maxRadius;
     this.turretJoystickPosition = {
-      x: deltaX / maxRadius,
-      y: deltaY / maxRadius
+      x: Math.sign(normalizedX) * Math.pow(Math.abs(normalizedX), 1.8),
+      y: Math.sign(normalizedY) * Math.pow(Math.abs(normalizedY), 1.8)
     };
-    const turretSensitivity = 0.05;
+    const baseRotationRate = 0.01;
+    const maxRotationRate = 0.05;
+    const xDeflection = Math.abs(this.turretJoystickPosition.x);
+    const turretSensitivity = baseRotationRate + xDeflection * (maxRotationRate - baseRotationRate);
     this.playerTank.turretPivot.rotation.y -= this.turretJoystickPosition.x * turretSensitivity;
-    const barrelSensitivity = 0.05;
+    const baseElevationRate = 0.01;
+    const maxElevationRate = 0.05;
+    const yDeflection = Math.abs(this.turretJoystickPosition.y);
+    const barrelSensitivity = baseElevationRate + yDeflection * (maxElevationRate - baseElevationRate);
     this.playerTank.barrelPivot.rotation.x = Math.max(this.playerTank.getMinBarrelElevation(), Math.min(this.playerTank.getMaxBarrelElevation(), this.playerTank.barrelPivot.rotation.x + this.turretJoystickPosition.y * barrelSensitivity));
   }
   resetTurretJoystick() {
