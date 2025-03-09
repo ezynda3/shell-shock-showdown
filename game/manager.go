@@ -321,6 +321,18 @@ func (m *Manager) runStateCleanup() {
 	}
 }
 
+// WatchState creates a watcher for game state changes
+// Returns the KeyWatcher directly so caller can use its Updates() channel
+func (m *Manager) WatchState(ctx context.Context) (jetstream.KeyWatcher, error) {
+	// Create a watcher for the KV store
+	watcher, err := m.kv.Watch(ctx, "current")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create KV watcher: %v", err)
+	}
+	
+	return watcher, nil
+}
+
 // cleanupGameState removes inactive players and expired shells
 func (m *Manager) cleanupGameState() {
 	m.mutex.Lock()

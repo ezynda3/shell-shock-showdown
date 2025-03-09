@@ -129,34 +129,54 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 	// GET route for gamestate endpoint
 	router.GET("/gamestate", func(e *core.RequestEvent) error {
 		sse := datastar.NewSSE(e.Response, e.Request)
+		ctx := e.Request.Context()
 
+		// Create a watcher for the gamestate KV
+		watcher, err := gameManager.WatchState(ctx)
+		if err != nil {
+			log.Printf("Error creating gamestate watcher: %v", err)
+			return e.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to watch game state"})
+		}
+		defer watcher.Stop()
+
+		// Skip the initial nil value which indicates the watcher is ready
+		<-watcher.Updates()
+
+		// Process updates from the watcher
 		for {
 			select {
-			case <-e.Request.Context().Done():
+			case <-ctx.Done():
 				return nil
-			default:
-				// Get current game state from game manager
-				state := gameManager.GetState()
-				stateJSON, err := json.Marshal(state)
+			case entry := <-watcher.Updates():
+				// Skip nil entries or deleted keys
+				if entry == nil {
+					continue
+				}
 
-				if err != nil {
-					log.Println("Error marshaling game state:", err)
-					stateJSON = []byte(`{"gameState": "error"}`)
+				// Unmarshal the game state
+				var state game.GameState
+				if err := json.Unmarshal(entry.Value(), &state); err != nil {
+					log.Printf("Error unmarshaling game state: %v", err)
+					continue
 				}
 
 				// Log game state for debugging
-				log.Printf("Broadcasting game state with %d players and %d shells",
+				log.Printf("Broadcasting game state update with %d players and %d shells (revision: %d)",
 					len(state.Players),
-					len(state.Shells))
+					len(state.Shells),
+					entry.Revision())
 
-				// Send the game state directly as a string with proper escaping
+				// Send the game state to the client
+				stateJSON, err := json.Marshal(state)
+				if err != nil {
+					log.Println("Error marshaling game state:", err)
+					continue
+				}
+
 				err = sse.MergeSignals([]byte(fmt.Sprintf(`{"gameState": %q}`, string(stateJSON))))
 				if err != nil {
 					log.Printf("Error sending game state: %v", err)
 				}
-
-				// Add a small delay to reduce CPU usage and network traffic
-				time.Sleep(100 * time.Millisecond)
 			}
 		}
 	})
