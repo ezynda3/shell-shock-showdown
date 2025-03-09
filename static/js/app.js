@@ -29590,40 +29590,38 @@ class SpatialAudio {
   }
 }
 
-class Tank {
+class BaseTank {
   tank;
   tankBody;
   turret;
   turretPivot;
   barrel;
   barrelPivot;
+  tankSpeed;
+  tankRotationSpeed;
+  turretRotationSpeed;
+  barrelElevationSpeed;
+  maxBarrelElevation = 0;
+  minBarrelElevation = -Math.PI / 4;
+  tankName;
+  tankColor;
   moveSound = null;
   fireSound = null;
   explodeSound = null;
   lastMoveSoundState = false;
-  tankSpeed = 2.5;
-  tankRotationSpeed = 0.04;
-  turretRotationSpeed = 0.1;
-  barrelElevationSpeed = 0.08;
-  maxBarrelElevation = 0;
-  minBarrelElevation = -Math.PI / 4;
-  tankName;
-  tankColor = 4881497;
-  getMinBarrelElevation() {
-    return this.minBarrelElevation;
-  }
-  getMaxBarrelElevation() {
-    return this.maxBarrelElevation;
-  }
+  trackSegments = [];
+  wheels = [];
+  TRACK_SEGMENT_COUNT = 8;
+  trackRotationSpeed = 0;
   collider;
   collisionRadius = 2;
   lastPosition = new Vector3;
   canFire = true;
-  RELOAD_TIME = 30;
+  RELOAD_TIME;
   reloadCounter = 0;
   lastFireTime = 0;
-  FIRE_COOLDOWN_MS = 500;
-  SHELL_SPEED = 10;
+  FIRE_COOLDOWN_MS;
+  SHELL_SPEED;
   BARREL_END_OFFSET = 1.5;
   health = 100;
   MAX_HEALTH = 100;
@@ -29634,25 +29632,786 @@ class Tank {
   healthBarSprite;
   healthBarContext = null;
   healthBarTexture = null;
-  compoundColliders = [];
+  ownerId;
   scene;
-  camera;
-  constructor(scene, camera, name = "Player") {
+  constructor(scene, position, color = 4881497, name = "Tank") {
     this.scene = scene;
-    this.camera = camera;
+    this.tankColor = color;
     this.tankName = name;
     this.tank = new Group;
     this.turretPivot = new Group;
     this.barrelPivot = new Group;
-    this.createTank();
+    if (position) {
+      this.tank.position.copy(position);
+    }
     this.collider = new Sphere(this.tank.position.clone(), this.collisionRadius);
     this.lastPosition = this.tank.position.clone();
+    scene.add(this.tank);
+  }
+  addArmorPlates() {
+    const frontPlateGeometry = new BoxGeometry(1.9, 0.4, 0.2);
+    const armorMaterial = new MeshStandardMaterial({
+      color: this.tankColor || 4881497,
+      roughness: 0.25,
+      metalness: 0.85,
+      envMapIntensity: 1.3
+    });
+    const frontPlate = new Mesh(frontPlateGeometry, armorMaterial);
+    frontPlate.position.set(0, 0.5, -1.4);
+    frontPlate.rotation.x = Math.PI / 8;
+    frontPlate.castShadow = true;
+    this.tank.add(frontPlate);
+    const sideSkirtGeometry = new BoxGeometry(0.1, 0.3, 2.8);
+    const leftSkirt = new Mesh(sideSkirtGeometry, armorMaterial);
+    leftSkirt.position.set(-1.05, 0.4, 0);
+    leftSkirt.castShadow = true;
+    this.tank.add(leftSkirt);
+    const rightSkirt = new Mesh(sideSkirtGeometry, armorMaterial);
+    rightSkirt.position.set(1.05, 0.4, 0);
+    rightSkirt.castShadow = true;
+    this.tank.add(rightSkirt);
+  }
+  createDetailedTracks() {
+    const trackBaseGeometry = new BoxGeometry(0.4, 0.5, 3.2);
+    const trackMaterial = new MeshStandardMaterial({
+      color: 1710618,
+      roughness: 0.6,
+      metalness: 0.7,
+      envMapIntensity: 0.8
+    });
+    const leftTrack = new Mesh(trackBaseGeometry, trackMaterial);
+    leftTrack.position.set(-1, 0.25, 0);
+    leftTrack.castShadow = true;
+    leftTrack.receiveShadow = true;
+    this.tank.add(leftTrack);
+    const rightTrack = new Mesh(trackBaseGeometry, trackMaterial);
+    rightTrack.position.set(1, 0.25, 0);
+    rightTrack.castShadow = true;
+    rightTrack.receiveShadow = true;
+    this.tank.add(rightTrack);
+    const treadsPerSide = this.TRACK_SEGMENT_COUNT;
+    const treadSegmentGeometry = new BoxGeometry(0.5, 0.1, 0.32);
+    const treadMaterial = new MeshStandardMaterial({
+      color: 1118481,
+      roughness: 0.6,
+      metalness: 0.65,
+      envMapIntensity: 0.7
+    });
+    for (let i = 0;i < treadsPerSide; i++) {
+      const leftTread = new Mesh(treadSegmentGeometry, treadMaterial);
+      leftTread.position.set(-1, 0.05, -1.4 + i * (3 / treadsPerSide));
+      leftTread.castShadow = true;
+      this.tank.add(leftTread);
+      this.trackSegments.push(leftTread);
+      const rightTread = new Mesh(treadSegmentGeometry, treadMaterial);
+      rightTread.position.set(1, 0.05, -1.4 + i * (3 / treadsPerSide));
+      rightTread.castShadow = true;
+      this.tank.add(rightTread);
+      this.trackSegments.push(rightTread);
+    }
+    const wheelGeometry = new CylinderGeometry(0.3, 0.3, 0.1, 18);
+    const wheelMaterial = new MeshStandardMaterial({
+      color: 2236962,
+      roughness: 0.4,
+      metalness: 0.8,
+      envMapIntensity: 1.2
+    });
+    const leftFrontWheel = new Mesh(wheelGeometry, wheelMaterial);
+    leftFrontWheel.rotation.z = Math.PI / 2;
+    leftFrontWheel.position.set(-1, 0.3, -1.4);
+    this.tank.add(leftFrontWheel);
+    this.wheels.push(leftFrontWheel);
+    const rightFrontWheel = new Mesh(wheelGeometry, wheelMaterial);
+    rightFrontWheel.rotation.z = Math.PI / 2;
+    rightFrontWheel.position.set(1, 0.3, -1.4);
+    this.tank.add(rightFrontWheel);
+    this.wheels.push(rightFrontWheel);
+    const leftRearWheel = new Mesh(wheelGeometry, wheelMaterial);
+    leftRearWheel.rotation.z = Math.PI / 2;
+    leftRearWheel.position.set(-1, 0.3, 1.4);
+    this.tank.add(leftRearWheel);
+    this.wheels.push(leftRearWheel);
+    const rightRearWheel = new Mesh(wheelGeometry, wheelMaterial);
+    rightRearWheel.rotation.z = Math.PI / 2;
+    rightRearWheel.position.set(1, 0.3, 1.4);
+    this.tank.add(rightRearWheel);
+    this.wheels.push(rightRearWheel);
+    const smallWheelGeometry = new CylinderGeometry(0.2, 0.2, 0.08, 8);
+    const roadWheelPositions = [-0.8, -0.2, 0.4, 1];
+    for (const zPos of roadWheelPositions) {
+      const leftRoadWheel = new Mesh(smallWheelGeometry, wheelMaterial);
+      leftRoadWheel.rotation.z = Math.PI / 2;
+      leftRoadWheel.position.set(-1, 0.25, zPos);
+      this.tank.add(leftRoadWheel);
+      this.wheels.push(leftRoadWheel);
+      const rightRoadWheel = new Mesh(smallWheelGeometry, wheelMaterial);
+      rightRoadWheel.rotation.z = Math.PI / 2;
+      rightRoadWheel.position.set(1, 0.25, zPos);
+      this.tank.add(rightRoadWheel);
+      this.wheels.push(rightRoadWheel);
+    }
+  }
+  createDetailedTurret() {
+    const turretColor = this.getTurretColor();
+    const turretGeometry = new CylinderGeometry(0.8, 0.8, 0.5, 24);
+    const turretMaterial = new MeshStandardMaterial({
+      color: turretColor,
+      roughness: 0.2,
+      metalness: 0.9,
+      envMapIntensity: 1.4
+    });
+    this.turret = new Mesh(turretGeometry, turretMaterial);
+    this.turret.castShadow = true;
+    this.turret.receiveShadow = true;
+    this.turretPivot.add(this.turret);
+    const hatchGeometry = new CylinderGeometry(0.3, 0.3, 0.1, 8);
+    const hatchMaterial = new MeshStandardMaterial({
+      color: 3355443,
+      roughness: 0.8,
+      metalness: 0.4
+    });
+    const hatch = new Mesh(hatchGeometry, hatchMaterial);
+    hatch.position.set(0, 0.3, 0);
+    hatch.castShadow = true;
+    this.turretPivot.add(hatch);
+    const antennaGeometry = new CylinderGeometry(0.02, 0.01, 1, 4);
+    const antennaMaterial = new MeshStandardMaterial({
+      color: 1118481,
+      roughness: 0.5,
+      metalness: 0.8
+    });
+    const antenna = new Mesh(antennaGeometry, antennaMaterial);
+    antenna.position.set(-0.5, 0.6, -0.2);
+    antenna.castShadow = true;
+    this.turretPivot.add(antenna);
+    const mantletGeometry = new BoxGeometry(0.8, 0.6, 0.35);
+    const mantletMaterial = new MeshStandardMaterial({
+      color: 1710618,
+      roughness: 0.2,
+      metalness: 0.9,
+      envMapIntensity: 1.5
+    });
+    const mantlet = new Mesh(mantletGeometry, mantletMaterial);
+    mantlet.position.set(0, 0, 0.8);
+    mantlet.castShadow = true;
+    this.turretPivot.add(mantlet);
+  }
+  createDetailedBarrel(barrelGroup) {
+    const barrelGeometry = new CylinderGeometry(0.2, 0.15, 2.2, 16);
+    const barrelMaterial = new MeshStandardMaterial({
+      color: 2236962,
+      roughness: 0.1,
+      metalness: 0.95,
+      envMapIntensity: 1.6
+    });
+    this.barrel = new Mesh(barrelGeometry, barrelMaterial);
+    this.barrel.rotation.x = Math.PI / 2;
+    this.barrel.position.set(0, 0, 1.1);
+    this.barrel.castShadow = true;
+    barrelGroup.add(this.barrel);
+    const muzzleBrakeGeometry = new CylinderGeometry(0.25, 0.25, 0.35, 16);
+    const muzzleBrakeMaterial = new MeshStandardMaterial({
+      color: 1118481,
+      roughness: 0.15,
+      metalness: 0.98,
+      envMapIntensity: 1.8
+    });
+    const muzzleBrake = new Mesh(muzzleBrakeGeometry, muzzleBrakeMaterial);
+    muzzleBrake.rotation.x = Math.PI / 2;
+    muzzleBrake.position.set(0, 0, 2.2);
+    barrelGroup.add(muzzleBrake);
+  }
+  getTurretColor() {
+    const color = new Color(this.tankColor);
+    color.multiplyScalar(0.8);
+    return color.getHex();
+  }
+  fireShell() {
+    this.canFire = false;
+    this.lastFireTime = Date.now();
+    const barrelEndPosition = new Vector3(0, 0, this.BARREL_END_OFFSET);
+    barrelEndPosition.applyEuler(new Euler(this.barrelPivot.rotation.x, 0, 0));
+    barrelEndPosition.applyEuler(new Euler(0, this.turretPivot.rotation.y, 0));
+    barrelEndPosition.applyEuler(new Euler(0, this.tank.rotation.y, 0));
+    barrelEndPosition.add(this.turretPivot.position.clone().add(this.tank.position));
+    const direction = new Vector3;
+    direction.set(0, 0, 1);
+    direction.applyEuler(new Euler(this.barrelPivot.rotation.x, 0, 0));
+    direction.applyEuler(new Euler(0, this.turretPivot.rotation.y, 0));
+    direction.applyEuler(new Euler(0, this.tank.rotation.y, 0));
+    return new Shell(this.scene, barrelEndPosition, direction, this.SHELL_SPEED, this);
+  }
+  createHealthBar() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 48;
+    const context = canvas.getContext("2d");
+    if (context) {
+      context.clearRect(0, 0, 256, 48);
+      context.font = "bold 20px Arial";
+      context.textAlign = "center";
+      context.fillStyle = "white";
+      context.strokeStyle = "black";
+      context.lineWidth = 3;
+      context.strokeText(this.tankName, 128, 20);
+      context.fillText(this.tankName, 128, 20);
+      context.fillStyle = "rgba(0,0,0,0.7)";
+      context.fillRect(0, 28, 256, 20);
+      context.fillStyle = "#00FF00";
+      context.fillRect(4, 30, 248, 16);
+      const texture = new CanvasTexture(canvas);
+      this.healthBarContext = context;
+      this.healthBarTexture = texture;
+      const spriteMaterial = new SpriteMaterial({
+        map: texture,
+        transparent: true
+      });
+      const sprite = new Sprite(spriteMaterial);
+      sprite.position.set(0, 3.7, 0);
+      sprite.scale.set(4, 1.5, 1);
+      this.tank.add(sprite);
+      this.healthBarSprite = sprite;
+    }
+    this.updateHealthBar();
+  }
+  updateHealthBar() {
+    if (!this.healthBarContext || !this.healthBarTexture)
+      return;
+    const healthPercent = this.health / this.MAX_HEALTH;
+    this.healthBarContext.clearRect(0, 28, 256, 20);
+    this.healthBarContext.fillStyle = "rgba(0,0,0,0.7)";
+    this.healthBarContext.fillRect(0, 28, 256, 20);
+    if (healthPercent > 0.6) {
+      this.healthBarContext.fillStyle = "#00FF00";
+    } else if (healthPercent > 0.3) {
+      this.healthBarContext.fillStyle = "#FFFF00";
+    } else {
+      this.healthBarContext.fillStyle = "#FF0000";
+    }
+    const barWidth = Math.floor(248 * healthPercent);
+    this.healthBarContext.fillRect(4, 30, barWidth, 16);
+    this.healthBarTexture.needsUpdate = true;
+  }
+  checkCollision(other) {
+    const otherCollider = other.getCollider();
+    if (otherCollider instanceof Sphere) {
+      const distance = this.tank.position.distanceTo(other.getPosition());
+      return distance < this.collider.radius + otherCollider.radius;
+    } else if (otherCollider instanceof Box3) {
+      return otherCollider.intersectsSphere(this.collider);
+    }
+    return false;
+  }
+  createDestroyedEffect() {
+    this.tank.visible = false;
+    if (this.healthBarSprite) {
+      this.healthBarSprite.visible = false;
+    }
+    this.createExplosionFlash();
+    this.createDebrisParticles();
+    this.createSmokeEffect();
+    this.createFireEffect();
+    this.createShockwaveEffect();
+    this.createSparksEffect();
+    if (this.explodeSound) {
+      this.explodeSound.setSourcePosition(this.tank.position);
+      this.explodeSound.cloneAndPlay();
+    }
+    if (this.lastMoveSoundState && this.moveSound) {
+      this.moveSound.stop();
+      this.lastMoveSoundState = false;
+    }
+  }
+  dispose() {
+    this.scene.remove(this.tank);
+    for (const effect of this.destroyedEffects) {
+      this.scene.remove(effect);
+    }
+    this.destroyedEffects = [];
+  }
+  takeDamage(amount) {
+    if (this.isDestroyed)
+      return true;
+    this.health = Math.max(0, this.health - amount);
+    console.log(`Tank taking damage: ${amount}, remaining health: ${this.health}`);
+    if (this.health <= 0) {
+      this.health = 0;
+      this.isDestroyed = true;
+      this.createDestroyedEffect();
+      return true;
+    }
+    this.updateHealthBar();
+    return false;
+  }
+  setHealth(health) {
+    if (this.isDestroyed)
+      return;
+    this.health = Math.max(0, Math.min(this.MAX_HEALTH, health));
+    this.updateHealthBar();
+    if (this.health <= 0 && !this.isDestroyed) {
+      this.health = 0;
+      this.isDestroyed = true;
+      this.createDestroyedEffect();
+    }
+  }
+  getHealth() {
+    return this.health;
+  }
+  respawn(position) {
+    this.health = this.MAX_HEALTH;
+    this.isDestroyed = false;
+    if (position) {
+      this.tank.position.copy(position);
+    }
+    this.tank.visible = true;
+    this.collider.center.copy(this.tank.position);
+    for (const effect of this.destroyedEffects) {
+      this.scene.remove(effect);
+    }
+    this.destroyedEffects = [];
+    this.updateHealthBar();
+    const respawnEvent = new CustomEvent("tank-respawn", {
+      bubbles: true,
+      composed: true,
+      detail: {
+        playerId: this.ownerId || "player",
+        position: {
+          x: this.tank.position.x,
+          y: this.tank.position.y,
+          z: this.tank.position.z
+        }
+      }
+    });
+    document.dispatchEvent(respawnEvent);
+  }
+  getCollider() {
+    return this.collider;
+  }
+  getPosition() {
+    return this.tank.position.clone();
+  }
+  getType() {
+    return "tank";
+  }
+  onCollision(other) {
+    if (other.getType() === "shell") {
+      return;
+    }
+    this.tank.position.copy(this.lastPosition);
+    this.collider.center.copy(this.lastPosition);
+  }
+  isMoving() {
+    return this.isCurrentlyMoving;
+  }
+  getVelocity() {
+    return this.velocity;
+  }
+  getMinBarrelElevation() {
+    return this.minBarrelElevation;
+  }
+  getMaxBarrelElevation() {
+    return this.maxBarrelElevation;
+  }
+  updateSoundPositions() {
+    const position = this.tank.position;
+    if (this.moveSound)
+      this.moveSound.setSourcePosition(position);
+    if (this.fireSound)
+      this.fireSound.setSourcePosition(position);
+    if (this.explodeSound)
+      this.explodeSound.setSourcePosition(position);
+  }
+  getOwnerId() {
+    return this.ownerId;
+  }
+  setOwnerId(id) {
+    this.ownerId = id;
+  }
+  createExplosionFlash() {
+    const flashGeometry = new SphereGeometry(3.5, 32, 32);
+    const flashMaterial = new MeshBasicMaterial({
+      color: 16777113,
+      transparent: true,
+      opacity: 0.9,
+      blending: AdditiveBlending
+    });
+    const flash = new Mesh(flashGeometry, flashMaterial);
+    flash.position.copy(this.tank.position);
+    flash.position.y += 1;
+    this.scene.add(flash);
+    this.destroyedEffects.push(flash);
+    const fadeOut = () => {
+      if (!flash.material)
+        return;
+      const material = flash.material;
+      material.opacity -= 0.05;
+      if (material.opacity <= 0) {
+        this.scene.remove(flash);
+        return;
+      }
+      requestAnimationFrame(fadeOut);
+    };
+    requestAnimationFrame(fadeOut);
+  }
+  createDebrisParticles() {
+    const debrisCount = 20;
+    const debrisGeometry = new BufferGeometry;
+    const debrisPositions = new Float32Array(debrisCount * 3);
+    const debrisSizes = new Float32Array(debrisCount);
+    const debrisColors = new Float32Array(debrisCount * 3);
+    const debrisVelocities = [];
+    for (let i = 0;i < debrisCount; i++) {
+      const i3 = i * 3;
+      debrisPositions[i3] = this.tank.position.x + (Math.random() - 0.5) * 1.5;
+      debrisPositions[i3 + 1] = this.tank.position.y + Math.random() * 1.5;
+      debrisPositions[i3 + 2] = this.tank.position.z + (Math.random() - 0.5) * 1.5;
+      debrisSizes[i] = 0.2 + Math.random() * 0.5;
+      if (Math.random() > 0.7) {
+        const tankColor = new Color(this.tankColor || 4881497);
+        debrisColors[i3] = tankColor.r;
+        debrisColors[i3 + 1] = tankColor.g;
+        debrisColors[i3 + 2] = tankColor.b;
+      } else {
+        const darkness = 0.2 + Math.random() * 0.3;
+        debrisColors[i3] = darkness;
+        debrisColors[i3 + 1] = darkness;
+        debrisColors[i3 + 2] = darkness;
+      }
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 0.1 + Math.random() * 0.3;
+      const velocity = new Vector3(Math.cos(angle) * speed, 0.1 + Math.random() * 0.4, Math.sin(angle) * speed);
+      debrisVelocities.push(velocity);
+    }
+    debrisGeometry.setAttribute("position", new BufferAttribute(debrisPositions, 3));
+    debrisGeometry.setAttribute("size", new BufferAttribute(debrisSizes, 1));
+    debrisGeometry.setAttribute("color", new BufferAttribute(debrisColors, 3));
+    const debrisMaterial = new PointsMaterial({
+      size: 1,
+      vertexColors: true,
+      transparent: true,
+      opacity: 1,
+      sizeAttenuation: true
+    });
+    const debrisParticles = new Points(debrisGeometry, debrisMaterial);
+    this.scene.add(debrisParticles);
+    this.destroyedEffects.push(debrisParticles);
+    const updateDebris = () => {
+      const positions = debrisGeometry.attributes.position.array;
+      for (let i = 0;i < debrisCount; i++) {
+        const i3 = i * 3;
+        const velocity = debrisVelocities[i];
+        positions[i3] += velocity.x;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z;
+        velocity.y -= 0.01;
+        velocity.x *= 0.99;
+        velocity.z *= 0.99;
+        if (positions[i3 + 1] < 0.1) {
+          positions[i3 + 1] = 0.1;
+          velocity.y = 0;
+          velocity.x *= 0.7;
+          velocity.z *= 0.7;
+        }
+      }
+      debrisGeometry.attributes.position.needsUpdate = true;
+      requestAnimationFrame(updateDebris);
+    };
+    requestAnimationFrame(updateDebris);
+  }
+  createSmokeEffect() {
+    const particleCount = 80;
+    const smokeGeometry = new BufferGeometry;
+    const smokePositions = new Float32Array(particleCount * 3);
+    const smokeSizes = new Float32Array(particleCount);
+    const smokeColors = new Float32Array(particleCount * 3);
+    const smokeVelocities = [];
+    const smokeCreationTimes = [];
+    const currentTime = Date.now();
+    for (let i = 0;i < particleCount; i++) {
+      const i3 = i * 3;
+      const radius = 1.8;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      smokePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
+      smokePositions[i3 + 1] = this.tank.position.y + radius * Math.cos(phi) + 1.2;
+      smokePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
+      smokeSizes[i] = 0.7 + Math.random() * 1.2;
+      const darkness = 0.1 + Math.random() * 0.25;
+      smokeColors[i3] = darkness;
+      smokeColors[i3 + 1] = darkness;
+      smokeColors[i3 + 2] = darkness;
+      const upwardVelocity = 0.03 + Math.random() * 0.05;
+      const horizontalVelocity = 0.01 + Math.random() * 0.02;
+      const angle = Math.random() * Math.PI * 2;
+      smokeVelocities.push(new Vector3(Math.cos(angle) * horizontalVelocity, upwardVelocity, Math.sin(angle) * horizontalVelocity));
+      smokeCreationTimes.push(currentTime + Math.random() * 1000);
+    }
+    smokeGeometry.setAttribute("position", new BufferAttribute(smokePositions, 3));
+    smokeGeometry.setAttribute("size", new BufferAttribute(smokeSizes, 1));
+    smokeGeometry.setAttribute("color", new BufferAttribute(smokeColors, 3));
+    const smokeMaterial = new PointsMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.8,
+      sizeAttenuation: true
+    });
+    const smokeParticles = new Points(smokeGeometry, smokeMaterial);
+    this.scene.add(smokeParticles);
+    this.destroyedEffects.push(smokeParticles);
+    const smokeDuration = 8000;
+    const updateSmoke = () => {
+      const currentTime2 = Date.now();
+      const positions = smokeGeometry.attributes.position.array;
+      const sizes = smokeGeometry.attributes.size.array;
+      for (let i = 0;i < particleCount; i++) {
+        if (currentTime2 < smokeCreationTimes[i])
+          continue;
+        const i3 = i * 3;
+        const velocity = smokeVelocities[i];
+        const age = currentTime2 - smokeCreationTimes[i];
+        positions[i3] += velocity.x + Math.sin(age * 0.001) * 0.01;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z + Math.cos(age * 0.001) * 0.01;
+        if (age < 2000) {
+          sizes[i] = Math.min(3, sizes[i] * 1.01);
+        }
+        if (age > smokeDuration * 0.6) {
+          smokeMaterial.opacity = Math.max(0, 0.8 - (age - smokeDuration * 0.6) / (smokeDuration * 0.4) * 0.8);
+        }
+      }
+      smokeGeometry.attributes.position.needsUpdate = true;
+      smokeGeometry.attributes.size.needsUpdate = true;
+      if (smokeMaterial.opacity > 0) {
+        requestAnimationFrame(updateSmoke);
+      } else {
+        this.scene.remove(smokeParticles);
+      }
+    };
+    requestAnimationFrame(updateSmoke);
+  }
+  createFireEffect() {
+    const fireCount = 60;
+    const fireGeometry = new BufferGeometry;
+    const firePositions = new Float32Array(fireCount * 3);
+    const fireSizes = new Float32Array(fireCount);
+    const fireColors = new Float32Array(fireCount * 3);
+    const fireVelocities = [];
+    const fireCreationTimes = [];
+    const currentTime = Date.now();
+    for (let i = 0;i < fireCount; i++) {
+      const i3 = i * 3;
+      const radius = 1.2;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI / 2;
+      firePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
+      firePositions[i3 + 1] = this.tank.position.y + 0.5;
+      firePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
+      fireSizes[i] = 0.5 + Math.random() * 1;
+      if (Math.random() > 0.7) {
+        fireColors[i3] = 1;
+        fireColors[i3 + 1] = 0.8 + Math.random() * 0.2;
+        fireColors[i3 + 2] = 0.1 + Math.random() * 0.2;
+      } else {
+        fireColors[i3] = 0.9 + Math.random() * 0.1;
+        fireColors[i3 + 1] = 0.3 + Math.random() * 0.3;
+        fireColors[i3 + 2] = 0;
+      }
+      const upwardVelocity = 0.05 + Math.random() * 0.08;
+      const horizontalVelocity = 0.01 + Math.random() * 0.03;
+      const angle = Math.random() * Math.PI * 2;
+      fireVelocities.push(new Vector3(Math.cos(angle) * horizontalVelocity, upwardVelocity, Math.sin(angle) * horizontalVelocity));
+      fireCreationTimes.push(currentTime + Math.random() * 1500);
+    }
+    fireGeometry.setAttribute("position", new BufferAttribute(firePositions, 3));
+    fireGeometry.setAttribute("size", new BufferAttribute(fireSizes, 1));
+    fireGeometry.setAttribute("color", new BufferAttribute(fireColors, 3));
+    const fireMaterial = new PointsMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.9,
+      blending: AdditiveBlending,
+      sizeAttenuation: true
+    });
+    const fireParticles = new Points(fireGeometry, fireMaterial);
+    this.scene.add(fireParticles);
+    this.destroyedEffects.push(fireParticles);
+    const fireDuration = 4000;
+    const updateFire = () => {
+      const currentTime2 = Date.now();
+      const positions = fireGeometry.attributes.position.array;
+      const sizes = fireGeometry.attributes.size.array;
+      for (let i = 0;i < fireCount; i++) {
+        if (currentTime2 < fireCreationTimes[i])
+          continue;
+        const i3 = i * 3;
+        const velocity = fireVelocities[i];
+        const age = currentTime2 - fireCreationTimes[i];
+        positions[i3] += velocity.x + (Math.random() - 0.5) * 0.05;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z + (Math.random() - 0.5) * 0.05;
+        if (age > 500) {
+          sizes[i] = Math.max(0.1, sizes[i] * 0.98);
+        }
+        if (age > fireDuration * 0.5) {
+          fireMaterial.opacity = Math.max(0, 0.9 - (age - fireDuration * 0.5) / (fireDuration * 0.5) * 0.9);
+        }
+      }
+      fireGeometry.attributes.position.needsUpdate = true;
+      fireGeometry.attributes.size.needsUpdate = true;
+      if (fireMaterial.opacity > 0) {
+        requestAnimationFrame(updateFire);
+      } else {
+        this.scene.remove(fireParticles);
+      }
+    };
+    requestAnimationFrame(updateFire);
+  }
+  createShockwaveEffect() {
+    const shockwaveGeometry = new RingGeometry(0.1, 0.5, 32);
+    const shockwaveMaterial = new MeshBasicMaterial({
+      color: 16764006,
+      transparent: true,
+      opacity: 0.7,
+      blending: AdditiveBlending,
+      side: DoubleSide
+    });
+    const shockwave = new Mesh(shockwaveGeometry, shockwaveMaterial);
+    shockwave.rotation.x = -Math.PI / 2;
+    shockwave.position.copy(this.tank.position);
+    shockwave.position.y = 0.1;
+    this.scene.add(shockwave);
+    this.destroyedEffects.push(shockwave);
+    const shockwaveDuration = 1000;
+    const startTime = Date.now();
+    const maxRadius = 10;
+    const updateShockwave = () => {
+      const currentTime = Date.now();
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(1, elapsed / shockwaveDuration);
+      const innerRadius = progress * maxRadius;
+      const outerRadius = innerRadius + 0.5 + progress * 2;
+      shockwave.scale.set(innerRadius, innerRadius, 1);
+      shockwaveMaterial.opacity = 0.7 * (1 - progress);
+      if (progress < 1) {
+        requestAnimationFrame(updateShockwave);
+      } else {
+        this.scene.remove(shockwave);
+      }
+    };
+    requestAnimationFrame(updateShockwave);
+  }
+  createSparksEffect() {
+    const sparkCount = 30;
+    const sparkGeometry = new BufferGeometry;
+    const sparkPositions = new Float32Array(sparkCount * 3);
+    const sparkSizes = new Float32Array(sparkCount);
+    const sparkColors = new Float32Array(sparkCount * 3);
+    const sparkVelocities = [];
+    for (let i = 0;i < sparkCount; i++) {
+      const i3 = i * 3;
+      sparkPositions[i3] = this.tank.position.x;
+      sparkPositions[i3 + 1] = this.tank.position.y + 1;
+      sparkPositions[i3 + 2] = this.tank.position.z;
+      sparkSizes[i] = 0.2 + Math.random() * 0.3;
+      sparkColors[i3] = 1;
+      sparkColors[i3 + 1] = 0.9 + Math.random() * 0.1;
+      sparkColors[i3 + 2] = 0.6 + Math.random() * 0.4;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      const speed = 0.2 + Math.random() * 0.4;
+      const velocity = new Vector3(Math.sin(phi) * Math.cos(theta) * speed, Math.cos(phi) * speed, Math.sin(phi) * Math.sin(theta) * speed);
+      sparkVelocities.push(velocity);
+    }
+    sparkGeometry.setAttribute("position", new BufferAttribute(sparkPositions, 3));
+    sparkGeometry.setAttribute("size", new BufferAttribute(sparkSizes, 1));
+    sparkGeometry.setAttribute("color", new BufferAttribute(sparkColors, 3));
+    const sparkMaterial = new PointsMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 1,
+      blending: AdditiveBlending,
+      sizeAttenuation: true
+    });
+    const sparkParticles = new Points(sparkGeometry, sparkMaterial);
+    this.scene.add(sparkParticles);
+    this.destroyedEffects.push(sparkParticles);
+    const sparkDuration = 1500;
+    const startTime = Date.now();
+    const updateSparks = () => {
+      const currentTime = Date.now();
+      const elapsed = currentTime - startTime;
+      const progress = elapsed / sparkDuration;
+      const positions = sparkGeometry.attributes.position.array;
+      const sizes = sparkGeometry.attributes.size.array;
+      for (let i = 0;i < sparkCount; i++) {
+        const i3 = i * 3;
+        const velocity = sparkVelocities[i];
+        positions[i3] += velocity.x;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z;
+        velocity.y -= 0.015;
+        sizes[i] *= 0.98;
+      }
+      if (progress > 0.7) {
+        sparkMaterial.opacity = 1 - (progress - 0.7) / 0.3;
+      }
+      sparkGeometry.attributes.position.needsUpdate = true;
+      sparkGeometry.attributes.size.needsUpdate = true;
+      if (progress < 1) {
+        requestAnimationFrame(updateSparks);
+      } else {
+        this.scene.remove(sparkParticles);
+      }
+    };
+    requestAnimationFrame(updateSparks);
+  }
+  createTank() {
+    const bodyGeometry = new BoxGeometry(2, 0.75, 3, 1, 1, 2);
+    const bodyMaterial = new MeshStandardMaterial({
+      color: this.tankColor || 4881497,
+      roughness: 0.3,
+      metalness: 0.8,
+      envMapIntensity: 1.2
+    });
+    this.tankBody = new Mesh(bodyGeometry, bodyMaterial);
+    this.tankBody.position.y = 0.75 / 2;
+    this.tankBody.castShadow = true;
+    this.tankBody.receiveShadow = true;
+    this.tank.add(this.tankBody);
+    this.addArmorPlates();
+    this.createDetailedTracks();
+    this.turretPivot = new Group;
+    this.turretPivot.position.set(0, 1, 0);
+    this.tank.add(this.turretPivot);
+    this.createDetailedTurret();
+    const barrelGroup = new Group;
+    barrelGroup.position.set(0, 0, 0.8);
+    this.turretPivot.add(barrelGroup);
+    this.createDetailedBarrel(barrelGroup);
+    this.barrelPivot = barrelGroup;
+    this.barrelPivot.rotation.x = 0;
+  }
+}
+
+class Tank extends BaseTank {
+  camera;
+  compoundColliders = [];
+  constructor(scene, camera, name = "Player") {
+    super(scene, new Vector3(0, 0, 0), 4881497, name);
+    this.camera = camera;
+    this.tankSpeed = 2.5;
+    this.tankRotationSpeed = 0.04;
+    this.turretRotationSpeed = 0.1;
+    this.barrelElevationSpeed = 0.08;
+    this.RELOAD_TIME = 30;
+    this.FIRE_COOLDOWN_MS = 500;
+    this.SHELL_SPEED = 10;
+    this.createTank();
     this.initializeCompoundColliders();
     this.moveSound = new SpatialAudio("/static/js/assets/sounds/tank-move.mp3", true, 0.4, 120);
     this.fireSound = new SpatialAudio("/static/js/assets/sounds/tank-fire.mp3", false, 0.39375, 150);
     this.explodeSound = new SpatialAudio("/static/js/assets/sounds/tank-explode.mp3", false, 0.8, 200);
     this.updateSoundPositions();
-    scene.add(this.tank);
   }
   createTank() {
     const bodyGeometry = new BoxGeometry(2, 0.75, 3, 1, 1, 2);
@@ -30733,45 +31492,7 @@ function generateRandomTankName() {
   return `${randomAdjective} ${randomNoun}`;
 }
 
-class NPCTank {
-  tank;
-  tankBody;
-  turret;
-  turretPivot;
-  barrel;
-  barrelPivot;
-  ownerId;
-  trackSegments = [];
-  wheels = [];
-  TRACK_SEGMENT_COUNT = 8;
-  trackRotationSpeed = 0;
-  acceleration = 0;
-  getOwnerId() {
-    return this.ownerId;
-  }
-  setOwnerId(id) {
-    this.ownerId = id;
-  }
-  getMinBarrelElevation() {
-    return this.minBarrelElevation;
-  }
-  getMaxBarrelElevation() {
-    return this.maxBarrelElevation;
-  }
-  isMoving() {
-    return this.isCurrentlyMoving;
-  }
-  getVelocity() {
-    return this.velocity;
-  }
-  tankSpeed = 0.1;
-  tankRotationSpeed = 0.03;
-  turretRotationSpeed = 0.02;
-  barrelElevationSpeed = 0.01;
-  maxBarrelElevation = 0;
-  minBarrelElevation = -Math.PI / 4;
-  velocity = 0;
-  isCurrentlyMoving = false;
+class NPCTank extends BaseTank {
   movementPattern;
   movementTimer = 0;
   changeDirectionInterval;
@@ -30779,41 +31500,21 @@ class NPCTank {
   targetPosition = new Vector3;
   patrolPoints = [];
   currentPatrolIndex = 0;
-  tankColor;
-  tankName;
-  collider;
-  collisionRadius = 2;
-  lastPosition = new Vector3;
   collisionResetTimer = 0;
   COLLISION_RESET_DELAY = 60;
-  canFire = true;
-  RELOAD_TIME = 180;
-  reloadCounter = 0;
-  lastFireTime = 0;
-  FIRE_COOLDOWN_MS = 3000;
-  SHELL_SPEED = 4.8;
-  BARREL_END_OFFSET = 1.5;
   FIRE_PROBABILITY = 0.01;
   TARGETING_DISTANCE = 300;
-  health = 100;
-  MAX_HEALTH = 100;
-  isDestroyed = false;
-  destroyedEffects = [];
-  healthBarSprite;
-  healthBarContext = null;
-  healthBarTexture = null;
-  scene;
   constructor(scene, position, color = 16711680, name) {
-    this.scene = scene;
-    this.tankColor = color;
-    this.tankName = name || generateRandomTankName();
-    this.tank = new Group;
-    this.turretPivot = new Group;
-    this.barrelPivot = new Group;
+    const tankName = name || generateRandomTankName();
+    super(scene, position, color, tankName);
+    this.tankSpeed = 0.1;
+    this.tankRotationSpeed = 0.03;
+    this.turretRotationSpeed = 0.02;
+    this.barrelElevationSpeed = 0.01;
+    this.RELOAD_TIME = 180;
+    this.FIRE_COOLDOWN_MS = 3000;
+    this.SHELL_SPEED = 4.8;
     this.createTank();
-    this.tank.position.copy(position);
-    this.lastPosition = this.tank.position.clone();
-    this.collider = new Sphere(this.tank.position.clone(), this.collisionRadius);
     const patterns = ["circle", "zigzag", "random", "patrol"];
     this.movementPattern = patterns[Math.floor(Math.random() * patterns.length)];
     this.changeDirectionInterval = Math.floor(Math.random() * 180) + 120;
@@ -30829,7 +31530,6 @@ class NPCTank {
       console.error("Error initializing sounds for remote tank:", error);
     }
     this.createHealthBar();
-    scene.add(this.tank);
   }
   createHealthBar() {
     const canvas = document.createElement("canvas");

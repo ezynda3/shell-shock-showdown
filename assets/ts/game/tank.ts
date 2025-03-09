@@ -1,6 +1,20 @@
 import * as THREE from 'three';
 import { Shell } from './shell';
 
+/**
+ * Tank Classes Hierarchy
+ * ---------------------
+ * This file implements a class hierarchy for tank entities:
+ * 
+ * - ITank: Interface defining the common API for all tank types
+ * - BaseTank: Abstract base class that implements common tank functionality shared by all tank types
+ * - Tank: Player-controlled tank with camera following and user input controls
+ * - NPCTank: AI/Remote controlled tank with autonomous movement patterns
+ * 
+ * The tanks have common rendering logic, collision detection, and health management,
+ * while differing in their control mechanisms (user input vs AI) and specific behaviors.
+ */
+
 // Audio helper for tank sounds with spatial awareness
 export class SpatialAudio {
   private audio: HTMLAudioElement;
@@ -262,27 +276,49 @@ export interface ICollidable {
 
 // Interface for common tank properties and methods
 export interface ITank extends ICollidable {
+  // Tank components
   tank: THREE.Group;
   turretPivot: THREE.Group;
   barrelPivot: THREE.Group;
+  
+  // Core methods
   update(keys?: { [key: string]: boolean }, colliders?: ICollidable[]): Shell | null;
   dispose(): void;
+  
+  // Health and damage methods
   takeDamage(amount: number): boolean; // Returns true if tank is destroyed
   getHealth(): number; // Returns current health percentage (0-100)
+  setHealth(health: number): void; // Set the tank's health directly
   respawn(position?: THREE.Vector3): void; // Respawn the tank
+  
+  // Barrel properties
   getMinBarrelElevation(): number; // Get minimum barrel elevation angle
   getMaxBarrelElevation(): number; // Get maximum barrel elevation angle
+  
+  // Movement properties
   isMoving(): boolean; // Returns whether the tank is currently moving
-  getVelocity?(): number; // Returns the current velocity of the tank
+  getVelocity(): number; // Returns the current velocity of the tank
+  
+  // Sound and effects
   updateSoundPositions(): void; // Updates positions of all attached sound effects
+  
+  // Collision detection
   getDetailedColliders?(): {
     part: string;
     collider: THREE.Sphere;
     damageMultiplier: number;
   }[]; // Returns detailed colliders for precise hit detection
+  
+  // Tank ownership
+  getOwnerId(): string | undefined; // Get the tank's owner ID
+  setOwnerId(id: string): void; // Set the tank's owner ID
 }
 
-export class Tank implements ITank {
+/**
+ * BaseTank - Abstract base class that implements shared functionality
+ * between player-controlled Tank and AI/remote controlled NPCTank classes
+ */
+export abstract class BaseTank implements ITank {
   // Tank components
   tank: THREE.Group;
   tankBody?: THREE.Mesh;
@@ -291,23 +327,682 @@ export class Tank implements ITank {
   barrel?: THREE.Mesh;
   barrelPivot: THREE.Group;
   
+  // Tank properties
+  protected tankSpeed: number;
+  protected tankRotationSpeed: number;
+  protected turretRotationSpeed: number;
+  protected barrelElevationSpeed: number;
+  protected maxBarrelElevation: number = 0;
+  protected minBarrelElevation: number = -Math.PI / 4;
+  protected tankName: string;
+  protected tankColor: number;
+  
   // Audio components
   protected moveSound: SpatialAudio | null = null;
   protected fireSound: SpatialAudio | null = null;
   protected explodeSound: SpatialAudio | null = null;
   protected lastMoveSoundState: boolean = false;
   
-  // Tank properties
-  private tankSpeed = 2.5; // Increased 5x from original 0.15 for extreme speed
-  private tankRotationSpeed = 0.04; // Reduced by 50% from 0.08 for more controlled turning
-  private turretRotationSpeed = 0.1; // Increased from 0.04 for faster aiming
-  private barrelElevationSpeed = 0.08; // Increased from 0.03 for quicker elevation changes
-  private maxBarrelElevation = 0;           // Barrel can't go lower than starting position
-  private minBarrelElevation = -Math.PI / 4; // Barrel pointing up limit
-  private tankName: string;                  // Name to display above tank
-  private tankColor: number = 0x4a7c59;      // Default tank color
+  // Track movement properties
+  protected trackSegments: THREE.Mesh[] = [];
+  protected wheels: THREE.Mesh[] = [];
+  protected readonly TRACK_SEGMENT_COUNT: number = 8;
+  protected trackRotationSpeed: number = 0;
   
-  // Getter methods for barrel elevation limits
+  // Collision properties
+  protected collider: THREE.Sphere;
+  protected collisionRadius = 2.0;
+  protected lastPosition = new THREE.Vector3();
+  
+  // Firing properties
+  protected canFire = true;
+  protected RELOAD_TIME: number;
+  protected reloadCounter = 0;
+  protected lastFireTime: number = 0;
+  protected FIRE_COOLDOWN_MS: number;
+  protected SHELL_SPEED: number;
+  protected readonly BARREL_END_OFFSET = 1.5;
+  
+  // Health properties
+  protected health: number = 100;
+  protected readonly MAX_HEALTH: number = 100;
+  protected isDestroyed: boolean = false;
+  protected destroyedEffects: THREE.Object3D[] = [];
+  
+  // Movement tracking
+  protected isCurrentlyMoving: boolean = false;
+  protected velocity: number = 0;
+  
+  // Health bar display
+  protected healthBarSprite: THREE.Sprite;
+  protected healthBarContext: CanvasRenderingContext2D | null = null;
+  protected healthBarTexture: THREE.CanvasTexture | null = null;
+  
+  // Tank owner ID
+  protected ownerId?: string;
+  
+  // Reference to the scene
+  protected scene: THREE.Scene;
+
+  constructor(
+    scene: THREE.Scene, 
+    position: THREE.Vector3,
+    color: number = 0x4a7c59,
+    name: string = "Tank"
+  ) {
+    this.scene = scene;
+    this.tankColor = color;
+    this.tankName = name;
+    
+    // Initialize tank groups
+    this.tank = new THREE.Group();
+    this.turretPivot = new THREE.Group();
+    this.barrelPivot = new THREE.Group();
+    
+    // Set initial position if provided
+    if (position) {
+      this.tank.position.copy(position);
+    }
+    
+    // Initialize collision sphere
+    this.collider = new THREE.Sphere(this.tank.position.clone(), this.collisionRadius);
+    this.lastPosition = this.tank.position.clone();
+    
+    // Add to scene
+    scene.add(this.tank);
+  }
+  
+  // Abstract methods that must be implemented by derived classes
+  abstract update(keys?: { [key: string]: boolean }, colliders?: ICollidable[]): Shell | null;
+  
+  //----------------------------------------------
+  // Common methods for all tank types
+  //----------------------------------------------
+  
+  // Tank creation methods (shared between Tank and NPCTank)
+  protected addArmorPlates(): void {
+    // Front glacis plate
+    const frontPlateGeometry = new THREE.BoxGeometry(1.9, 0.4, 0.2);
+    const armorMaterial = new THREE.MeshStandardMaterial({
+      color: this.tankColor || 0x4a7c59,
+      roughness: 0.25,
+      metalness: 0.85,
+      envMapIntensity: 1.3
+    });
+    
+    const frontPlate = new THREE.Mesh(frontPlateGeometry, armorMaterial);
+    frontPlate.position.set(0, 0.5, -1.4);
+    frontPlate.rotation.x = Math.PI / 8; // Angled slightly
+    frontPlate.castShadow = true;
+    this.tank.add(frontPlate);
+    
+    // Side skirt armor (left)
+    const sideSkirtGeometry = new THREE.BoxGeometry(0.1, 0.3, 2.8);
+    const leftSkirt = new THREE.Mesh(sideSkirtGeometry, armorMaterial);
+    leftSkirt.position.set(-1.05, 0.4, 0);
+    leftSkirt.castShadow = true;
+    this.tank.add(leftSkirt);
+    
+    // Side skirt armor (right)
+    const rightSkirt = new THREE.Mesh(sideSkirtGeometry, armorMaterial);
+    rightSkirt.position.set(1.05, 0.4, 0);
+    rightSkirt.castShadow = true;
+    this.tank.add(rightSkirt);
+  }
+  
+  protected createDetailedTracks(): void {
+    // Track base
+    const trackBaseGeometry = new THREE.BoxGeometry(0.4, 0.5, 3.2);
+    const trackMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0x1a1a1a,
+      roughness: 0.6,
+      metalness: 0.7,
+      envMapIntensity: 0.8
+    });
+    
+    // Left track base
+    const leftTrack = new THREE.Mesh(trackBaseGeometry, trackMaterial);
+    leftTrack.position.set(-1, 0.25, 0);
+    leftTrack.castShadow = true;
+    leftTrack.receiveShadow = true;
+    this.tank.add(leftTrack);
+    
+    // Right track base
+    const rightTrack = new THREE.Mesh(trackBaseGeometry, trackMaterial);
+    rightTrack.position.set(1, 0.25, 0);
+    rightTrack.castShadow = true;
+    rightTrack.receiveShadow = true;
+    this.tank.add(rightTrack);
+    
+    // Track treads - add segments for visual detail
+    const treadsPerSide = this.TRACK_SEGMENT_COUNT;
+    const treadSegmentGeometry = new THREE.BoxGeometry(0.5, 0.1, 0.32);
+    const treadMaterial = new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      roughness: 0.6,
+      metalness: 0.65,
+      envMapIntensity: 0.7
+    });
+    
+    // Create tread segments for both tracks and store references for animation
+    for (let i = 0; i < treadsPerSide; i++) {
+      const leftTread = new THREE.Mesh(treadSegmentGeometry, treadMaterial);
+      leftTread.position.set(-1, 0.05, -1.4 + i * (3 / treadsPerSide));
+      leftTread.castShadow = true;
+      this.tank.add(leftTread);
+      this.trackSegments.push(leftTread);
+      
+      const rightTread = new THREE.Mesh(treadSegmentGeometry, treadMaterial);
+      rightTread.position.set(1, 0.05, -1.4 + i * (3 / treadsPerSide));
+      rightTread.castShadow = true;
+      this.tank.add(rightTread);
+      this.trackSegments.push(rightTread);
+    }
+    
+    // Add drive wheels at the front and back
+    const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 18);
+    const wheelMaterial = new THREE.MeshStandardMaterial({
+      color: 0x222222,
+      roughness: 0.4,
+      metalness: 0.8,
+      envMapIntensity: 1.2
+    });
+    
+    // Front wheels
+    const leftFrontWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    leftFrontWheel.rotation.z = Math.PI / 2;
+    leftFrontWheel.position.set(-1, 0.3, -1.4);
+    this.tank.add(leftFrontWheel);
+    this.wheels.push(leftFrontWheel);
+    
+    const rightFrontWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    rightFrontWheel.rotation.z = Math.PI / 2;
+    rightFrontWheel.position.set(1, 0.3, -1.4);
+    this.tank.add(rightFrontWheel);
+    this.wheels.push(rightFrontWheel);
+    
+    // Rear wheels
+    const leftRearWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    leftRearWheel.rotation.z = Math.PI / 2;
+    leftRearWheel.position.set(-1, 0.3, 1.4);
+    this.tank.add(leftRearWheel);
+    this.wheels.push(leftRearWheel);
+    
+    const rightRearWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    rightRearWheel.rotation.z = Math.PI / 2;
+    rightRearWheel.position.set(1, 0.3, 1.4);
+    this.tank.add(rightRearWheel);
+    this.wheels.push(rightRearWheel);
+    
+    // Add road wheels in between
+    const smallWheelGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.08, 8);
+    const roadWheelPositions = [-0.8, -0.2, 0.4, 1.0]; // Z positions along track
+    
+    for (const zPos of roadWheelPositions) {
+      const leftRoadWheel = new THREE.Mesh(smallWheelGeometry, wheelMaterial);
+      leftRoadWheel.rotation.z = Math.PI / 2;
+      leftRoadWheel.position.set(-1, 0.25, zPos);
+      this.tank.add(leftRoadWheel);
+      this.wheels.push(leftRoadWheel);
+      
+      const rightRoadWheel = new THREE.Mesh(smallWheelGeometry, wheelMaterial);
+      rightRoadWheel.rotation.z = Math.PI / 2;
+      rightRoadWheel.position.set(1, 0.25, zPos);
+      this.tank.add(rightRoadWheel);
+      this.wheels.push(rightRoadWheel);
+    }
+  }
+  
+  protected createDetailedTurret(): void {
+    // Get turret color (darker variant of tank color)
+    const turretColor = this.getTurretColor();
+    
+    // Main turret body
+    const turretGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.5, 24);
+    const turretMaterial = new THREE.MeshStandardMaterial({ 
+      color: turretColor,
+      roughness: 0.2,
+      metalness: 0.9,
+      envMapIntensity: 1.4
+    });
+    
+    this.turret = new THREE.Mesh(turretGeometry, turretMaterial);
+    this.turret.castShadow = true;
+    this.turret.receiveShadow = true;
+    this.turretPivot.add(this.turret);
+    
+    // Add turret details - commander's hatch
+    const hatchGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 8);
+    const hatchMaterial = new THREE.MeshStandardMaterial({
+      color: 0x333333,
+      roughness: 0.8,
+      metalness: 0.4
+    });
+    
+    const hatch = new THREE.Mesh(hatchGeometry, hatchMaterial);
+    hatch.position.set(0, 0.3, 0);
+    hatch.castShadow = true;
+    this.turretPivot.add(hatch);
+    
+    // Add antenna
+    const antennaGeometry = new THREE.CylinderGeometry(0.02, 0.01, 1.0, 4);
+    const antennaMaterial = new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      roughness: 0.5,
+      metalness: 0.8
+    });
+    
+    const antenna = new THREE.Mesh(antennaGeometry, antennaMaterial);
+    antenna.position.set(-0.5, 0.6, -0.2);
+    antenna.castShadow = true;
+    this.turretPivot.add(antenna);
+    
+    // Add mantlet at barrel base
+    const mantletGeometry = new THREE.BoxGeometry(0.8, 0.6, 0.35);
+    const mantletMaterial = new THREE.MeshStandardMaterial({
+      color: 0x1a1a1a,
+      roughness: 0.2,
+      metalness: 0.9,
+      envMapIntensity: 1.5
+    });
+    
+    const mantlet = new THREE.Mesh(mantletGeometry, mantletMaterial);
+    mantlet.position.set(0, 0, 0.8);
+    mantlet.castShadow = true;
+    this.turretPivot.add(mantlet);
+  }
+  
+  protected createDetailedBarrel(barrelGroup: THREE.Group): void {
+    // Main barrel
+    const barrelGeometry = new THREE.CylinderGeometry(0.2, 0.15, 2.2, 16);
+    const barrelMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0x222222,
+      roughness: 0.1,
+      metalness: 0.95,
+      envMapIntensity: 1.6
+    });
+    
+    this.barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
+    
+    // Rotate the cylinder to point forward
+    this.barrel.rotation.x = Math.PI / 2;
+    
+    // Position the barrel so one end is at the pivot point
+    this.barrel.position.set(0, 0, 1.1);
+    
+    this.barrel.castShadow = true;
+    barrelGroup.add(this.barrel);
+    
+    // Add muzzle brake
+    const muzzleBrakeGeometry = new THREE.CylinderGeometry(0.25, 0.25, 0.35, 16);
+    const muzzleBrakeMaterial = new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      roughness: 0.15,
+      metalness: 0.98,
+      envMapIntensity: 1.8
+    });
+    
+    const muzzleBrake = new THREE.Mesh(muzzleBrakeGeometry, muzzleBrakeMaterial);
+    muzzleBrake.rotation.x = Math.PI / 2;
+    muzzleBrake.position.set(0, 0, 2.2);
+    barrelGroup.add(muzzleBrake);
+  }
+  
+  protected getTurretColor(): number {
+    // Make turret a darker shade of the tank color
+    const color = new THREE.Color(this.tankColor);
+    color.multiplyScalar(0.8);
+    return color.getHex();
+  }
+  
+  protected fireShell(): Shell {
+    // Set reload timer
+    this.canFire = false;
+    this.lastFireTime = Date.now();
+    
+    // Calculate barrel end position
+    const barrelEndPosition = new THREE.Vector3(0, 0, this.BARREL_END_OFFSET);
+    
+    // Apply barrel pivot rotation
+    barrelEndPosition.applyEuler(new THREE.Euler(
+      this.barrelPivot.rotation.x,
+      0,
+      0
+    ));
+    
+    // Apply turret rotation
+    barrelEndPosition.applyEuler(new THREE.Euler(
+      0,
+      this.turretPivot.rotation.y,
+      0
+    ));
+    
+    // Apply tank rotation and position
+    barrelEndPosition.applyEuler(new THREE.Euler(
+      0,
+      this.tank.rotation.y,
+      0
+    ));
+    barrelEndPosition.add(this.turretPivot.position.clone().add(this.tank.position));
+    
+    // Calculate firing direction
+    const direction = new THREE.Vector3();
+    
+    // Start with forward vector
+    direction.set(0, 0, 1);
+    
+    // Apply barrel elevation
+    direction.applyEuler(new THREE.Euler(
+      this.barrelPivot.rotation.x,
+      0,
+      0
+    ));
+    
+    // Apply turret rotation
+    direction.applyEuler(new THREE.Euler(
+      0,
+      this.turretPivot.rotation.y,
+      0
+    ));
+    
+    // Apply tank rotation
+    direction.applyEuler(new THREE.Euler(
+      0,
+      this.tank.rotation.y,
+      0
+    ));
+    
+    // Create and return new shell
+    return new Shell(
+      this.scene,
+      barrelEndPosition,
+      direction,
+      this.SHELL_SPEED,
+      this
+    );
+  }
+  
+  // Health bar methods
+  protected createHealthBar(): void {
+    // Creating a canvas for the health bar and name tag
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 48;
+    const context = canvas.getContext('2d');
+    
+    if (context) {
+      // Clear the entire canvas
+      context.clearRect(0, 0, 256, 48);
+      
+      // Draw the tank name
+      context.font = 'bold 20px Arial';
+      context.textAlign = 'center';
+      context.fillStyle = 'white';
+      context.strokeStyle = 'black';
+      context.lineWidth = 3;
+      context.strokeText(this.tankName, 128, 20);
+      context.fillText(this.tankName, 128, 20);
+      
+      // Draw the background (black) for health bar
+      context.fillStyle = 'rgba(0,0,0,0.7)';
+      context.fillRect(0, 28, 256, 20);
+      
+      // Draw the health bar (green)
+      context.fillStyle = '#00FF00';
+      context.fillRect(4, 30, 248, 16);
+      
+      // Create a texture from the canvas
+      const texture = new THREE.CanvasTexture(canvas);
+      
+      // Store the canvas context for updating the health bar
+      this.healthBarContext = context;
+      this.healthBarTexture = texture;
+      
+      // Create a sprite material that uses the canvas texture
+      const spriteMaterial = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+      });
+      
+      // Create a sprite that will always face the camera
+      const sprite = new THREE.Sprite(spriteMaterial);
+      
+      // Position the sprite above the tank
+      sprite.position.set(0, 3.7, 0);
+      
+      // Scale the sprite to an appropriate size
+      sprite.scale.set(4.0, 1.5, 1.0);
+      
+      // Add the sprite to the tank
+      this.tank.add(sprite);
+      
+      // Store the sprite for later reference
+      this.healthBarSprite = sprite;
+    }
+    
+    // Update health bar initially
+    this.updateHealthBar();
+  }
+  
+  protected updateHealthBar(): void {
+    if (!this.healthBarContext || !this.healthBarTexture) return;
+    
+    // Calculate health percentage
+    const healthPercent = this.health / this.MAX_HEALTH;
+    
+    // Clear only the health bar portion
+    this.healthBarContext.clearRect(0, 28, 256, 20);
+    
+    // Draw background for health bar
+    this.healthBarContext.fillStyle = 'rgba(0,0,0,0.7)';
+    this.healthBarContext.fillRect(0, 28, 256, 20);
+    
+    // Determine color based on health percentage
+    if (healthPercent > 0.6) {
+      this.healthBarContext.fillStyle = '#00FF00'; // Green
+    } else if (healthPercent > 0.3) {
+      this.healthBarContext.fillStyle = '#FFFF00'; // Yellow
+    } else {
+      this.healthBarContext.fillStyle = '#FF0000'; // Red
+    }
+    
+    // Draw health bar with current percentage
+    const barWidth = Math.floor(248 * healthPercent);
+    this.healthBarContext.fillRect(4, 30, barWidth, 16);
+    
+    // Update the texture
+    this.healthBarTexture.needsUpdate = true;
+  }
+  
+  // Collision detection methods
+  protected checkCollision(other: ICollidable): boolean {
+    const otherCollider = other.getCollider();
+    
+    if (otherCollider instanceof THREE.Sphere) {
+      // Sphere-Sphere collision
+      const distance = this.tank.position.distanceTo(other.getPosition());
+      return distance < (this.collider.radius + otherCollider.radius);
+    } else if (otherCollider instanceof THREE.Box3) {
+      // Sphere-Box collision
+      return otherCollider.intersectsSphere(this.collider);
+    }
+    
+    return false;
+  }
+
+  // Destruction effects
+  protected createDestroyedEffect(): void {
+    // Hide the tank
+    this.tank.visible = false;
+    
+    // Hide health bar sprite
+    if (this.healthBarSprite) {
+      this.healthBarSprite.visible = false;
+    }
+    
+    // Add initial explosion flash
+    this.createExplosionFlash();
+    
+    // Create debris particles
+    this.createDebrisParticles();
+    
+    // Create smoke effect
+    this.createSmokeEffect();
+    
+    // Create fire effect
+    this.createFireEffect();
+    
+    // Create shockwave effect
+    this.createShockwaveEffect();
+    
+    // Create sparks effect
+    this.createSparksEffect();
+    
+    // Play explosion sound
+    if (this.explodeSound) {
+      this.explodeSound.setSourcePosition(this.tank.position);
+      this.explodeSound.cloneAndPlay();
+    }
+    
+    // Stop movement sound if it was playing
+    if (this.lastMoveSoundState && this.moveSound) {
+      this.moveSound.stop();
+      this.lastMoveSoundState = false;
+    }
+  }
+  
+  // Interface implementations
+  dispose(): void {
+    // Clean up resources
+    this.scene.remove(this.tank);
+    
+    // Clean up any destroyed effects
+    for (const effect of this.destroyedEffects) {
+      this.scene.remove(effect);
+    }
+    this.destroyedEffects = [];
+  }
+  
+  takeDamage(amount: number): boolean {
+    if (this.isDestroyed) return true;
+    
+    // Apply damage to tank
+    this.health = Math.max(0, this.health - amount);
+    
+    // Debug
+    console.log(`Tank taking damage: ${amount}, remaining health: ${this.health}`);
+    
+    // Check if destroyed
+    if (this.health <= 0) {
+      this.health = 0;
+      this.isDestroyed = true;
+      this.createDestroyedEffect();
+      return true;
+    }
+    
+    // Update health bar
+    this.updateHealthBar();
+    
+    return false;
+  }
+  
+  setHealth(health: number): void {
+    if (this.isDestroyed) return;
+    
+    // Set health value
+    this.health = Math.max(0, Math.min(this.MAX_HEALTH, health));
+    
+    // Update health bar
+    this.updateHealthBar();
+    
+    // Check if destroyed
+    if (this.health <= 0 && !this.isDestroyed) {
+      this.health = 0;
+      this.isDestroyed = true;
+      this.createDestroyedEffect();
+    }
+  }
+  
+  getHealth(): number {
+    return this.health;
+  }
+  
+  respawn(position?: THREE.Vector3): void {
+    // Reset health
+    this.health = this.MAX_HEALTH;
+    this.isDestroyed = false;
+    
+    // Reset position if provided
+    if (position) {
+      this.tank.position.copy(position);
+    }
+    
+    // Make tank visible again
+    this.tank.visible = true;
+    
+    // Reset collider
+    this.collider.center.copy(this.tank.position);
+    
+    // Remove destroyed effects
+    for (const effect of this.destroyedEffects) {
+      this.scene.remove(effect);
+    }
+    this.destroyedEffects = [];
+    
+    // Update health bar
+    this.updateHealthBar();
+    
+    // Dispatch tank respawn event
+    const respawnEvent = new CustomEvent('tank-respawn', {
+      bubbles: true,
+      composed: true,
+      detail: { 
+        playerId: this.ownerId || 'player',
+        position: {
+          x: this.tank.position.x,
+          y: this.tank.position.y,
+          z: this.tank.position.z
+        }
+      }
+    });
+    document.dispatchEvent(respawnEvent);
+  }
+  
+  // ICollidable implementation
+  getCollider(): THREE.Sphere {
+    return this.collider;
+  }
+  
+  getPosition(): THREE.Vector3 {
+    return this.tank.position.clone();
+  }
+  
+  getType(): string {
+    return 'tank';
+  }
+  
+  onCollision(other: ICollidable): void {
+    if (other.getType() === 'shell') {
+      // For shell collisions, handled by the shell's onCollision method
+      return;
+    }
+    
+    // For other collisions (tank-tank, tank-environment)
+    // Move back to last position
+    this.tank.position.copy(this.lastPosition);
+    this.collider.center.copy(this.lastPosition);
+  }
+  
+  // Movement status
+  isMoving(): boolean {
+    return this.isCurrentlyMoving;
+  }
+  
+  getVelocity(): number {
+    return this.velocity;
+  }
+  
+  // Barrel elevation
   getMinBarrelElevation(): number {
     return this.minBarrelElevation;
   }
@@ -316,34 +1011,585 @@ export class Tank implements ITank {
     return this.maxBarrelElevation;
   }
   
-  // Collision properties
-  private collider: THREE.Sphere;
-  private collisionRadius = 2.0; // Size of the tank's collision sphere (must match NPCTank size)
-  private lastPosition = new THREE.Vector3();
+  // Sound position updates
+  updateSoundPositions(): void {
+    const position = this.tank.position;
+    if (this.moveSound) this.moveSound.setSourcePosition(position);
+    if (this.fireSound) this.fireSound.setSourcePosition(position);
+    if (this.explodeSound) this.explodeSound.setSourcePosition(position);
+  }
   
-  // Firing properties
-  private canFire = true;
-  private readonly RELOAD_TIME = 30; // Half-second cooldown at 60fps - 2x faster firing
-  private reloadCounter = 0;
-  private lastFireTime: number = 0;
-  private readonly FIRE_COOLDOWN_MS: number = 500; // Half-second cooldown in milliseconds
-  private readonly SHELL_SPEED = 10.0; // Massively increased from 1.5 for extreme range
-  private readonly BARREL_END_OFFSET = 1.5; // Distance from turret pivot to end of barrel
+  // Tank owner ID
+  getOwnerId(): string | undefined {
+    return this.ownerId;
+  }
   
-  // Health properties
-  private health: number = 100; // Full health
-  private readonly MAX_HEALTH: number = 100;
-  private isDestroyed: boolean = false;
-  private destroyedEffects: THREE.Object3D[] = [];
+  setOwnerId(id: string): void {
+    this.ownerId = id;
+  }
   
-  // Movement tracking
-  private isCurrentlyMoving: boolean = false;
-  private velocity: number = 0;
+  // Destruction effect methods
+  protected createExplosionFlash(): void {
+    // Create a sphere for the initial flash
+    const flashGeometry = new THREE.SphereGeometry(3.5, 32, 32);
+    const flashMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffff99,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending
+    });
+    
+    const flash = new THREE.Mesh(flashGeometry, flashMaterial);
+    flash.position.copy(this.tank.position);
+    flash.position.y += 1.0; // Slightly above ground
+    this.scene.add(flash);
+    this.destroyedEffects.push(flash);
+    
+    // Create animation to fade out the flash
+    const fadeOut = () => {
+      if (!flash.material) return;
+      
+      const material = flash.material as THREE.MeshBasicMaterial;
+      material.opacity -= 0.05;
+      
+      if (material.opacity <= 0) {
+        // Remove flash when completely faded
+        this.scene.remove(flash);
+        return;
+      }
+      
+      // Continue animation on next frame
+      requestAnimationFrame(fadeOut);
+    };
+    
+    // Start the fade-out animation
+    requestAnimationFrame(fadeOut);
+  }
   
-  // Health bar display
-  private healthBarSprite: THREE.Sprite;
-  private healthBarContext: CanvasRenderingContext2D | null = null;
-  private healthBarTexture: THREE.CanvasTexture | null = null;
+  protected createDebrisParticles(): void {
+    // Create debris particles representing tank parts
+    const debrisCount = 20;
+    const debrisGeometry = new THREE.BufferGeometry();
+    const debrisPositions = new Float32Array(debrisCount * 3);
+    const debrisSizes = new Float32Array(debrisCount);
+    const debrisColors = new Float32Array(debrisCount * 3);
+    const debrisVelocities: Array<THREE.Vector3> = [];
+    
+    // Create random debris particles
+    for (let i = 0; i < debrisCount; i++) {
+      const i3 = i * 3;
+      
+      // Start at tank position with small random offset
+      debrisPositions[i3] = this.tank.position.x + (Math.random() - 0.5) * 1.5;
+      debrisPositions[i3 + 1] = this.tank.position.y + Math.random() * 1.5;
+      debrisPositions[i3 + 2] = this.tank.position.z + (Math.random() - 0.5) * 1.5;
+      
+      // Random sizes for debris
+      debrisSizes[i] = 0.2 + Math.random() * 0.5;
+      
+      // Tank colors (mostly metal gray with some colored parts)
+      if (Math.random() > 0.7) {
+        // Use tank body color for some debris
+        const tankColor = new THREE.Color(this.tankColor || 0x4a7c59);
+        debrisColors[i3] = tankColor.r;
+        debrisColors[i3 + 1] = tankColor.g;
+        debrisColors[i3 + 2] = tankColor.b;
+      } else {
+        // Dark metal for most debris
+        const darkness = 0.2 + Math.random() * 0.3;
+        debrisColors[i3] = darkness;
+        debrisColors[i3 + 1] = darkness;
+        debrisColors[i3 + 2] = darkness;
+      }
+      
+      // Random velocity for debris
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 0.1 + Math.random() * 0.3;
+      const velocity = new THREE.Vector3(
+        Math.cos(angle) * speed,
+        0.1 + Math.random() * 0.4, // Upward velocity
+        Math.sin(angle) * speed
+      );
+      debrisVelocities.push(velocity);
+    }
+    
+    debrisGeometry.setAttribute('position', new THREE.BufferAttribute(debrisPositions, 3));
+    debrisGeometry.setAttribute('size', new THREE.BufferAttribute(debrisSizes, 1));
+    debrisGeometry.setAttribute('color', new THREE.BufferAttribute(debrisColors, 3));
+    
+    const debrisMaterial = new THREE.PointsMaterial({
+      size: 1.0,
+      vertexColors: true,
+      transparent: true,
+      opacity: 1.0,
+      sizeAttenuation: true
+    });
+    
+    const debrisParticles = new THREE.Points(debrisGeometry, debrisMaterial);
+    this.scene.add(debrisParticles);
+    this.destroyedEffects.push(debrisParticles);
+    
+    // Animate debris
+    const updateDebris = () => {
+      const positions = debrisGeometry.attributes.position.array as Float32Array;
+      
+      for (let i = 0; i < debrisCount; i++) {
+        const i3 = i * 3;
+        const velocity = debrisVelocities[i];
+        
+        // Apply velocity
+        positions[i3] += velocity.x;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z;
+        
+        // Apply gravity
+        velocity.y -= 0.01;
+        
+        // Slight drag
+        velocity.x *= 0.99;
+        velocity.z *= 0.99;
+        
+        // Ground collision
+        if (positions[i3 + 1] < 0.1) {
+          positions[i3 + 1] = 0.1;
+          velocity.y = 0;
+          
+          // Reduce horizontal speed when on ground
+          velocity.x *= 0.7;
+          velocity.z *= 0.7;
+        }
+      }
+      
+      debrisGeometry.attributes.position.needsUpdate = true;
+      
+      // Continue animation
+      requestAnimationFrame(updateDebris);
+    };
+    
+    // Start animation
+    requestAnimationFrame(updateDebris);
+  }
+  
+  protected createSmokeEffect(): void {
+    // Enhanced smoke particle system
+    const particleCount = 80;
+    const smokeGeometry = new THREE.BufferGeometry();
+    const smokePositions = new Float32Array(particleCount * 3);
+    const smokeSizes = new Float32Array(particleCount);
+    const smokeColors = new Float32Array(particleCount * 3);
+    const smokeVelocities: Array<THREE.Vector3> = [];
+    const smokeCreationTimes: Array<number> = [];
+    const currentTime = Date.now();
+    
+    // Create random positions within a sphere
+    for (let i = 0; i < particleCount; i++) {
+      const i3 = i * 3;
+      const radius = 1.8;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      
+      smokePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
+      smokePositions[i3 + 1] = this.tank.position.y + radius * Math.cos(phi) + 1.2; // Slightly above ground
+      smokePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
+      
+      // Variable smoke sizes
+      smokeSizes[i] = 0.7 + Math.random() * 1.2;
+      
+      // Dark smoke color (dark gray to black) with slightly more variation
+      const darkness = 0.1 + Math.random() * 0.25;
+      smokeColors[i3] = darkness;
+      smokeColors[i3 + 1] = darkness;
+      smokeColors[i3 + 2] = darkness;
+      
+      // Add random velocity to each particle
+      const upwardVelocity = 0.03 + Math.random() * 0.05;
+      const horizontalVelocity = 0.01 + Math.random() * 0.02;
+      const angle = Math.random() * Math.PI * 2;
+      smokeVelocities.push(new THREE.Vector3(
+        Math.cos(angle) * horizontalVelocity,
+        upwardVelocity,
+        Math.sin(angle) * horizontalVelocity
+      ));
+      
+      // Stagger creation times
+      smokeCreationTimes.push(currentTime + Math.random() * 1000);
+    }
+    
+    smokeGeometry.setAttribute('position', new THREE.BufferAttribute(smokePositions, 3));
+    smokeGeometry.setAttribute('size', new THREE.BufferAttribute(smokeSizes, 1));
+    smokeGeometry.setAttribute('color', new THREE.BufferAttribute(smokeColors, 3));
+    
+    const smokeMaterial = new THREE.PointsMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.8,
+      sizeAttenuation: true
+    });
+    
+    const smokeParticles = new THREE.Points(smokeGeometry, smokeMaterial);
+    this.scene.add(smokeParticles);
+    this.destroyedEffects.push(smokeParticles);
+    
+    // Animate smoke
+    const smokeDuration = 8000; // 8 seconds
+    const updateSmoke = () => {
+      const currentTime = Date.now();
+      const positions = smokeGeometry.attributes.position.array as Float32Array;
+      const sizes = smokeGeometry.attributes.size.array as Float32Array;
+      
+      for (let i = 0; i < particleCount; i++) {
+        // Only activate particles when their time arrives
+        if (currentTime < smokeCreationTimes[i]) continue;
+        
+        const i3 = i * 3;
+        const velocity = smokeVelocities[i];
+        const age = currentTime - smokeCreationTimes[i];
+        
+        // Apply velocity with wind drift
+        positions[i3] += velocity.x + Math.sin(age * 0.001) * 0.01;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z + Math.cos(age * 0.001) * 0.01;
+        
+        // Grow particles over time
+        if (age < 2000) {
+          sizes[i] = Math.min(3.0, sizes[i] * 1.01);
+        }
+        
+        // Fade out particles after a certain age
+        if (age > smokeDuration * 0.6) {
+          smokeMaterial.opacity = Math.max(0, 0.8 - (age - smokeDuration * 0.6) / (smokeDuration * 0.4) * 0.8);
+        }
+      }
+      
+      smokeGeometry.attributes.position.needsUpdate = true;
+      smokeGeometry.attributes.size.needsUpdate = true;
+      
+      // Continue animation if smoke is still visible
+      if (smokeMaterial.opacity > 0) {
+        requestAnimationFrame(updateSmoke);
+      } else {
+        this.scene.remove(smokeParticles);
+      }
+    };
+    
+    // Start animation
+    requestAnimationFrame(updateSmoke);
+  }
+  
+  protected createFireEffect(): void {
+    // Enhanced fire effect with more dynamic particles
+    const fireCount = 60;
+    const fireGeometry = new THREE.BufferGeometry();
+    const firePositions = new Float32Array(fireCount * 3);
+    const fireSizes = new Float32Array(fireCount);
+    const fireColors = new Float32Array(fireCount * 3);
+    const fireVelocities: Array<THREE.Vector3> = [];
+    const fireCreationTimes: Array<number> = [];
+    const currentTime = Date.now();
+    
+    // Create random positions for fire
+    for (let i = 0; i < fireCount; i++) {
+      const i3 = i * 3;
+      const radius = 1.2;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI / 2; // Concentrate in lower hemisphere
+      
+      firePositions[i3] = this.tank.position.x + radius * Math.sin(phi) * Math.cos(theta);
+      firePositions[i3 + 1] = this.tank.position.y + 0.5; // Lower than smoke
+      firePositions[i3 + 2] = this.tank.position.z + radius * Math.sin(phi) * Math.sin(theta);
+      
+      // Variable fire sizes
+      fireSizes[i] = 0.5 + Math.random() * 1.0;
+      
+      // More vibrant fire colors with variation
+      if (Math.random() > 0.7) {
+        // Yellow flames
+        fireColors[i3] = 1.0; // Red
+        fireColors[i3 + 1] = 0.8 + Math.random() * 0.2; // Green
+        fireColors[i3 + 2] = 0.1 + Math.random() * 0.2; // A bit of blue
+      } else {
+        // Orange-red flames
+        fireColors[i3] = 0.9 + Math.random() * 0.1; // Red
+        fireColors[i3 + 1] = 0.3 + Math.random() * 0.3; // Green
+        fireColors[i3 + 2] = 0; // No blue
+      }
+      
+      // Add velocity
+      const upwardVelocity = 0.05 + Math.random() * 0.08;
+      const horizontalVelocity = 0.01 + Math.random() * 0.03;
+      const angle = Math.random() * Math.PI * 2;
+      fireVelocities.push(new THREE.Vector3(
+        Math.cos(angle) * horizontalVelocity,
+        upwardVelocity,
+        Math.sin(angle) * horizontalVelocity
+      ));
+      
+      // Stagger creation times for continuous flame effect
+      fireCreationTimes.push(currentTime + Math.random() * 1500);
+    }
+    
+    fireGeometry.setAttribute('position', new THREE.BufferAttribute(firePositions, 3));
+    fireGeometry.setAttribute('size', new THREE.BufferAttribute(fireSizes, 1));
+    fireGeometry.setAttribute('color', new THREE.BufferAttribute(fireColors, 3));
+    
+    const fireMaterial = new THREE.PointsMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true
+    });
+    
+    const fireParticles = new THREE.Points(fireGeometry, fireMaterial);
+    this.scene.add(fireParticles);
+    this.destroyedEffects.push(fireParticles);
+    
+    // Animate fire
+    const fireDuration = 4000; // 4 seconds - shorter than smoke
+    const updateFire = () => {
+      const currentTime = Date.now();
+      const positions = fireGeometry.attributes.position.array as Float32Array;
+      const sizes = fireGeometry.attributes.size.array as Float32Array;
+      
+      for (let i = 0; i < fireCount; i++) {
+        // Only activate particles when their time arrives
+        if (currentTime < fireCreationTimes[i]) continue;
+        
+        const i3 = i * 3;
+        const velocity = fireVelocities[i];
+        const age = currentTime - fireCreationTimes[i];
+        
+        // Apply velocity with flickering
+        positions[i3] += velocity.x + (Math.random() - 0.5) * 0.05;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z + (Math.random() - 0.5) * 0.05;
+        
+        // Shrink particles as they rise (fire consumes)
+        if (age > 500) {
+          sizes[i] = Math.max(0.1, sizes[i] * 0.98);
+        }
+        
+        // Fade out particles after a certain age
+        if (age > fireDuration * 0.5) {
+          fireMaterial.opacity = Math.max(0, 0.9 - (age - fireDuration * 0.5) / (fireDuration * 0.5) * 0.9);
+        }
+      }
+      
+      fireGeometry.attributes.position.needsUpdate = true;
+      fireGeometry.attributes.size.needsUpdate = true;
+      
+      // Continue animation if fire is still visible
+      if (fireMaterial.opacity > 0) {
+        requestAnimationFrame(updateFire);
+      } else {
+        this.scene.remove(fireParticles);
+      }
+    };
+    
+    // Start animation
+    requestAnimationFrame(updateFire);
+  }
+  
+  protected createShockwaveEffect(): void {
+    // Create an expanding ring for the shockwave
+    const shockwaveGeometry = new THREE.RingGeometry(0.1, 0.5, 32);
+    const shockwaveMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffcc66,
+      transparent: true,
+      opacity: 0.7,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide
+    });
+    
+    const shockwave = new THREE.Mesh(shockwaveGeometry, shockwaveMaterial);
+    shockwave.rotation.x = -Math.PI / 2; // Lay flat on the ground
+    shockwave.position.copy(this.tank.position);
+    shockwave.position.y = 0.1; // Just above ground
+    this.scene.add(shockwave);
+    this.destroyedEffects.push(shockwave);
+    
+    // Animate shockwave
+    const shockwaveDuration = 1000; // 1 second
+    const startTime = Date.now();
+    const maxRadius = 10;
+    
+    const updateShockwave = () => {
+      const currentTime = Date.now();
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(1, elapsed / shockwaveDuration);
+      
+      // Expand the ring
+      const innerRadius = progress * maxRadius;
+      const outerRadius = innerRadius + 0.5 + progress * 2;
+      
+      shockwave.scale.set(innerRadius, innerRadius, 1);
+      
+      // Fade out
+      shockwaveMaterial.opacity = 0.7 * (1 - progress);
+      
+      if (progress < 1) {
+        requestAnimationFrame(updateShockwave);
+      } else {
+        this.scene.remove(shockwave);
+      }
+    };
+    
+    // Start animation
+    requestAnimationFrame(updateShockwave);
+  }
+  
+  protected createSparksEffect(): void {
+    // Create sparks (bright, fast particles)
+    const sparkCount = 30;
+    const sparkGeometry = new THREE.BufferGeometry();
+    const sparkPositions = new Float32Array(sparkCount * 3);
+    const sparkSizes = new Float32Array(sparkCount);
+    const sparkColors = new Float32Array(sparkCount * 3);
+    const sparkVelocities: Array<THREE.Vector3> = [];
+    
+    // Create random spark particles
+    for (let i = 0; i < sparkCount; i++) {
+      const i3 = i * 3;
+      
+      // Start at tank position
+      sparkPositions[i3] = this.tank.position.x;
+      sparkPositions[i3 + 1] = this.tank.position.y + 1;
+      sparkPositions[i3 + 2] = this.tank.position.z;
+      
+      // Small bright sparks
+      sparkSizes[i] = 0.2 + Math.random() * 0.3;
+      
+      // Bright yellow/white colors
+      sparkColors[i3] = 1.0;  // Red
+      sparkColors[i3 + 1] = 0.9 + Math.random() * 0.1; // Green
+      sparkColors[i3 + 2] = 0.6 + Math.random() * 0.4; // Blue
+      
+      // High velocity in random directions
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      const speed = 0.2 + Math.random() * 0.4;
+      const velocity = new THREE.Vector3(
+        Math.sin(phi) * Math.cos(theta) * speed,
+        Math.cos(phi) * speed,
+        Math.sin(phi) * Math.sin(theta) * speed
+      );
+      sparkVelocities.push(velocity);
+    }
+    
+    sparkGeometry.setAttribute('position', new THREE.BufferAttribute(sparkPositions, 3));
+    sparkGeometry.setAttribute('size', new THREE.BufferAttribute(sparkSizes, 1));
+    sparkGeometry.setAttribute('color', new THREE.BufferAttribute(sparkColors, 3));
+    
+    const sparkMaterial = new THREE.PointsMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 1.0,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true
+    });
+    
+    const sparkParticles = new THREE.Points(sparkGeometry, sparkMaterial);
+    this.scene.add(sparkParticles);
+    this.destroyedEffects.push(sparkParticles);
+    
+    // Animate sparks
+    const sparkDuration = 1500; // 1.5 seconds
+    const startTime = Date.now();
+    
+    const updateSparks = () => {
+      const currentTime = Date.now();
+      const elapsed = currentTime - startTime;
+      const progress = elapsed / sparkDuration;
+      
+      const positions = sparkGeometry.attributes.position.array as Float32Array;
+      const sizes = sparkGeometry.attributes.size.array as Float32Array;
+      
+      for (let i = 0; i < sparkCount; i++) {
+        const i3 = i * 3;
+        const velocity = sparkVelocities[i];
+        
+        // Apply velocity
+        positions[i3] += velocity.x;
+        positions[i3 + 1] += velocity.y;
+        positions[i3 + 2] += velocity.z;
+        
+        // Apply gravity
+        velocity.y -= 0.015;
+        
+        // Shrink sparks over time
+        sizes[i] *= 0.98;
+      }
+      
+      // Fade out toward the end
+      if (progress > 0.7) {
+        sparkMaterial.opacity = 1.0 - ((progress - 0.7) / 0.3);
+      }
+      
+      sparkGeometry.attributes.position.needsUpdate = true;
+      sparkGeometry.attributes.size.needsUpdate = true;
+      
+      if (progress < 1) {
+        requestAnimationFrame(updateSparks);
+      } else {
+        this.scene.remove(sparkParticles);
+      }
+    };
+    
+    // Start animation
+    requestAnimationFrame(updateSparks);
+  }
+  
+  // Create a complete tank model by combining all the component methods
+  protected createTank(): void {
+    // Tank body - more detailed with beveled edges
+    const bodyGeometry = new THREE.BoxGeometry(2, 0.75, 3, 1, 1, 2);
+    const bodyMaterial = new THREE.MeshStandardMaterial({ 
+      color: this.tankColor || 0x4a7c59,
+      roughness: 0.3,
+      metalness: 0.8,
+      envMapIntensity: 1.2
+    });
+    this.tankBody = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    this.tankBody.position.y = 0.75 / 2;
+    this.tankBody.castShadow = true;
+    this.tankBody.receiveShadow = true;
+    this.tank.add(this.tankBody);
+    
+    // Add armor plating details to the tank body
+    this.addArmorPlates();
+    
+    // Tracks (left and right) - more detailed with tread segments
+    this.createDetailedTracks();
+    
+    // Create turret group for Y-axis rotation
+    this.turretPivot = new THREE.Group();
+    this.turretPivot.position.set(0, 1.0, 0);
+    this.tank.add(this.turretPivot);
+    
+    // Turret base - more detailed with hatches and details
+    this.createDetailedTurret();
+    
+    // Create a group for the barrel - this will handle the elevation
+    const barrelGroup = new THREE.Group();
+    
+    // Position the pivot point at the front edge of the turret (not the center)
+    barrelGroup.position.set(0, 0, 0.8);
+    this.turretPivot.add(barrelGroup);
+    
+    // Create a more detailed barrel with muzzle brake
+    this.createDetailedBarrel(barrelGroup);
+    
+    // Store reference to the barrelGroup for elevation control
+    this.barrelPivot = barrelGroup;
+    
+    // Set initial barrel elevation to exactly horizontal (0 degrees)
+    this.barrelPivot.rotation.x = 0;
+  }
+}
+
+export class Tank extends BaseTank {
+  // Camera for player-controlled tank
+  private camera?: THREE.PerspectiveCamera;
   
   // Compound collision system for more precise hit detection
   private compoundColliders: {
@@ -351,44 +1597,34 @@ export class Tank implements ITank {
     collider: THREE.Sphere;
     damageMultiplier: number;
   }[] = [];
-  
-  private scene: THREE.Scene;
-  private camera?: THREE.PerspectiveCamera;
 
   constructor(scene: THREE.Scene, camera?: THREE.PerspectiveCamera, name: string = "Player") {
-    this.scene = scene;
+    // Initialize with base class constructor
+    super(scene, new THREE.Vector3(0, 0, 0), 0x4a7c59, name);
     this.camera = camera;
     
-    // Set player name
-    this.tankName = name;
-    
-    // Initialize tank group
-    this.tank = new THREE.Group();
-    this.turretPivot = new THREE.Group();
-    this.barrelPivot = new THREE.Group();
+    // Override values from base class with player-specific settings
+    this.tankSpeed = 2.5;                 // Increased 5x from original for extreme speed
+    this.tankRotationSpeed = 0.04;        // Reduced by 50% for more controlled turning
+    this.turretRotationSpeed = 0.1;       // Increased for faster aiming
+    this.barrelElevationSpeed = 0.08;     // Increased for quicker elevation changes
+    this.RELOAD_TIME = 30;                // Half-second cooldown at 60fps
+    this.FIRE_COOLDOWN_MS = 500;          // Half-second cooldown in milliseconds
+    this.SHELL_SPEED = 10.0;              // Increased for extreme range
     
     // Create tank model
     this.createTank();
     
-    // Initialize collision sphere
-    this.collider = new THREE.Sphere(this.tank.position.clone(), this.collisionRadius);
-    this.lastPosition = this.tank.position.clone();
-    
     // Initialize compound colliders for more precise hit detection
     this.initializeCompoundColliders();
     
-    // No health bar for player tank - it's shown in the UI
-    
-    // Initialize sound effects
+    // Initialize sound effects with higher volume for player
     this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.4, 120);
-    this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.39375, 150); // Reduced by another 25% (now 75% of original)
+    this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.39375, 150);
     this.explodeSound = new SpatialAudio('/static/js/assets/sounds/tank-explode.mp3', false, 0.8, 200);
     
     // Initialize sound positions
     this.updateSoundPositions();
-    
-    // Add to scene
-    scene.add(this.tank);
   }
 
   private createTank() {
@@ -1996,64 +3232,7 @@ function generateRandomTankName(): string {
   return `${randomAdjective} ${randomNoun}`;
 }
 
-export class NPCTank implements ITank {
-  // Tank components
-  tank: THREE.Group;
-  tankBody?: THREE.Mesh;
-  turret?: THREE.Mesh;
-  turretPivot: THREE.Group;
-  barrel?: THREE.Mesh;
-  barrelPivot: THREE.Group;
-  
-  // Add owner ID property
-  private ownerId?: string;
-  
-  // Track movement properties for detailed visuals
-  private trackSegments: THREE.Mesh[] = [];
-  private wheels: THREE.Mesh[] = [];
-  private readonly TRACK_SEGMENT_COUNT: number = 8;
-  private trackRotationSpeed: number = 0;
-  private acceleration: number = 0;
-  
-  // Getter for tank owner ID
-  getOwnerId(): string | undefined {
-    return this.ownerId;
-  }
-  
-  // Setter for tank owner ID
-  setOwnerId(id: string) {
-    this.ownerId = id;
-  }
-  
-  // Implement required interface methods
-  getMinBarrelElevation(): number {
-    return this.minBarrelElevation;
-  }
-  
-  getMaxBarrelElevation(): number {
-    return this.maxBarrelElevation;
-  }
-  
-  isMoving(): boolean {
-    // Returns whether the tank is currently moving
-    return this.isCurrentlyMoving;
-  }
-  
-  getVelocity(): number {
-    // Returns the current velocity of the tank
-    return this.velocity;
-  }
-  
-  // Tank properties
-  private tankSpeed = 0.1;
-  private tankRotationSpeed = 0.03;
-  private turretRotationSpeed = 0.02;
-  private barrelElevationSpeed = 0.01;
-  private maxBarrelElevation = 0;
-  private minBarrelElevation = -Math.PI / 4;
-  private velocity: number = 0;
-  private isCurrentlyMoving: boolean = false;
-  
+export class NPCTank extends BaseTank {
   // NPC behavior properties
   private movementPattern: 'circle' | 'zigzag' | 'random' | 'patrol';
   private movementTimer = 0;
@@ -2062,61 +3241,31 @@ export class NPCTank implements ITank {
   private targetPosition = new THREE.Vector3();
   private patrolPoints: THREE.Vector3[] = [];
   private currentPatrolIndex = 0;
-  private tankColor: number;
-  tankName: string; // Public to allow access from game component
-  
-  // Collision properties
-  private collider: THREE.Sphere;
-  private collisionRadius = 2.0; // Size of the tank's collision sphere (must match Tank class)
-  private lastPosition = new THREE.Vector3();
   private collisionResetTimer = 0;
   private readonly COLLISION_RESET_DELAY = 60; // Frames to wait after collision before trying new direction
   
-  // Firing properties
-  private canFire = true;
-  private readonly RELOAD_TIME = 180; // 3 second cooldown at 60fps - slower than player for balance
-  private reloadCounter = 0;
-  private lastFireTime: number = 0;
-  private readonly FIRE_COOLDOWN_MS: number = 3000; // 3 second cooldown in milliseconds
-  private readonly SHELL_SPEED = 4.8; // 4x from 1.2 but still slower than player
-  private readonly BARREL_END_OFFSET = 1.5; // Distance from turret pivot to end of barrel
+  // AI targeting properties
   private readonly FIRE_PROBABILITY = 0.01; // 1% chance to fire each frame when canFire is true
-  private readonly TARGETING_DISTANCE = 300; // Increased from 100 to match new shell range
-  
-  // Health properties
-  private health: number = 100; // Full health
-  private readonly MAX_HEALTH: number = 100;
-  private isDestroyed: boolean = false;
-  private destroyedEffects: THREE.Object3D[] = [];
-  
-  // Health bar display
-  private healthBarSprite: THREE.Sprite;
-  private healthBarContext: CanvasRenderingContext2D | null = null;
-  private healthBarTexture: THREE.CanvasTexture | null = null;
-
-  private scene: THREE.Scene;
+  private readonly TARGETING_DISTANCE = 300; // Distance at which the NPC starts targeting the player
 
   constructor(scene: THREE.Scene, position: THREE.Vector3, color = 0xff0000, name?: string) {
-    this.scene = scene;
-    this.tankColor = color;
+    // Generate a random name if none provided
+    const tankName = name || generateRandomTankName();
     
-    // Initialize tank name (use provided name or generate a random one)
-    this.tankName = name || generateRandomTankName();
+    // Initialize with base class constructor
+    super(scene, position, color, tankName);
     
-    // Initialize tank group
-    this.tank = new THREE.Group();
-    this.turretPivot = new THREE.Group();
-    this.barrelPivot = new THREE.Group();
+    // Override values from base class with NPC-specific settings
+    this.tankSpeed = 0.1;
+    this.tankRotationSpeed = 0.03;
+    this.turretRotationSpeed = 0.02;
+    this.barrelElevationSpeed = 0.01;
+    this.RELOAD_TIME = 180;           // 3 second cooldown at 60fps - slower than player
+    this.FIRE_COOLDOWN_MS = 3000;     // 3 second cooldown in milliseconds
+    this.SHELL_SPEED = 4.8;           // 4x from 1.2 but still slower than player
     
     // Create tank model
     this.createTank();
-    
-    // Set initial position
-    this.tank.position.copy(position);
-    this.lastPosition = this.tank.position.clone();
-    
-    // Initialize collision sphere
-    this.collider = new THREE.Sphere(this.tank.position.clone(), this.collisionRadius);
     
     // Pick a random movement pattern
     const patterns: ('circle' | 'zigzag' | 'random' | 'patrol')[] = ['circle', 'zigzag', 'random', 'patrol'];
@@ -2130,10 +3279,10 @@ export class NPCTank implements ITank {
       this.setupPatrolPoints();
     }
     
-    // Initialize sound effects (at lower volume than player tank)
+    // Initialize sound effects at lower volume than player tank
     try {
       this.moveSound = new SpatialAudio('/static/js/assets/sounds/tank-move.mp3', true, 0.3, 120);
-      this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.28125, 150); // Reduced by another 25% (now 75% of original)
+      this.fireSound = new SpatialAudio('/static/js/assets/sounds/tank-fire.mp3', false, 0.28125, 150);
       this.explodeSound = new SpatialAudio('/static/js/assets/sounds/tank-explode.mp3', false, 0.6, 200);
       
       // Initialize sound positions
@@ -2145,9 +3294,6 @@ export class NPCTank implements ITank {
     
     // Create health bar with tank name
     this.createHealthBar();
-    
-    // Add to scene
-    scene.add(this.tank);
   }
   
   private createHealthBar(): void {
