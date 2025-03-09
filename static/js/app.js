@@ -30720,6 +30720,9 @@ class Tank extends BaseTank {
       this.barrelPivot.rotation.x = Math.max(this.minBarrelElevation, this.barrelPivot.rotation.x - this.barrelElevationSpeed);
     }
     this.collider.center.copy(this.tank.position);
+    if (this.colliderVisual) {
+      this.colliderVisual.position.copy(this.tank.position);
+    }
     if (colliders) {
       for (const collider of colliders) {
         if (collider === this)
@@ -32528,6 +32531,7 @@ class GameStats extends LitElement {
     this.playerHealth = 100;
     this.kills = 0;
     this.deaths = 0;
+    this.playersOnline = 0;
     this.startMonitoring();
   }
   disconnectedCallback() {
@@ -32550,6 +32554,10 @@ class GameStats extends LitElement {
       <div class="stat-row">
         <span class="stat-label">Deaths</span>
         <span class="stat-value deaths">${this.deaths}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Players Online</span>
+        <span class="stat-value">${this.playersOnline}</span>
       </div>
       
       <div class="section">
@@ -32650,10 +32658,15 @@ class GameStats extends LitElement {
     this.objectCount = objectCount;
     this.triangleCount = triangleCount;
   }
-  updateGameStats(health, kills, deaths) {
+  updateGameStats(health, kills, deaths, playersOnline = this.playersOnline) {
     this.playerHealth = health;
     this.kills = kills;
     this.deaths = deaths;
+    this.playersOnline = playersOnline;
+    this.requestUpdate();
+  }
+  updatePlayersOnline(count) {
+    this.playersOnline = count;
     this.requestUpdate();
   }
 }
@@ -32678,6 +32691,9 @@ __legacyDecorateClassTS([
 __legacyDecorateClassTS([
   state()
 ], GameStats.prototype, "deaths", undefined);
+__legacyDecorateClassTS([
+  state()
+], GameStats.prototype, "playersOnline", undefined);
 GameStats = __legacyDecorateClassTS([
   customElement("game-stats")
 ], GameStats);
@@ -32819,21 +32835,6 @@ class GameComponent extends LitElement {
       pointer-events: none;
     }
     
-    .player-count {
-      position: absolute;
-      top: 75px;
-      right: 10px;
-      background: rgba(0, 0, 0, 0.7);
-      color: white;
-      padding: 10px;
-      border-radius: 5px;
-      font-family: monospace;
-      pointer-events: none;
-      font-size: 18px;
-      font-weight: bold;
-      min-width: 200px;
-      text-align: right;
-    }
     
     .game-state-display {
       position: absolute;
@@ -33019,9 +33020,6 @@ class GameComponent extends LitElement {
             <div>Arrow keys: Alternative turret control</div>
             <div>Left Click, Space, or F: Fire shell</div>
             <div>Click canvas to lock pointer</div>
-          </div>
-          <div class="player-count">
-            Players: ${this.multiplayerState?.players ? Object.keys(this.multiplayerState.players).length : 0}
           </div>
           <div class="game-over ${this.playerDestroyed ? "visible" : ""}">
             <div class="wasted-text">Wasted</div>
@@ -34185,7 +34183,8 @@ class GameComponent extends LitElement {
     const statsComponent = this.shadowRoot?.querySelector("game-stats");
     if (statsComponent) {
       const health = this.playerTank ? this.playerTank.getHealth() : 0;
-      statsComponent.updateGameStats(health, this.playerKills, this.playerDeaths);
+      const playerCount = this.multiplayerState?.players ? Object.keys(this.multiplayerState.players).length : 0;
+      statsComponent.updateGameStats(health, this.playerKills, this.playerDeaths, playerCount);
     }
   }
   emitPlayerPositionEvent() {

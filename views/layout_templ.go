@@ -21,7 +21,7 @@ func GetTimeComponents() (string, string, string) {
 	return hours, minutes, seconds
 }
 
-func Layout(loggedIn bool) templ.Component {
+func Layout(loggedIn bool, appURL string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -58,9 +58,9 @@ func Layout(loggedIn bool) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var2 string
-					templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs("https://tanks.mark3labs.com/api/files/" + auth.BaseFilesPath() + "/" + auth.GetString("avatar"))
+					templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(appURL + "/api/files/" + auth.BaseFilesPath() + "/" + auth.GetString("avatar"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/layout.templ`, Line: 83, Col: 114}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/layout.templ`, Line: 83, Col: 96}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 					if templ_7745c5c3_Err != nil {

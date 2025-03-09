@@ -266,21 +266,6 @@ export class GameComponent extends LitElement {
       pointer-events: none;
     }
     
-    .player-count {
-      position: absolute;
-      top: 75px;
-      right: 10px;
-      background: rgba(0, 0, 0, 0.7);
-      color: white;
-      padding: 10px;
-      border-radius: 5px;
-      font-family: monospace;
-      pointer-events: none;
-      font-size: 18px;
-      font-weight: bold;
-      min-width: 200px;
-      text-align: right;
-    }
     
     .game-state-display {
       position: absolute;
@@ -467,9 +452,6 @@ export class GameComponent extends LitElement {
             <div>Arrow keys: Alternative turret control</div>
             <div>Left Click, Space, or F: Fire shell</div>
             <div>Click canvas to lock pointer</div>
-          </div>
-          <div class="player-count">
-            Players: ${this.multiplayerState?.players ? Object.keys(this.multiplayerState.players).length : 0}
           </div>
           <div class="game-over ${this.playerDestroyed ? 'visible' : ''}">
             <div class="wasted-text">Wasted</div>
@@ -2315,7 +2297,8 @@ export class GameComponent extends LitElement {
     const statsComponent = this.shadowRoot?.querySelector('game-stats');
     if (statsComponent) {
       const health = this.playerTank ? this.playerTank.getHealth() : 0;
-      (statsComponent as any).updateGameStats(health, this.playerKills, this.playerDeaths);
+      const playerCount = this.multiplayerState?.players ? Object.keys(this.multiplayerState.players).length : 0;
+      (statsComponent as any).updateGameStats(health, this.playerKills, this.playerDeaths, playerCount);
     }
   }
   

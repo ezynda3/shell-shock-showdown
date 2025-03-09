@@ -2089,6 +2089,11 @@ export class Tank extends BaseTank {
     // Update collider position
     this.collider.center.copy(this.tank.position);
     
+    // Update visual collider position if it exists
+    if (this.colliderVisual) {
+      this.colliderVisual.position.copy(this.tank.position);
+    }
+    
     // Handle collisions
     if (colliders) {
       for (const collider of colliders) {
@@ -2337,6 +2342,7 @@ export class Tank extends BaseTank {
       collider: new THREE.Sphere(rearPosition, 0.8),
       damageMultiplier: 1.8 // Critical hit from behind
     });
+    
   }
   
   // Update compound colliders to match the tank's current position and rotation
@@ -2513,6 +2519,7 @@ export class Tank extends BaseTank {
     // Clean up resources
     this.scene.remove(this.tank);
     
+    
     // Clean up any destroyed effects
     for (const effect of this.destroyedEffects) {
       this.scene.remove(effect);
@@ -2640,6 +2647,7 @@ export class Tank extends BaseTank {
     if (this.healthBarSprite) {
       this.healthBarSprite.visible = false;
     }
+    
     
     // 1. Add initial explosion flash
     this.createExplosionFlash();

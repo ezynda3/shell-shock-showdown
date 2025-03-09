@@ -8,7 +8,10 @@ package views
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "github.com/pocketbase/pocketbase/core"
+import (
+	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/core"
+)
 
 func Index() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -31,52 +34,54 @@ func Index() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var2 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div style=\"width: 100%; height: calc(100vh - 64px);\" data-signals=\"{update: &#39;&#39;, shellFired: &#39;&#39;, gameState: &#39;&#39;, tankHit: &#39;&#39;, tankDeath: &#39;&#39;, tankRespawn: &#39;&#39; }\" data-on-load=\"@get(&#39;/gamestate&#39;, { openWhenHidden: true })\"><game-component data-on-player-movement__case.kebab=\"$update = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-shell-fired-sync__case.kebab=\"$shellFired = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-tank-hit-sync__case.kebab=\"$tankHit = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-tank-death-sync__case.kebab=\"$tankDeath = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-tank-respawn-sync__case.kebab=\"$tankRespawn = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-attr-game-state__case.kebab=\"$gameState\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			if user := ctx.Value("user"); user != nil {
-				if auth, ok := user.(*core.Record); ok {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " player-id=\"")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var3 string
-					templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(auth.Id)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/index.templ`, Line: 21, Col: 25}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
+		if app, ok := ctx.Value("app").(*pocketbase.PocketBase); ok {
+			templ_7745c5c3_Var2 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+				if !templ_7745c5c3_IsBuffer {
+					defer func() {
+						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err == nil {
+							templ_7745c5c3_Err = templ_7745c5c3_BufErr
+						}
+					}()
+				}
+				ctx = templ.InitializeContext(ctx)
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div style=\"width: 100%; height: calc(100vh - 64px);\" data-signals=\"{update: &#39;&#39;, shellFired: &#39;&#39;, gameState: &#39;&#39;, tankHit: &#39;&#39;, tankDeath: &#39;&#39;, tankRespawn: &#39;&#39; }\" data-on-load=\"@get(&#39;/gamestate&#39;, { openWhenHidden: true })\"><game-component data-on-player-movement__case.kebab=\"$update = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-shell-fired-sync__case.kebab=\"$shellFired = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-tank-hit-sync__case.kebab=\"$tankHit = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-tank-death-sync__case.kebab=\"$tankDeath = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-on-tank-respawn-sync__case.kebab=\"$tankRespawn = JSON.stringify(evt.detail); @post(&#39;/update&#39;)\" data-attr-game-state__case.kebab=\"$gameState\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				if user := ctx.Value("user"); user != nil {
+					if auth, ok := user.(*core.Record); ok {
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " player-id=\"")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						var templ_7745c5c3_Var3 string
+						templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(auth.Id)
+						if templ_7745c5c3_Err != nil {
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/index.templ`, Line: 25, Col: 25}
+						}
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
 					}
 				}
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "></game-component></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "></game-component></div>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				return nil
+			})
+			templ_7745c5c3_Err = Layout(true, app.Settings().Meta.AppURL).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			return nil
-		})
-		templ_7745c5c3_Err = Layout(true).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
 		}
 		return nil
 	})

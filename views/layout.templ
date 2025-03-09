@@ -13,7 +13,7 @@ func GetTimeComponents() (string, string, string) {
 	return hours, minutes, seconds
 }
 
-templ Layout(loggedIn bool) {
+templ Layout(loggedIn bool, appURL string) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -80,7 +80,7 @@ templ Layout(loggedIn bool) {
 									if auth, ok := user.(*core.Record); ok {
 										<button class="uk-btn uk-btn-default uk-btn-icon">
 											<img
-												src={ "https://tanks.mark3labs.com/api/files/" + auth.BaseFilesPath() + "/" + auth.GetString("avatar") }
+												src={ appURL + "/api/files/" + auth.BaseFilesPath() + "/" + auth.GetString("avatar") }
 												alt="User avatar"
 												class="h-5 w-5 rounded-full"
 											/>

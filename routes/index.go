@@ -185,6 +185,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 	protected.GET("/", func(e *core.RequestEvent) error {
 		log.Println(e.Auth)
 		ctx := context.WithValue(context.Background(), "user", e.Auth)
+		ctx = context.WithValue(ctx, "app", e.App)
 		return views.Index().Render(ctx, e.Response)
 	})
 

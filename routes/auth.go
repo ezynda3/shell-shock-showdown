@@ -45,7 +45,8 @@ func setupAuthRoutes(router *router.Router[*core.RequestEvent]) error {
 		}
 
 		providers := collection.OAuth2.Providers
-		return views.Login(providers).Render(context.Background(), e.Response)
+		ctx := context.WithValue(context.Background(), "app", e.App)
+		return views.Login(providers).Render(ctx, e.Response)
 	})
 
 	router.GET("/oauth2-login/{provider}", func(e *core.RequestEvent) error {
@@ -90,7 +91,8 @@ func setupAuthRoutes(router *router.Router[*core.RequestEvent]) error {
 	})
 
 	router.GET("/oauth2-callback", func(e *core.RequestEvent) error {
-		return views.OAuth2Callback(e.App).Render(context.Background(), e.Response)
+		ctx := context.WithValue(context.Background(), "app", e.App)
+		return views.OAuth2Callback(e.App).Render(ctx, e.Response)
 	})
 
 	router.GET("/logout", func(e *core.RequestEvent) error {

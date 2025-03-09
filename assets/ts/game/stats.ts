@@ -18,6 +18,7 @@ export class GameStats extends LitElement {
   @state() private playerHealth: number = 100;
   @state() private kills: number = 0;
   @state() private deaths: number = 0;
+  @state() private playersOnline: number = 0;
   
   // Frame time tracking
   private frameTimeHistory: number[] = [];
@@ -133,6 +134,10 @@ export class GameStats extends LitElement {
       <div class="stat-row">
         <span class="stat-label">Deaths</span>
         <span class="stat-value deaths">${this.deaths}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Players Online</span>
+        <span class="stat-value">${this.playersOnline}</span>
       </div>
       
       <div class="section">
@@ -286,10 +291,19 @@ export class GameStats extends LitElement {
   /**
    * Update gameplay stats from the game component
    */
-  updateGameStats(health: number, kills: number, deaths: number) {
+  updateGameStats(health: number, kills: number, deaths: number, playersOnline: number = this.playersOnline) {
     this.playerHealth = health;
     this.kills = kills;
     this.deaths = deaths;
+    this.playersOnline = playersOnline;
+    this.requestUpdate();
+  }
+  
+  /**
+   * Update players online count
+   */
+  updatePlayersOnline(count: number) {
+    this.playersOnline = count;
     this.requestUpdate();
   }
 }

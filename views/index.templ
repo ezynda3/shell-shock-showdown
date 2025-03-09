@@ -1,9 +1,13 @@
 package views
 
-import "github.com/pocketbase/pocketbase/core"
+import (
+	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase"
+)
 
 templ Index() {
-	@Layout(true) {
+	if app, ok := ctx.Value("app").(*pocketbase.PocketBase); ok {
+		@Layout(true, app.Settings().Meta.AppURL) {
 		<div
 			style="width: 100%; height: calc(100vh - 64px);"
 			data-signals="{update: '', shellFired: '', gameState: '', tankHit: '', tankDeath: '', tankRespawn: '' }"
@@ -23,5 +27,6 @@ templ Index() {
 				}
 			></game-component>
 		</div>
+		}
 	}
 }

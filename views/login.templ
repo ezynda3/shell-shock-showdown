@@ -3,10 +3,12 @@ package views
 import (
 	"fmt"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase"
 )
 
 templ Login(configs []core.OAuth2ProviderConfig) {
-	@Layout(false) {
+	if app, ok := ctx.Value("app").(*pocketbase.PocketBase); ok {
+		@Layout(false, app.Settings().Meta.AppURL) {
 		<div class="flex min-h-[80vh]">
 			<!-- Gradient Side -->
 			<div class="hidden lg:block w-1/2 bg-gradient-to-br from-violet-500 to-purple-800 p-12">
@@ -50,5 +52,6 @@ templ Login(configs []core.OAuth2ProviderConfig) {
 				</div>
 			</div>
 		</div>
+		}
 	}
 }
