@@ -9,7 +9,6 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"fmt"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -48,52 +47,15 @@ func Login(configs []core.OAuth2ProviderConfig) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex min-h-[80vh]\"><!-- Gradient Side --><div class=\"hidden lg:block w-1/2 bg-gradient-to-br from-violet-500 to-purple-800 p-12\"><div class=\"flex h-full items-center justify-center\"><div class=\"text-center text-white\"><h1 class=\"text-4xl font-bold\">Welcome Back</h1><p class=\"mt-4 text-lg text-violet-200\">Sign in to your account to continue your journey</p></div></div></div><!-- Form Side --><div class=\"w-full lg:w-1/2 flex items-center justify-center p-8\"><div class=\"w-full max-w-md\"><div class=\"text-center mb-8\"><h2 class=\"text-2xl font-bold leading-9 tracking-tight\">Sign in to your account</h2></div><div class=\"uk-card\"><div class=\"uk-card-body\"><div class=\"mt-6\"><div class=\"relative\"><div class=\"absolute inset-0 flex items-center\"><div class=\"w-full border-t border-border\"></div></div><div class=\"relative flex justify-center text-sm font-medium leading-6\"><span class=\"bg-background px-6 text-muted-foreground\">Sign-in with</span></div></div><div class=\"mt-6 grid grid-cols-2 gap-4\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex min-h-[80vh]\"><!-- Gradient Side --><div class=\"hidden lg:block w-1/2 bg-gradient-to-br from-violet-500 to-purple-800 p-12\"><div class=\"flex h-full items-center justify-center\"><div class=\"text-center text-white\"><h1 class=\"text-4xl font-bold\">Welcome Back</h1><p class=\"mt-4 text-lg text-violet-200\">Sign in to your account to continue your journey</p></div></div></div><!-- Form Side --><div class=\"w-full lg:w-1/2 flex items-center justify-center p-8\"><div class=\"w-full max-w-md\"><div class=\"text-center mb-8\"><h2 class=\"text-2xl font-bold leading-9 tracking-tight\">Sign in to your account</h2></div><div class=\"uk-card\"><div class=\"uk-card-body\"><div class=\"mt-6\"><div class=\"relative\"><div class=\"absolute inset-0 flex items-center\"><div class=\"w-full border-t border-border\"></div></div><div class=\"relative flex justify-center text-sm font-medium leading-6\"><span class=\"bg-background px-6 text-muted-foreground\">Sign-in with</span></div></div><div class=\"mt-6 grid grid-cols-2 gap-4\" id=\"oauth-providers\"><!-- Provider buttons will be populated here --></div></div></div></div></div></div></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				for _, c := range configs {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<a type=\"button\" class=\"uk-btn uk-btn-default w-full capitalize\" href=\"")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var3 templ.SafeURL = templ.URL(fmt.Sprintf("/oauth2-login/%v", c.Name))
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var3)))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><uk-icon class=\"mr-2\" icon=\"")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var4 string
-					templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/login.templ`, Line: 44, Col: 46}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"></uk-icon> ")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var5 string
-					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/login.templ`, Line: 45, Col: 19}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</a>")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
+				templ_7745c5c3_Err = templ.JSONScript("appUrl", app.Settings().Meta.AppURL).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></div></div></div></div></div></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " <script type=\"module\">\n\t\t\timport PocketBase from 'https://cdnjs.cloudflare.com/ajax/libs/pocketbase/0.25.0/pocketbase.es.mjs';\n\t\t\t\n\t\t\t// Initialize PocketBase with the app URL from server-side\n\t\t\tconst appUrl = document.getElementById('appUrl').textContent.trim().replace(/['\"]/g, '');\n\t\t\tconst pb = new PocketBase(appUrl);\n\t\t\t\n\t\t\t// Function to handle OAuth2 authentication\n\t\t\tasync function handleOAuth2Auth(provider) {\n\t\t\t\ttry {\n\t\t\t\t\t// This will open a popup with the OAuth2 provider's login page\n\t\t\t\t\t// When authentication is complete, the popup will close automatically\n\t\t\t\t\tconst authData = await pb.collection('users').authWithOAuth2({\n\t\t\t\t\t\tprovider: provider,\n\t\t\t\t\t});\n\t\t\t\t\t\n\t\t\t\t\tconsole.log('User authenticated:', authData);\n\t\t\t\t\t\n\t\t\t\t\t// Redirect to home page after successful authentication\n\t\t\t\t\twindow.location.href = '/';\n\t\t\t\t} catch (error) {\n\t\t\t\t\tconsole.error('Authentication failed:', error);\n\t\t\t\t}\n\t\t\t}\n\t\t\t\n\t\t\t// Get available OAuth2 providers\n\t\t\tasync function loadProviders() {\n\t\t\t\ttry {\n\t\t\t\t\tconst authMethods = await pb.collection('users').listAuthMethods();\n\t\t\t\t\tconst providers = authMethods.oauth2?.providers || [];\n\t\t\t\t\tconst container = document.getElementById('oauth-providers');\n\t\t\t\t\t\n\t\t\t\t\t// Clear existing content\n\t\t\t\t\tcontainer.innerHTML = '';\n\t\t\t\t\t\n\t\t\t\t\t// Create a button for each provider\n\t\t\t\t\tproviders.forEach(provider => {\n\t\t\t\t\t\tconst button = document.createElement('button');\n\t\t\t\t\t\tbutton.className = 'uk-btn uk-btn-default w-full capitalize';\n\t\t\t\t\t\tbutton.onclick = () => handleOAuth2Auth(provider.name);\n\t\t\t\t\t\t\n\t\t\t\t\t\tconst icon = document.createElement('uk-icon');\n\t\t\t\t\t\ticon.className = 'mr-2';\n\t\t\t\t\t\ticon.setAttribute('icon', provider.name.toLowerCase());\n\t\t\t\t\t\t\n\t\t\t\t\t\tbutton.appendChild(icon);\n\t\t\t\t\t\tbutton.appendChild(document.createTextNode(provider.name));\n\t\t\t\t\t\t\n\t\t\t\t\t\tcontainer.appendChild(button);\n\t\t\t\t\t});\n\t\t\t\t\t\n\t\t\t\t\tif (providers.length === 0) {\n\t\t\t\t\t\tcontainer.innerHTML = '<p class=\"text-center w-full\">No OAuth2 providers available.</p>';\n\t\t\t\t\t}\n\t\t\t\t} catch (error) {\n\t\t\t\t\tconsole.error('Failed to load auth methods:', error);\n\t\t\t\t}\n\t\t\t}\n\t\t\t\n\t\t\t// Load providers when the page loads\n\t\t\tdocument.addEventListener('DOMContentLoaded', loadProviders);\n\t\t</script>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

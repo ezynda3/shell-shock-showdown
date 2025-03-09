@@ -2,11 +2,8 @@ package routes
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
-	"net/url"
 
 	"github.com/mark3labs/pro-saaskit/middleware"
 	"github.com/mark3labs/pro-saaskit/views"
@@ -38,7 +35,6 @@ type providerInfo struct {
 func setupAuthRoutes(router *router.Router[*core.RequestEvent]) error {
 
 	router.GET("/login", func(e *core.RequestEvent) error {
-
 		collection, err := e.App.FindCachedCollectionByNameOrId("users")
 		if err != nil {
 			e.App.Logger().Error(err.Error())
@@ -49,51 +45,9 @@ func setupAuthRoutes(router *router.Router[*core.RequestEvent]) error {
 		return views.Login(providers).Render(ctx, e.Response)
 	})
 
-	router.GET("/oauth2-login/{provider}", func(e *core.RequestEvent) error {
-		collection, err := e.App.FindCachedCollectionByNameOrId("users")
-		if err != nil {
-			return err
-		}
-		config, exists := collection.OAuth2.GetProviderConfig(e.Request.PathValue("provider"))
-		if !exists {
-			return errors.New("No such provider")
-		}
+	// Note: /api/oauth2-redirect is already built into PocketBase, so we don't need to implement it
 
-		info, err := getProviderInfo(config, e.App.Settings().Meta.AppURL)
-		if err != nil {
-			e.App.Logger().Debug(
-				err.Error(),
-				slog.String("name", config.Name),
-				slog.String("error", err.Error()),
-			)
-			return err
-		}
-
-		// Serialize provider info to JSON
-		infoJson, err := json.Marshal(info)
-		if err != nil {
-			return err
-		}
-
-		// URL encode the JSON string
-		encodedValue := url.QueryEscape(string(infoJson))
-
-		// Set the provider info cookie
-		http.SetCookie(e.Response, &http.Cookie{
-			Name:     "provider",
-			Value:    encodedValue,
-			Path:     "/",
-			Secure:   true,
-			HttpOnly: false,
-		})
-
-		return e.Redirect(http.StatusFound, info.AuthURL)
-	})
-
-	router.GET("/oauth2-callback", func(e *core.RequestEvent) error {
-		ctx := context.WithValue(context.Background(), "app", e.App)
-		return views.OAuth2Callback(e.App).Render(ctx, e.Response)
-	})
+	// Note: The built-in PocketBase OAuth2 popup flow is now used instead of the manual flow
 
 	router.GET("/logout", func(e *core.RequestEvent) error {
 		if err := middleware.Logout(e); err != nil {

@@ -1,7 +1,6 @@
 package views
 
 import (
-	"fmt"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase"
 )
@@ -38,13 +37,8 @@ templ Login(configs []core.OAuth2ProviderConfig) {
 										<span class="bg-background px-6 text-muted-foreground">Sign-in with</span>
 									</div>
 								</div>
-								<div class="mt-6 grid grid-cols-2 gap-4">
-									for _, c := range configs {
-										<a type="button" class="uk-btn uk-btn-default w-full capitalize" href={ templ.URL(fmt.Sprintf("/oauth2-login/%v", c.Name)) }>
-											<uk-icon class="mr-2" icon={ c.Name }></uk-icon>
-											{ c.Name }
-										</a>
-									}
+								<div class="mt-6 grid grid-cols-2 gap-4" id="oauth-providers">
+									<!-- Provider buttons will be populated here -->
 								</div>
 							</div>
 						</div>
@@ -52,6 +46,70 @@ templ Login(configs []core.OAuth2ProviderConfig) {
 				</div>
 			</div>
 		</div>
+
+		@templ.JSONScript("appUrl", app.Settings().Meta.AppURL)
+		<script type="module">
+			import PocketBase from 'https://cdnjs.cloudflare.com/ajax/libs/pocketbase/0.25.0/pocketbase.es.mjs';
+			
+			// Initialize PocketBase with the app URL from server-side
+			const appUrl = document.getElementById('appUrl').textContent.trim().replace(/['"]/g, '');
+			const pb = new PocketBase(appUrl);
+			
+			// Function to handle OAuth2 authentication
+			async function handleOAuth2Auth(provider) {
+				try {
+					// This will open a popup with the OAuth2 provider's login page
+					// When authentication is complete, the popup will close automatically
+					const authData = await pb.collection('users').authWithOAuth2({
+						provider: provider,
+					});
+					
+					console.log('User authenticated:', authData);
+					
+					// Redirect to home page after successful authentication
+					window.location.href = '/';
+				} catch (error) {
+					console.error('Authentication failed:', error);
+				}
+			}
+			
+			// Get available OAuth2 providers
+			async function loadProviders() {
+				try {
+					const authMethods = await pb.collection('users').listAuthMethods();
+					const providers = authMethods.oauth2?.providers || [];
+					const container = document.getElementById('oauth-providers');
+					
+					// Clear existing content
+					container.innerHTML = '';
+					
+					// Create a button for each provider
+					providers.forEach(provider => {
+						const button = document.createElement('button');
+						button.className = 'uk-btn uk-btn-default w-full capitalize';
+						button.onclick = () => handleOAuth2Auth(provider.name);
+						
+						const icon = document.createElement('uk-icon');
+						icon.className = 'mr-2';
+						icon.setAttribute('icon', provider.name.toLowerCase());
+						
+						button.appendChild(icon);
+						button.appendChild(document.createTextNode(provider.name));
+						
+						container.appendChild(button);
+					});
+					
+					if (providers.length === 0) {
+						container.innerHTML = '<p class="text-center w-full">No OAuth2 providers available.</p>';
+					}
+				} catch (error) {
+					console.error('Failed to load auth methods:', error);
+				}
+			}
+			
+			// Load providers when the page loads
+			document.addEventListener('DOMContentLoaded', loadProviders);
+		</script>
 		}
 	}
 }
