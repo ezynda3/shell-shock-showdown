@@ -41,6 +41,26 @@ type GameState struct {
 	Shells  []ShellState           `json:"shells"`
 }
 
+// EventType represents the type of game event
+type EventType string
+
+// Event types
+const (
+	EventPlayerUpdate EventType = "PLAYER_UPDATE"
+	EventShellFired   EventType = "SHELL_FIRED"
+	EventTankHit      EventType = "TANK_HIT"
+	EventTankDeath    EventType = "TANK_DEATH"
+	EventTankRespawn  EventType = "TANK_RESPAWN"
+)
+
+// GameEvent represents a consolidated game event
+type GameEvent struct {
+	Type      EventType        `json:"type"`
+	Data      interface{}      `json:"data"`
+	PlayerID  string           `json:"playerId,omitempty"`
+	Timestamp int64            `json:"timestamp"`
+}
+
 // HitData represents a tank hit event
 type HitData struct {
 	TargetID     string `json:"targetId"`

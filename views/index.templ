@@ -10,15 +10,11 @@ templ Index() {
 		@Layout(true, app.Settings().Meta.AppURL) {
 		<div
 			style="width: 100%; height: calc(100vh - 64px);"
-			data-signals="{update: '', shellFired: '', gameState: '', tankHit: '', tankDeath: '', tankRespawn: '' }"
+			data-signals="{gameEvent: '', gameState: ''}"
 			data-on-load="@get('/gamestate', { openWhenHidden: true })"
 		>
 			<game-component
-				data-on-player-movement__case.kebab="$update = JSON.stringify(evt.detail); @post('/update')"
-				data-on-shell-fired-sync__case.kebab="$shellFired = JSON.stringify(evt.detail); @post('/update')"
-				data-on-tank-hit-sync__case.kebab="$tankHit = JSON.stringify(evt.detail); @post('/update')"
-				data-on-tank-death-sync__case.kebab="$tankDeath = JSON.stringify(evt.detail); @post('/update')"
-				data-on-tank-respawn-sync__case.kebab="$tankRespawn = JSON.stringify(evt.detail); @post('/update')"
+				data-on-game-event__case.kebab="$gameEvent = JSON.stringify(evt.detail); @post('/update')"
 				data-attr-game-state__case.kebab="$gameState"
 				if user := ctx.Value("user"); user != nil {
 					if auth, ok := user.(*core.Record); ok {

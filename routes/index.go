@@ -18,12 +18,8 @@ import (
 
 // Signals struct for handling DataStar signals
 type Signals struct {
-	Update      string `json:"update"`
-	ShellFired  string `json:"shellFired"`
-	GameState   string `json:"gameState"`
-	TankHit     string `json:"tankHit"`     // New signal for tank being hit
-	TankDeath   string `json:"tankDeath"`   // New signal for tank being destroyed
-	TankRespawn string `json:"tankRespawn"` // New signal for tank respawning
+	GameEvent string `json:"gameEvent"` // Consolidated game event
+	GameState string `json:"gameState"` // Game state for the client
 }
 
 func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *game.Manager) error {
@@ -39,68 +35,13 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 			return e.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
 
-		sse := datastar.NewSSE(e.Response, e.Request)
+		// Handle the consolidated game event
+		if signals.GameEvent != "" {
+			var gameEvent game.GameEvent
 
-		// Handle tank hit events from frontend
-		if signals.TankHit != "" {
-			var hitData game.HitData
-
-			if err := json.Unmarshal([]byte(signals.TankHit), &hitData); err != nil {
-				log.Println("Error unmarshaling tank hit data:", err)
-				return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid tank hit data"})
-			}
-
-			// Process tank hit with game manager
-			if err := gameManager.ProcessTankHit(hitData); err != nil {
-				log.Println("Error processing tank hit:", err)
-			}
-		}
-
-		// Handle tank respawn events from frontend
-		if signals.TankRespawn != "" {
-			var respawnData game.RespawnData
-
-			if err := json.Unmarshal([]byte(signals.TankRespawn), &respawnData); err != nil {
-				log.Println("Error unmarshaling tank respawn data:", err)
-				return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid tank respawn data"})
-			}
-
-			// Process tank respawn with game manager
-			if err := gameManager.RespawnTank(respawnData); err != nil {
-				log.Println("Error processing tank respawn:", err)
-			}
-		}
-
-		// Handle shell firing events
-		if signals.ShellFired != "" {
-			var shellData game.ShellData
-
-			if err := json.Unmarshal([]byte(signals.ShellFired), &shellData); err != nil {
-				log.Println("Error unmarshaling shell data:", err)
-				return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid shell data"})
-			}
-
-			// Get player ID
-			playerID := "guest"
-			authRecord := e.Auth
-			if authRecord != nil {
-				playerID = authRecord.Id
-			}
-
-			// Fire shell with game manager
-			if _, err := gameManager.FireShell(shellData, playerID); err != nil {
-				log.Println("Error firing shell:", err)
-			}
-
-			sse.MergeSignals([]byte("{shellFired:''}"))
-		}
-
-		// Parse the player update from the update signal
-		if signals.Update != "" {
-			var playerUpdate game.PlayerState
-			if err := json.Unmarshal([]byte(signals.Update), &playerUpdate); err != nil {
-				log.Println("Error unmarshaling player update:", err)
-				return e.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			if err := json.Unmarshal([]byte(signals.GameEvent), &gameEvent); err != nil {
+				log.Println("Error unmarshaling game event:", err)
+				return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid game event data"})
 			}
 
 			// Get player ID from auth
@@ -117,9 +58,91 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 				playerName = "Player: " + playerID
 			}
 
-			// Update player with game manager
-			if err := gameManager.UpdatePlayer(playerUpdate, playerID, playerName); err != nil {
-				log.Println("Error updating player:", err)
+			// Process based on event type
+			switch gameEvent.Type {
+			case game.EventPlayerUpdate:
+				// Handle player update event
+				var playerUpdate game.PlayerState
+				playerData, err := json.Marshal(gameEvent.Data)
+				if err != nil {
+					log.Println("Error marshaling player data:", err)
+					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid player data"})
+				}
+
+				if err := json.Unmarshal(playerData, &playerUpdate); err != nil {
+					log.Println("Error unmarshaling player update:", err)
+					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid player update data"})
+				}
+
+				// Update player with game manager
+				if err := gameManager.UpdatePlayer(playerUpdate, playerID, playerName); err != nil {
+					log.Println("Error updating player:", err)
+				}
+
+			case game.EventShellFired:
+				// Handle shell fired event
+				var shellData game.ShellData
+				shellDataJson, err := json.Marshal(gameEvent.Data)
+				if err != nil {
+					log.Println("Error marshaling shell data:", err)
+					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid shell data"})
+				}
+
+				if err := json.Unmarshal(shellDataJson, &shellData); err != nil {
+					log.Println("Error unmarshaling shell data:", err)
+					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid shell data"})
+				}
+
+				// Fire shell with game manager
+				if _, err := gameManager.FireShell(shellData, playerID); err != nil {
+					log.Println("Error firing shell:", err)
+				}
+
+			case game.EventTankHit:
+				// Handle tank hit event
+				var hitData game.HitData
+				hitDataJson, err := json.Marshal(gameEvent.Data)
+				if err != nil {
+					log.Println("Error marshaling hit data:", err)
+					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid hit data"})
+				}
+
+				if err := json.Unmarshal(hitDataJson, &hitData); err != nil {
+					log.Println("Error unmarshaling tank hit data:", err)
+					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid tank hit data"})
+				}
+
+				// Process tank hit with game manager
+				if err := gameManager.ProcessTankHit(hitData); err != nil {
+					log.Println("Error processing tank hit:", err)
+				}
+
+			case game.EventTankDeath:
+				// Handle tank death event
+				// Currently, the tank death is tracked through hits that reduce health to 0
+				// Any additional death processing can be added here
+
+			case game.EventTankRespawn:
+				// Handle tank respawn event
+				var respawnData game.RespawnData
+				respawnDataJson, err := json.Marshal(gameEvent.Data)
+				if err != nil {
+					log.Println("Error marshaling respawn data:", err)
+					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid respawn data"})
+				}
+
+				if err := json.Unmarshal(respawnDataJson, &respawnData); err != nil {
+					log.Println("Error unmarshaling tank respawn data:", err)
+					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid tank respawn data"})
+				}
+
+				// Process tank respawn with game manager
+				if err := gameManager.RespawnTank(respawnData); err != nil {
+					log.Println("Error processing tank respawn:", err)
+				}
+
+			default:
+				log.Printf("Unknown game event type: %s", gameEvent.Type)
 			}
 		}
 

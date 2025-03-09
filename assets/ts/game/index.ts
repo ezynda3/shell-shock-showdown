@@ -980,15 +980,20 @@ export class GameComponent extends LitElement {
       respawnData.playerId = this.playerId;
     }
     
-    // Create a custom event for DataStar to send to server
-    const tankRespawnEvent = new CustomEvent('tank-respawn-sync', { 
-      detail: respawnData,
+    // Create a custom event using the new consolidated format
+    const gameEvent = new CustomEvent('game-event', { 
+      detail: {
+        type: "TANK_RESPAWN",
+        data: respawnData,
+        playerId: this.playerId,
+        timestamp: Date.now()
+      },
       bubbles: true,
       composed: true
     });
     
     // Dispatch the event to be sent to the server
-    this.dispatchEvent(tankRespawnEvent);
+    this.dispatchEvent(gameEvent);
   }
   
   // Handle shell fired events from player tank
@@ -1012,30 +1017,38 @@ export class GameComponent extends LitElement {
     // Create a unique shell ID if not already present
     const shellId = event.detail.shellId || `shell_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // Create a custom event for DataStar to send to server - with a different name
-    const shellFiredSyncEvent = new CustomEvent('shell-fired-sync', { 
+    // Create shell data
+    const shellData = {
+      shellId: shellId,
+      playerId: this.playerId,
+      position: {
+        x: position.x,
+        y: position.y,
+        z: position.z
+      },
+      direction: {
+        x: direction.x,
+        y: direction.y,
+        z: direction.z
+      },
+      speed: speed,
+      isNetworkEvent: true // Mark as a network event
+    };
+    
+    // Create a custom event using the new consolidated format
+    const gameEvent = new CustomEvent('game-event', { 
       detail: {
-        shellId: shellId,
+        type: "SHELL_FIRED",
+        data: shellData,
         playerId: this.playerId,
-        position: {
-          x: position.x,
-          y: position.y,
-          z: position.z
-        },
-        direction: {
-          x: direction.x,
-          y: direction.y,
-          z: direction.z
-        },
-        speed: speed,
-        isNetworkEvent: true // Mark as a network event
+        timestamp: Date.now()
       },
       bubbles: true,
       composed: true // Allows the event to cross shadow DOM boundaries
     });
     
-    // Dispatch the sync event to be sent to the server
-    this.dispatchEvent(shellFiredSyncEvent);
+    // Dispatch the event to be sent to the server
+    this.dispatchEvent(gameEvent);
   }
   
   // Only handling other property changes
@@ -2577,17 +2590,25 @@ export class GameComponent extends LitElement {
       
       // Send tank hit event to server for synchronization
       if (source && source !== this.playerTank) {
-        // Create tank hit event for server
-        const tankHitEvent = new CustomEvent('tank-hit-sync', {
+        // Create tank hit data
+        const hitData = {
+          targetId: this.playerId,
+          sourceId: source.getOwnerId ? source.getOwnerId() : 'unknown',
+          damageAmount: damageAmount
+        };
+        
+        // Create a custom event using the new consolidated format
+        const gameEvent = new CustomEvent('game-event', { 
           detail: {
-            targetId: this.playerId,
-            sourceId: source.getOwnerId ? source.getOwnerId() : 'unknown',
-            damageAmount: damageAmount
+            type: "TANK_HIT",
+            data: hitData,
+            playerId: this.playerId,
+            timestamp: Date.now()
           },
           bubbles: true,
           composed: true
         });
-        this.dispatchEvent(tankHitEvent);
+        this.dispatchEvent(gameEvent);
       }
     }
   }
@@ -2685,16 +2706,24 @@ export class GameComponent extends LitElement {
       // Show death effects
       this.showPlayerDeathEffects();
       
-      // Send tank death event to server
-      const tankDeathEvent = new CustomEvent('tank-death-sync', {
+      // Create death data
+      const deathData = {
+        targetId: victimId,
+        sourceId: killerId
+      };
+      
+      // Create a custom event using the new consolidated format
+      const gameEvent = new CustomEvent('game-event', { 
         detail: {
-          targetId: victimId,
-          sourceId: killerId
+          type: "TANK_DEATH",
+          data: deathData,
+          playerId: this.playerId,
+          timestamp: Date.now()
         },
         bubbles: true,
         composed: true
       });
-      this.dispatchEvent(tankDeathEvent);
+      this.dispatchEvent(gameEvent);
       
       // Update stats
       this.updateStats();
@@ -2707,16 +2736,24 @@ export class GameComponent extends LitElement {
         this.playerKills++;
         this.updateStats();
         
-        // Send tank death event to server
-        const tankDeathEvent = new CustomEvent('tank-death-sync', {
+        // Create death data
+        const deathData = {
+          targetId: victimId,
+          sourceId: killerId
+        };
+        
+        // Create a custom event using the new consolidated format
+        const gameEvent = new CustomEvent('game-event', { 
           detail: {
-            targetId: victimId,
-            sourceId: killerId
+            type: "TANK_DEATH",
+            data: deathData,
+            playerId: this.playerId,
+            timestamp: Date.now()
           },
           bubbles: true,
           composed: true
         });
-        this.dispatchEvent(tankDeathEvent);
+        this.dispatchEvent(gameEvent);
       }
       
       // Find the NPC tank in our array
@@ -2932,14 +2969,19 @@ export class GameComponent extends LitElement {
     // Position updates are frequent, so don't log them
     // console.log(`Emitting position update for player ${this.playerId}`);
     
-    // Create and dispatch custom event
-    const event = new CustomEvent('player-movement', { 
-      detail,
+    // Create a custom event using the new consolidated format
+    const gameEvent = new CustomEvent('game-event', { 
+      detail: {
+        type: "PLAYER_UPDATE",
+        data: detail,
+        playerId: this.playerId,
+        timestamp: Date.now()
+      },
       bubbles: true,
       composed: true // Allows the event to cross shadow DOM boundaries
     });
     
-    this.dispatchEvent(event);
+    this.dispatchEvent(gameEvent);
   }
 }
 
@@ -2956,18 +2998,10 @@ declare global {
   }
   
   interface HTMLElementEventMap {
-    'player-movement': CustomEvent<{
-      position: {
-        x: number;
-        y: number;
-        z: number;
-      };
-      tankRotation: number;
-      turretRotation: number;
-      barrelElevation: number;
-      health: number;
-      isMoving: boolean;
-      velocity: number;
+    'game-event': CustomEvent<{
+      type: string;
+      data: any;
+      playerId: string;
       timestamp: number;
     }>;
   }
