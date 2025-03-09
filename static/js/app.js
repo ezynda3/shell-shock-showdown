@@ -33183,13 +33183,13 @@ class GameComponent extends LitElement {
       }
     }
 
-    /* Movement joystick */
+    /* Movement joystick (left) */
     .joystick-container {
       position: absolute;
       bottom: 50px;
       left: 50px;
-      width: 150px;
-      height: 150px;
+      width: 120px;  /* Smaller size */
+      height: 120px; /* Smaller size */
       background: rgba(255, 255, 255, 0.2);
       border: 2px solid rgba(255, 255, 255, 0.4);
       border-radius: 50%;
@@ -33202,8 +33202,34 @@ class GameComponent extends LitElement {
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 60px;
-      height: 60px;
+      width: 50px;   /* Smaller thumb */
+      height: 50px;  /* Smaller thumb */
+      background: rgba(255, 255, 255, 0.8);
+      border-radius: 50%;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Turret control joystick (right) */
+    .turret-joystick-container {
+      position: absolute;
+      bottom: 50px;
+      right: 50px;
+      width: 120px;  /* Same size as movement joystick */
+      height: 120px; /* Same size as movement joystick */
+      background: rgba(255, 255, 255, 0.2);
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-radius: 50%;
+      pointer-events: all;
+      touch-action: none;
+    }
+    
+    .turret-joystick-thumb {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 50px;   /* Same size as movement thumb */
+      height: 50px;  /* Same size as movement thumb */
       background: rgba(255, 255, 255, 0.8);
       border-radius: 50%;
       box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
@@ -33213,9 +33239,10 @@ class GameComponent extends LitElement {
     .fire-button {
       position: absolute;
       bottom: 50px;
-      right: 50px;
-      width: 100px;
-      height: 100px;
+      left: 50%;     /* Center horizontally */
+      transform: translateX(-50%); /* Center horizontally */
+      width: 80px;   /* Smaller size */
+      height: 80px;  /* Smaller size */
       background: rgba(255, 0, 0, 0.5);
       border: 3px solid rgba(255, 255, 255, 0.4);
       border-radius: 50%;
@@ -33225,25 +33252,14 @@ class GameComponent extends LitElement {
       align-items: center;
       font-weight: bold;
       color: white;
-      font-size: 18px;
+      font-size: 16px;  /* Smaller text */
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
       touch-action: none;
     }
 
     .fire-button:active {
       background: rgba(255, 0, 0, 0.8);
-      transform: scale(0.95);
-    }
-
-    /* Turret rotation area */
-    .turret-control {
-      position: absolute;
-      top: 0;
-      right: 0;
-      width: 70%;
-      height: 70%;
-      pointer-events: all;
-      touch-action: none;
+      transform: translateX(-50%) scale(0.95);
     }
   `;
   render() {
@@ -33254,7 +33270,7 @@ class GameComponent extends LitElement {
           <div class="damage-overlay ${this.showDamageOverlay ? "active" : ""}"></div>
           
           <game-stats></game-stats>
-          <div class="controls">
+          <div class="controls" style="display: ${this.isMobile ? "none" : "block"}">
             <div>W: Forward, S: Backward</div>
             <div>A: Rotate tank left, D: Rotate tank right</div>
             <div>Mouse: Aim turret and barrel</div>
@@ -33273,8 +33289,10 @@ class GameComponent extends LitElement {
               <div class="joystick-thumb" id="joystick-thumb"></div>
             </div>
             
-            <!-- Turret rotation control area -->
-            <div class="turret-control" id="turret-control"></div>
+            <!-- Turret joystick -->
+            <div class="turret-joystick-container" id="turret-joystick-container">
+              <div class="turret-joystick-thumb" id="turret-joystick-thumb"></div>
+            </div>
             
             <!-- Fire button -->
             <div class="fire-button" id="fire-button">FIRE</div>
@@ -33295,11 +33313,14 @@ class GameComponent extends LitElement {
   isMobile = false;
   joystickActive = false;
   joystickPosition = { x: 0, y: 0 };
+  turretJoystickActive = false;
+  turretJoystickPosition = { x: 0, y: 0 };
   fireButtonActive = false;
   joystickContainer;
   joystickThumb;
+  turretJoystickContainer;
+  turretJoystickThumb;
   fireButton;
-  turretControlArea;
   lastTouchX = 0;
   lastTouchY = 0;
   firstUpdated() {
@@ -33325,9 +33346,10 @@ class GameComponent extends LitElement {
   initTouchControls() {
     this.joystickContainer = this.shadowRoot?.getElementById("joystick-container");
     this.joystickThumb = this.shadowRoot?.getElementById("joystick-thumb");
+    this.turretJoystickContainer = this.shadowRoot?.getElementById("turret-joystick-container");
+    this.turretJoystickThumb = this.shadowRoot?.getElementById("turret-joystick-thumb");
     this.fireButton = this.shadowRoot?.getElementById("fire-button");
-    this.turretControlArea = this.shadowRoot?.getElementById("turret-control");
-    if (!this.joystickContainer || !this.joystickThumb || !this.fireButton || !this.turretControlArea) {
+    if (!this.joystickContainer || !this.joystickThumb || !this.fireButton || !this.turretJoystickContainer || !this.turretJoystickThumb) {
       console.error("Could not find all touch control elements");
       return;
     }
@@ -33335,13 +33357,13 @@ class GameComponent extends LitElement {
     this.joystickContainer.addEventListener("touchmove", this.handleJoystickMove.bind(this), { passive: false });
     this.joystickContainer.addEventListener("touchend", this.handleJoystickEnd.bind(this), { passive: false });
     this.joystickContainer.addEventListener("touchcancel", this.handleJoystickEnd.bind(this), { passive: false });
+    this.turretJoystickContainer.addEventListener("touchstart", this.handleTurretJoystickStart.bind(this), { passive: false });
+    this.turretJoystickContainer.addEventListener("touchmove", this.handleTurretJoystickMove.bind(this), { passive: false });
+    this.turretJoystickContainer.addEventListener("touchend", this.handleTurretJoystickEnd.bind(this), { passive: false });
+    this.turretJoystickContainer.addEventListener("touchcancel", this.handleTurretJoystickEnd.bind(this), { passive: false });
     this.fireButton.addEventListener("touchstart", this.handleFireButtonStart.bind(this), { passive: false });
     this.fireButton.addEventListener("touchend", this.handleFireButtonEnd.bind(this), { passive: false });
     this.fireButton.addEventListener("touchcancel", this.handleFireButtonEnd.bind(this), { passive: false });
-    this.turretControlArea.addEventListener("touchstart", this.handleTurretTouchStart.bind(this), { passive: false });
-    this.turretControlArea.addEventListener("touchmove", this.handleTurretTouchMove.bind(this), { passive: false });
-    this.turretControlArea.addEventListener("touchend", () => {
-    }, { passive: false });
   }
   handleJoystickStart(event) {
     event.preventDefault();
@@ -33432,25 +33454,52 @@ class GameComponent extends LitElement {
       this.fireButton.style.transform = "scale(1)";
     }
   }
-  handleTurretTouchStart(event) {
+  handleTurretJoystickStart(event) {
     event.preventDefault();
-    this.lastTouchX = event.touches[0].clientX;
-    this.lastTouchY = event.touches[0].clientY;
+    this.turretJoystickActive = true;
+    this.updateTurretJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
   }
-  handleTurretTouchMove(event) {
+  handleTurretJoystickMove(event) {
     event.preventDefault();
-    if (!this.playerTank)
+    if (this.turretJoystickActive) {
+      this.updateTurretJoystickPosition(event.touches[0].clientX, event.touches[0].clientY);
+    }
+  }
+  handleTurretJoystickEnd(event) {
+    event.preventDefault();
+    this.turretJoystickActive = false;
+    this.resetTurretJoystick();
+  }
+  updateTurretJoystickPosition(touchX, touchY) {
+    if (!this.turretJoystickContainer || !this.turretJoystickThumb || !this.playerTank)
       return;
-    const touchX = event.touches[0].clientX;
-    const touchY = event.touches[0].clientY;
-    const deltaX = touchX - this.lastTouchX;
-    const deltaY = touchY - this.lastTouchY;
-    this.lastTouchX = touchX;
-    this.lastTouchY = touchY;
-    const turretSensitivity = 0.0025;
-    this.playerTank.turretPivot.rotation.y -= deltaX * turretSensitivity;
-    const barrelSensitivity = 0.0025;
-    this.playerTank.barrelPivot.rotation.x = Math.max(this.playerTank.getMinBarrelElevation(), Math.min(this.playerTank.getMaxBarrelElevation(), this.playerTank.barrelPivot.rotation.x + deltaY * barrelSensitivity));
+    const rect = this.turretJoystickContainer.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    let deltaX = touchX - centerX;
+    let deltaY = touchY - centerY;
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    const maxRadius = rect.width / 2;
+    if (distance > maxRadius) {
+      const angle = Math.atan2(deltaY, deltaX);
+      deltaX = Math.cos(angle) * maxRadius;
+      deltaY = Math.sin(angle) * maxRadius;
+    }
+    this.turretJoystickThumb.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+    this.turretJoystickPosition = {
+      x: deltaX / maxRadius,
+      y: deltaY / maxRadius
+    };
+    const turretSensitivity = 0.05;
+    this.playerTank.turretPivot.rotation.y -= this.turretJoystickPosition.x * turretSensitivity;
+    const barrelSensitivity = 0.05;
+    this.playerTank.barrelPivot.rotation.x = Math.max(this.playerTank.getMinBarrelElevation(), Math.min(this.playerTank.getMaxBarrelElevation(), this.playerTank.barrelPivot.rotation.x + this.turretJoystickPosition.y * barrelSensitivity));
+  }
+  resetTurretJoystick() {
+    if (!this.turretJoystickThumb)
+      return;
+    this.turretJoystickThumb.style.transform = "translate(-50%, -50%)";
+    this.turretJoystickPosition = { x: 0, y: 0 };
   }
   handleTankRespawn(event) {
     const respawnData = event.detail;
@@ -33805,14 +33854,16 @@ class GameComponent extends LitElement {
       this.joystickContainer.removeEventListener("touchend", this.handleJoystickEnd);
       this.joystickContainer.removeEventListener("touchcancel", this.handleJoystickEnd);
     }
+    if (this.turretJoystickContainer) {
+      this.turretJoystickContainer.removeEventListener("touchstart", this.handleTurretJoystickStart);
+      this.turretJoystickContainer.removeEventListener("touchmove", this.handleTurretJoystickMove);
+      this.turretJoystickContainer.removeEventListener("touchend", this.handleTurretJoystickEnd);
+      this.turretJoystickContainer.removeEventListener("touchcancel", this.handleTurretJoystickEnd);
+    }
     if (this.fireButton) {
       this.fireButton.removeEventListener("touchstart", this.handleFireButtonStart);
       this.fireButton.removeEventListener("touchend", this.handleFireButtonEnd);
       this.fireButton.removeEventListener("touchcancel", this.handleFireButtonEnd);
-    }
-    if (this.turretControlArea) {
-      this.turretControlArea.removeEventListener("touchstart", this.handleTurretTouchStart);
-      this.turretControlArea.removeEventListener("touchmove", this.handleTurretTouchMove);
     }
     if (document.pointerLockElement === this.canvas) {
       document.exitPointerLock();
