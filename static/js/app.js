@@ -32962,6 +32962,7 @@ class GameComponent extends LitElement {
   MAX_NOTIFICATIONS = 5;
   NOTIFICATION_DURATION = 5000;
   keys = {};
+  isFullscreen = false;
   skyColor = new Color(8900331);
   groundMaterial;
   static styles = css`
@@ -33261,6 +33262,31 @@ class GameComponent extends LitElement {
       background: rgba(255, 0, 0, 0.8);
       transform: translateX(-50%) scale(0.95);
     }
+    
+    /* Fullscreen button */
+    .fullscreen-button {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      width: 40px;
+      height: 40px;
+      background: rgba(0, 0, 0, 0.6);
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-radius: 50%;
+      pointer-events: all;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      font-size: 18px;
+      z-index: 1000;
+      touch-action: none;
+    }
+    
+    .fullscreen-button:active {
+      background: rgba(0, 0, 0, 0.8);
+      transform: scale(0.95);
+    }
   `;
   render() {
     return html`
@@ -33276,6 +33302,7 @@ class GameComponent extends LitElement {
             <div>Mouse: Aim turret and barrel</div>
             <div>Arrow keys: Alternative turret control</div>
             <div>Left Click, Space, or F: Fire shell</div>
+            <div>F11: Toggle fullscreen</div>
             <div>Click canvas to lock pointer</div>
           </div>
           <div class="game-over ${this.playerDestroyed ? "visible" : ""}">
@@ -33296,6 +33323,9 @@ class GameComponent extends LitElement {
             
             <!-- Fire button -->
             <div class="fire-button" id="fire-button">FIRE</div>
+            
+            <!-- Fullscreen toggle button -->
+            <div class="fullscreen-button" id="fullscreen-button">⛶</div>
           </div>
           
           <!-- Kill notifications container -->
@@ -33323,6 +33353,7 @@ class GameComponent extends LitElement {
   turretJoystickContainer;
   turretJoystickThumb;
   fireButton;
+  fullscreenButton;
   lastTouchX = 0;
   lastTouchY = 0;
   firstUpdated() {
@@ -33351,7 +33382,8 @@ class GameComponent extends LitElement {
     this.turretJoystickContainer = this.shadowRoot?.getElementById("turret-joystick-container");
     this.turretJoystickThumb = this.shadowRoot?.getElementById("turret-joystick-thumb");
     this.fireButton = this.shadowRoot?.getElementById("fire-button");
-    if (!this.joystickContainer || !this.joystickThumb || !this.fireButton || !this.turretJoystickContainer || !this.turretJoystickThumb) {
+    this.fullscreenButton = this.shadowRoot?.getElementById("fullscreen-button");
+    if (!this.joystickContainer || !this.joystickThumb || !this.fireButton || !this.turretJoystickContainer || !this.turretJoystickThumb || !this.fullscreenButton) {
       console.error("Could not find all touch control elements");
       return;
     }
@@ -33366,6 +33398,11 @@ class GameComponent extends LitElement {
     this.fireButton.addEventListener("touchstart", this.handleFireButtonStart.bind(this), { passive: false });
     this.fireButton.addEventListener("touchend", this.handleFireButtonEnd.bind(this), { passive: false });
     this.fireButton.addEventListener("touchcancel", this.handleFireButtonEnd.bind(this), { passive: false });
+    this.fullscreenButton.addEventListener("click", this.toggleFullscreen.bind(this));
+    this.fullscreenButton.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      this.toggleFullscreen();
+    }, { passive: false });
   }
   handleJoystickStart(event) {
     event.preventDefault();
@@ -33907,6 +33944,10 @@ class GameComponent extends LitElement {
       this.fireButton.removeEventListener("touchend", this.handleFireButtonEnd);
       this.fireButton.removeEventListener("touchcancel", this.handleFireButtonEnd);
     }
+    if (this.fullscreenButton) {
+      this.fullscreenButton.removeEventListener("click", this.toggleFullscreen);
+      this.fullscreenButton.removeEventListener("touchstart", this.toggleFullscreen);
+    }
     if (document.pointerLockElement === this.canvas) {
       document.exitPointerLock();
     }
@@ -34333,8 +34374,37 @@ class GameComponent extends LitElement {
     if (key === " " || key === "space") {
       this.keys["space"] = true;
     }
-    if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "space"].includes(key)) {
+    if (key === "f11") {
       event.preventDefault();
+      this.toggleFullscreen();
+    }
+    if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "space", "f11"].includes(key)) {
+      event.preventDefault();
+    }
+  }
+  toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      this.requestFullscreen().catch((err) => {
+        console.error(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+      this.isFullscreen = true;
+    } else {
+      document.exitFullscreen().catch((err) => {
+        console.error(`Error attempting to exit fullscreen: ${err.message}`);
+      });
+      this.isFullscreen = false;
+    }
+  }
+  requestFullscreen() {
+    const elem = this.shadowRoot?.host;
+    if (elem.requestFullscreen) {
+      return elem.requestFullscreen();
+    } else if (elem.webkitRequestFullscreen) {
+      return elem.webkitRequestFullscreen();
+    } else if (elem.msRequestFullscreen) {
+      return elem.msRequestFullscreen();
+    } else {
+      return Promise.reject(new Error("Fullscreen API not supported"));
     }
   }
   handleKeyUp(event) {
