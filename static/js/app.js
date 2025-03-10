@@ -29150,6 +29150,12 @@ class Shell {
   onCollision(other) {
     if (other === this.owner || !this.isActive || this.hasProcessedCollision)
       return;
+    if (other.getType() === "tank") {
+      const tank = other;
+      if (tank.isDestroyed) {
+        return;
+      }
+    }
     this.isActive = false;
     this.hasProcessedCollision = true;
     this.scene.remove(this.mesh);
@@ -29842,34 +29848,103 @@ class BaseTank {
     direction.applyEuler(new Euler(0, this.tank.rotation.y, 0));
     return new Shell(this.scene, barrelEndPosition, direction, this.SHELL_SPEED, this);
   }
+  ensureRoundRectMethod(ctx) {
+    if (!ctx.roundRect) {
+      CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+        if (w < 2 * r)
+          r = w / 2;
+        if (h < 2 * r)
+          r = h / 2;
+        this.beginPath();
+        this.moveTo(x + r, y);
+        this.arcTo(x + w, y, x + w, y + h, r);
+        this.arcTo(x + w, y + h, x, y + h, r);
+        this.arcTo(x, y + h, x, y, r);
+        this.arcTo(x, y, x + w, y, r);
+        this.closePath();
+        return this;
+      };
+    }
+  }
   createHealthBar() {
     const canvas = document.createElement("canvas");
     canvas.width = 256;
-    canvas.height = 48;
+    canvas.height = 64;
     const context = canvas.getContext("2d");
     if (context) {
-      context.clearRect(0, 0, 256, 48);
-      context.font = "bold 20px Arial";
+      this.ensureRoundRectMethod(context);
+      context.clearRect(0, 0, 256, 64);
+      const tankColorObj = new Color(this.tankColor);
+      context.fillStyle = `rgba(${Math.floor(tankColorObj.r * 50)}, ${Math.floor(tankColorObj.g * 50)}, ${Math.floor(tankColorObj.b * 50)}, 0.7)`;
+      context.roundRect(32, 4, 192, 30, 6);
+      context.fill();
+      context.font = "bold 18px Arial";
       context.textAlign = "center";
       context.fillStyle = "white";
-      context.strokeStyle = "black";
+      context.strokeStyle = "rgba(0,0,0,0.8)";
       context.lineWidth = 3;
-      context.strokeText(this.tankName, 128, 20);
-      context.fillText(this.tankName, 128, 20);
-      context.fillStyle = "rgba(0,0,0,0.7)";
-      context.fillRect(0, 28, 256, 20);
-      context.fillStyle = "#00FF00";
-      context.fillRect(4, 30, 248, 16);
+      context.strokeText(this.tankName, 128, 24);
+      context.fillText(this.tankName, 128, 24);
+      const isTankTypeRemote = this instanceof RemoteTank;
+      const isTankTypeNPC = this instanceof NPCTank;
+      if (isTankTypeRemote || isTankTypeNPC) {
+        const badgeColor = isTankTypeNPC ? "rgba(255,70,70,0.9)" : "rgba(70,70,255,0.9)";
+        context.fillStyle = badgeColor;
+        context.beginPath();
+        context.arc(208, 18, 8, 0, Math.PI * 2);
+        context.fill();
+        context.font = "bold 12px Arial";
+        context.fillStyle = "white";
+        context.textAlign = "center";
+        context.fillText(isTankTypeNPC ? "A" : "P", 208, 22);
+      }
+      context.fillStyle = "rgba(30,30,30,0.85)";
+      context.roundRect(0, 36, 256, 26, 4);
+      context.fill();
+      context.fillStyle = "rgba(50,50,50,0.9)";
+      context.roundRect(2, 38, 252, 22, 3);
+      context.fill();
+      context.fillStyle = "rgba(20,20,20,0.9)";
+      context.roundRect(4, 40, 248, 18, 2);
+      context.fill();
+      const healthPercent = this.health / this.MAX_HEALTH;
+      const barWidth = Math.floor(244 * healthPercent);
+      let startColor, endColor;
+      if (healthPercent > 0.6) {
+        startColor = "#32CD32";
+        endColor = "#00FF00";
+      } else if (healthPercent > 0.3) {
+        startColor = "#FFD700";
+        endColor = "#FFA500";
+      } else {
+        startColor = "#FF4500";
+        endColor = "#FF0000";
+      }
+      const gradient = context.createLinearGradient(4, 40, 4, 58);
+      gradient.addColorStop(0, startColor);
+      gradient.addColorStop(1, endColor);
+      context.fillStyle = gradient;
+      context.roundRect(6, 42, barWidth, 14, 2);
+      context.fill();
+      context.font = "bold 12px Arial";
+      context.textAlign = "center";
+      context.fillStyle = "white";
+      context.strokeStyle = "rgba(0,0,0,0.5)";
+      context.lineWidth = 2;
+      context.strokeText(`${Math.floor(healthPercent * 100)}%`, 128, 54);
+      context.fillText(`${Math.floor(healthPercent * 100)}%`, 128, 54);
       const texture = new CanvasTexture(canvas);
+      texture.minFilter = LinearFilter;
       this.healthBarContext = context;
       this.healthBarTexture = texture;
       const spriteMaterial = new SpriteMaterial({
         map: texture,
-        transparent: true
+        transparent: true,
+        depthTest: false
       });
       const sprite = new Sprite(spriteMaterial);
       sprite.position.set(0, 3.7, 0);
-      sprite.scale.set(4, 1.5, 1);
+      sprite.scale.set(4, 2, 1);
       this.tank.add(sprite);
       this.healthBarSprite = sprite;
     }
@@ -29878,22 +29953,49 @@ class BaseTank {
   updateHealthBar() {
     if (!this.healthBarContext || !this.healthBarTexture)
       return;
+    this.ensureRoundRectMethod(this.healthBarContext);
     const healthPercent = this.health / this.MAX_HEALTH;
-    this.healthBarContext.clearRect(0, 28, 256, 20);
-    this.healthBarContext.fillStyle = "rgba(0,0,0,0.7)";
-    this.healthBarContext.fillRect(0, 28, 256, 20);
+    this.healthBarContext.clearRect(0, 36, 256, 26);
+    this.healthBarContext.fillStyle = "rgba(30,30,30,0.85)";
+    this.healthBarContext.roundRect(0, 36, 256, 26, 4);
+    this.healthBarContext.fill();
+    this.healthBarContext.fillStyle = "rgba(50,50,50,0.9)";
+    this.healthBarContext.roundRect(2, 38, 252, 22, 3);
+    this.healthBarContext.fill();
+    this.healthBarContext.fillStyle = "rgba(20,20,20,0.9)";
+    this.healthBarContext.roundRect(4, 40, 248, 18, 2);
+    this.healthBarContext.fill();
+    const barWidth = Math.floor(244 * healthPercent);
+    let startColor, endColor;
     if (healthPercent > 0.6) {
-      this.healthBarContext.fillStyle = "#00FF00";
+      startColor = "#32CD32";
+      endColor = "#00FF00";
     } else if (healthPercent > 0.3) {
-      this.healthBarContext.fillStyle = "#FFFF00";
+      startColor = "#FFD700";
+      endColor = "#FFA500";
     } else {
-      this.healthBarContext.fillStyle = "#FF0000";
+      startColor = "#FF4500";
+      endColor = "#FF0000";
     }
-    const barWidth = Math.floor(248 * healthPercent);
-    this.healthBarContext.fillRect(4, 30, barWidth, 16);
+    const gradient = this.healthBarContext.createLinearGradient(4, 40, 4, 58);
+    gradient.addColorStop(0, startColor);
+    gradient.addColorStop(1, endColor);
+    this.healthBarContext.fillStyle = gradient;
+    this.healthBarContext.roundRect(6, 42, barWidth, 14, 2);
+    this.healthBarContext.fill();
+    this.healthBarContext.font = "bold 12px Arial";
+    this.healthBarContext.textAlign = "center";
+    this.healthBarContext.fillStyle = "white";
+    this.healthBarContext.strokeStyle = "rgba(0,0,0,0.5)";
+    this.healthBarContext.lineWidth = 2;
+    this.healthBarContext.strokeText(`${Math.floor(healthPercent * 100)}%`, 128, 54);
+    this.healthBarContext.fillText(`${Math.floor(healthPercent * 100)}%`, 128, 54);
     this.healthBarTexture.needsUpdate = true;
   }
   checkCollision(other) {
+    if (this.isDestroyed) {
+      return false;
+    }
     const otherCollider = other.getCollider();
     if (otherCollider instanceof Sphere) {
       const distance = this.tank.position.distanceTo(other.getPosition());
@@ -29965,6 +30067,9 @@ class BaseTank {
       this.tank.position.copy(position);
     }
     this.tank.visible = true;
+    if (this.healthBarSprite) {
+      this.healthBarSprite.visible = true;
+    }
     this.collider.center.copy(this.tank.position);
     for (const effect of this.destroyedEffects) {
       this.scene.remove(effect);
@@ -29995,6 +30100,9 @@ class BaseTank {
     return "tank";
   }
   onCollision(other) {
+    if (this.isDestroyed) {
+      return;
+    }
     if (other.getType() === "shell") {
       return;
     }
@@ -30021,6 +30129,72 @@ class BaseTank {
       this.fireSound.setSourcePosition(position);
     if (this.explodeSound)
       this.explodeSound.setSourcePosition(position);
+  }
+  addFloatingIdentifierMarker(customColor) {
+    let markerColor = customColor || 16711680;
+    if (!customColor) {
+      if (this instanceof NPCTank) {
+        markerColor = 16724736;
+      } else if (this instanceof RemoteTank && !(this instanceof NPCTank)) {
+        markerColor = 3368703;
+      }
+    }
+    const triangleHeight = 2.2;
+    const triangleWidth = 1.6;
+    const geometry = new BufferGeometry;
+    const vertices = new Float32Array([
+      0,
+      0,
+      0,
+      -triangleWidth / 2,
+      triangleHeight,
+      0,
+      triangleWidth / 2,
+      triangleHeight,
+      0
+    ]);
+    geometry.setAttribute("position", new BufferAttribute(vertices, 3));
+    geometry.setIndex([0, 1, 2]);
+    const material = new MeshBasicMaterial({
+      color: markerColor,
+      transparent: true,
+      opacity: 0.9,
+      side: DoubleSide
+    });
+    const triangleMesh = new Mesh(geometry, material);
+    triangleMesh.position.set(0, 4, 0);
+    const pulseGeometry = geometry.clone();
+    const pulseMaterial = new MeshBasicMaterial({
+      color: markerColor,
+      transparent: true,
+      opacity: 0.3,
+      side: DoubleSide
+    });
+    const pulseMesh = new Mesh(pulseGeometry, pulseMaterial);
+    pulseMesh.position.copy(triangleMesh.position);
+    const userData = {
+      bobOffset: Math.random() * Math.PI * 2,
+      bobSpeed: 1.2 + Math.random() * 0.3,
+      pulsePhase: Math.random() * Math.PI * 2
+    };
+    const markerContainer = new Object3D;
+    markerContainer.add(triangleMesh);
+    markerContainer.add(pulseMesh);
+    markerContainer.userData = userData;
+    const animate = function() {
+      if (markerContainer && markerContainer.userData) {
+        markerContainer.position.y = Math.sin(Date.now() * 0.002 + markerContainer.userData.bobOffset) * 0.5;
+        markerContainer.rotation.y += 0.015;
+        if (pulseMesh) {
+          const pulseScale = 1 + Math.sin(Date.now() * 0.004 + markerContainer.userData.pulsePhase) * 0.2;
+          pulseMesh.scale.set(pulseScale, pulseScale, pulseScale);
+          pulseMaterial.opacity = 0.15 + Math.sin(Date.now() * 0.003) * 0.15;
+        }
+        requestAnimationFrame(animate);
+      }
+    };
+    animate();
+    this.tank.add(markerContainer);
   }
   getOwnerId() {
     return this.ownerId;
@@ -31549,57 +31723,6 @@ class RemoteTank extends BaseTank {
       console.error("Error initializing sounds for remote tank:", error);
     }
     this.createHealthBar();
-  }
-  createHealthBar() {
-    const canvas = document.createElement("canvas");
-    canvas.width = 256;
-    canvas.height = 48;
-    const context = canvas.getContext("2d");
-    if (context) {
-      context.clearRect(0, 0, 256, 48);
-      context.font = "bold 20px Arial";
-      context.textAlign = "center";
-      context.fillStyle = "white";
-      context.strokeStyle = "black";
-      context.lineWidth = 3;
-      context.strokeText(this.tankName, 128, 20);
-      context.fillText(this.tankName, 128, 20);
-      context.fillStyle = "rgba(0,0,0,0.7)";
-      context.fillRect(0, 28, 256, 20);
-      context.fillStyle = "#00FF00";
-      context.fillRect(4, 30, 248, 16);
-      const texture = new CanvasTexture(canvas);
-      this.healthBarContext = context;
-      this.healthBarTexture = texture;
-      const spriteMaterial = new SpriteMaterial({
-        map: texture,
-        transparent: true
-      });
-      const sprite = new Sprite(spriteMaterial);
-      sprite.position.set(0, 3.2, 0);
-      sprite.scale.set(4, 1.5, 1);
-      this.tank.add(sprite);
-      this.healthBarSprite = sprite;
-    }
-    this.updateHealthBar();
-  }
-  updateHealthBar() {
-    if (!this.healthBarContext || !this.healthBarTexture)
-      return;
-    const healthPercent = this.health / this.MAX_HEALTH;
-    this.healthBarContext.clearRect(0, 28, 256, 20);
-    this.healthBarContext.fillStyle = "rgba(0,0,0,0.7)";
-    this.healthBarContext.fillRect(0, 28, 256, 20);
-    if (healthPercent > 0.6) {
-      this.healthBarContext.fillStyle = "#00FF00";
-    } else if (healthPercent > 0.3) {
-      this.healthBarContext.fillStyle = "#FFFF00";
-    } else {
-      this.healthBarContext.fillStyle = "#FF0000";
-    }
-    const barWidth = Math.floor(248 * healthPercent);
-    this.healthBarContext.fillRect(4, 30, barWidth, 16);
-    this.healthBarTexture.needsUpdate = true;
   }
   createTank() {
     const bodyGeometry = new BoxGeometry(2, 0.75, 3, 1, 1, 2);
@@ -33854,8 +33977,8 @@ class GameComponent extends LitElement {
         console.log(`Set tank health to ${playerData.health}`);
       }
       remoteTank.tank.scale.set(1, 1, 1);
-      this.addDebugVisualToRemoteTank(remoteTank);
-      console.log("Added debug visual to remote tank");
+      remoteTank.addFloatingIdentifierMarker();
+      console.log("Added identifier marker to remote tank");
       this.collisionSystem.addCollider(remoteTank);
       this.remoteTanks.set(playerId, remoteTank);
       console.log(`Remote tank for player ${playerId} added to game`);
@@ -33863,48 +33986,6 @@ class GameComponent extends LitElement {
       console.error("Error creating remote tank:", error);
       console.error("Problem player data:", playerData);
     }
-  }
-  addDebugVisualToRemoteTank(remoteTank) {
-    const triangleHeight = 2;
-    const triangleWidth = 1.5;
-    const geometry = new BufferGeometry;
-    const vertices = new Float32Array([
-      0,
-      0,
-      0,
-      -triangleWidth / 2,
-      triangleHeight,
-      0,
-      triangleWidth / 2,
-      triangleHeight,
-      0
-    ]);
-    geometry.setAttribute("position", new BufferAttribute(vertices, 3));
-    geometry.setIndex([0, 1, 2]);
-    const material = new MeshBasicMaterial({
-      color: 16711680,
-      transparent: true,
-      opacity: 0.9,
-      side: DoubleSide
-    });
-    const triangleMesh = new Mesh(geometry, material);
-    triangleMesh.position.set(0, 4, 0);
-    const userData = {
-      bobOffset: Math.random() * Math.PI * 2,
-      bobSpeed: 1.5 + Math.random() * 0.5
-    };
-    const markerContainer = new Object3D;
-    markerContainer.add(triangleMesh);
-    markerContainer.userData = userData;
-    const animate = function() {
-      if (markerContainer && markerContainer.userData) {
-        markerContainer.position.y = Math.sin(Date.now() * 0.003 + markerContainer.userData.bobOffset) * 0.8;
-        markerContainer.rotation.y += 0.02;
-        requestAnimationFrame(animate);
-      }
-    };
-    animate();
-    remoteTank.tank.add(markerContainer);
   }
   updateRemoteTankPosition(tank, playerData) {
     try {
@@ -34352,6 +34433,7 @@ class GameComponent extends LitElement {
       const distance = 200 + Math.random() * 600;
       const position = new Vector3(Math.cos(angle) * distance, 0, Math.sin(angle) * distance);
       const npcTank = new NPCTank(this.scene, position, colors[i % colors.length]);
+      npcTank.addFloatingIdentifierMarker();
       this.collisionSystem.addCollider(npcTank);
       this.npcTanks.push(npcTank);
     }

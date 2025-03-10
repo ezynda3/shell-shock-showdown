@@ -1380,9 +1380,9 @@ export class GameComponent extends LitElement {
       // Scale the tank to match player tank size (ensure they're the same size)
       remoteTank.tank.scale.set(1.0, 1.0, 1.0);
       
-      // Add debug visualization - bright red triangle
-      this.addDebugVisualToRemoteTank(remoteTank);
-      console.log('Added debug visual to remote tank');
+      // Add floating triangle identifier marker
+      remoteTank.addFloatingIdentifierMarker();
+      console.log('Added identifier marker to remote tank');
       
       // Add to collision system
       this.collisionSystem.addCollider(remoteTank);
@@ -1396,68 +1396,8 @@ export class GameComponent extends LitElement {
     }
   }
   
-  // Add debug visualization to remote tank
-  private addDebugVisualToRemoteTank(remoteTank: RemoteTank): void {
-    // Create a smaller red triangle pointing down to the tank
-    const triangleHeight = 2; // Smaller height for the triangle
-    const triangleWidth = 1.5;  // Smaller width for the triangle
-    
-    // Create an upside-down triangle geometry
-    const geometry = new THREE.BufferGeometry();
-    const vertices = new Float32Array([
-      0, 0, 0,                 // bottom point
-      -triangleWidth/2, triangleHeight, 0,  // top left
-      triangleWidth/2, triangleHeight, 0    // top right
-    ]);
-    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-    geometry.setIndex([0, 1, 2]); // Connect vertices to form a triangle
-    
-    // Create a bright red material
-    const material = new THREE.MeshBasicMaterial({
-      color: 0xff0000,        // Bright red
-      transparent: true,
-      opacity: 0.9,
-      side: THREE.DoubleSide  // Visible from both sides
-    });
-    
-    // Create the triangle mesh
-    const triangleMesh = new THREE.Mesh(geometry, material);
-    
-    // Position it at a good height above the tank
-    triangleMesh.position.set(0, 4, 0);
-    
-    // Add animation data as properties
-    const userData = {
-      bobOffset: Math.random() * Math.PI * 2, // Random start phase
-      bobSpeed: 1.5 + Math.random() * 0.5     // Slightly random speed
-    };
-    
-    // Add only the triangle to a container
-    const markerContainer = new THREE.Object3D();
-    markerContainer.add(triangleMesh);
-    markerContainer.userData = userData;
-    
-    // Add an update function for the animation
-    // This will be called in the animation loop
-    const animate = function() {
-      if (markerContainer && markerContainer.userData) {
-        // Bob up and down
-        markerContainer.position.y = Math.sin(Date.now() * 0.003 + markerContainer.userData.bobOffset) * 0.8;
-        
-        // Rotate for better visibility from all angles
-        markerContainer.rotation.y += 0.02;
-        
-        // Continue animation
-        requestAnimationFrame(animate);
-      }
-    };
-    
-    // Start the animation
-    animate();
-    
-    // Add the marker container to the tank
-    remoteTank.tank.add(markerContainer);
-  }
+  // Removed old addDebugVisualToRemoteTank method
+  // NPCTank and RemoteTank now call addFloatingIdentifierMarker directly
   
   // Update an existing remote tank's position and rotation
   private updateRemoteTankPosition(tank: RemoteTank, playerData: PlayerState) {
@@ -2123,6 +2063,9 @@ export class GameComponent extends LitElement {
         colors[i % colors.length],
         // Name is auto-generated in the Tank constructor
       );
+      
+      // Add floating triangle identifier marker
+      npcTank.addFloatingIdentifierMarker();
       
       // Add tank to the collision system
       this.collisionSystem.addCollider(npcTank);

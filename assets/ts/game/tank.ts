@@ -727,36 +727,130 @@ export abstract class BaseTank implements ITank {
   }
   
   // Health bar methods
+  // Add roundRect polyfill for older browsers that may not support it
+  private ensureRoundRectMethod(ctx: CanvasRenderingContext2D): void {
+    // Add roundRect polyfill if not available
+    if (!ctx.roundRect) {
+      // Define the method on the prototype
+      CanvasRenderingContext2D.prototype.roundRect = function(
+        x: number, y: number, w: number, h: number, r: number
+      ) {
+        if (w < 2 * r) r = w / 2;
+        if (h < 2 * r) r = h / 2;
+        this.beginPath();
+        this.moveTo(x + r, y);
+        this.arcTo(x + w, y, x + w, y + h, r);
+        this.arcTo(x + w, y + h, x, y + h, r);
+        this.arcTo(x, y + h, x, y, r);
+        this.arcTo(x, y, x + w, y, r);
+        this.closePath();
+        return this;
+      };
+    }
+  }
+  
   protected createHealthBar(): void {
     // Creating a canvas for the health bar and name tag
     const canvas = document.createElement('canvas');
     canvas.width = 256;
-    canvas.height = 48;
+    canvas.height = 64; // Increased height for better visual separation
     const context = canvas.getContext('2d');
     
     if (context) {
+      // Add roundRect polyfill for browser compatibility
+      this.ensureRoundRectMethod(context);
       // Clear the entire canvas
-      context.clearRect(0, 0, 256, 48);
+      context.clearRect(0, 0, 256, 64);
       
-      // Draw the tank name
-      context.font = 'bold 20px Arial';
+      // Draw name background with slight color tint based on tank color
+      const tankColorObj = new THREE.Color(this.tankColor);
+      context.fillStyle = `rgba(${Math.floor(tankColorObj.r * 50)}, ${Math.floor(tankColorObj.g * 50)}, ${Math.floor(tankColorObj.b * 50)}, 0.7)`;
+      context.roundRect(32, 4, 192, 30, 6);
+      context.fill();
+      
+      // Draw the tank name with better styling
+      context.font = 'bold 18px Arial';
       context.textAlign = 'center';
       context.fillStyle = 'white';
-      context.strokeStyle = 'black';
+      context.strokeStyle = 'rgba(0,0,0,0.8)';
       context.lineWidth = 3;
-      context.strokeText(this.tankName, 128, 20);
-      context.fillText(this.tankName, 128, 20);
+      context.strokeText(this.tankName, 128, 24);
+      context.fillText(this.tankName, 128, 24);
       
-      // Draw the background (black) for health bar
-      context.fillStyle = 'rgba(0,0,0,0.7)';
-      context.fillRect(0, 28, 256, 20);
+      // Add an icon or badge based on tank type
+      const isTankTypeRemote = this instanceof RemoteTank;
+      const isTankTypeNPC = this instanceof NPCTank;
       
-      // Draw the health bar (green)
-      context.fillStyle = '#00FF00';
-      context.fillRect(4, 30, 248, 16);
+      if (isTankTypeRemote || isTankTypeNPC) {
+        // Draw a small icon next to the name (badge)
+        const badgeColor = isTankTypeNPC ? 'rgba(255,70,70,0.9)' : 'rgba(70,70,255,0.9)';
+        context.fillStyle = badgeColor;
+        context.beginPath();
+        context.arc(208, 18, 8, 0, Math.PI * 2);
+        context.fill();
+        
+        // Add a letter inside the badge
+        context.font = 'bold 12px Arial';
+        context.fillStyle = 'white';
+        context.textAlign = 'center';
+        context.fillText(isTankTypeNPC ? 'A' : 'P', 208, 22);
+      }
+      
+      // Draw health bar container with 3D effect
+      // Outer frame with shadow
+      context.fillStyle = 'rgba(30,30,30,0.85)';
+      context.roundRect(0, 36, 256, 26, 4);
+      context.fill();
+      
+      // Inner frame
+      context.fillStyle = 'rgba(50,50,50,0.9)';
+      context.roundRect(2, 38, 252, 22, 3);
+      context.fill();
+      
+      // Health bar background
+      context.fillStyle = 'rgba(20,20,20,0.9)';
+      context.roundRect(4, 40, 248, 18, 2);
+      context.fill();
+      
+      // Draw the health bar with gradient
+      const healthPercent = this.health / this.MAX_HEALTH;
+      const barWidth = Math.floor(244 * healthPercent);
+      
+      // Determine colors based on health percentage
+      let startColor, endColor;
+      if (healthPercent > 0.6) {
+        startColor = '#32CD32'; // Lime green
+        endColor = '#00FF00';   // Bright green
+      } else if (healthPercent > 0.3) {
+        startColor = '#FFD700'; // Gold
+        endColor = '#FFA500';   // Orange
+      } else {
+        startColor = '#FF4500'; // Orange Red
+        endColor = '#FF0000';   // Red
+      }
+      
+      // Create gradient
+      const gradient = context.createLinearGradient(4, 40, 4, 58);
+      gradient.addColorStop(0, startColor);
+      gradient.addColorStop(1, endColor);
+      context.fillStyle = gradient;
+      
+      // Draw health bar with rounded corners
+      context.roundRect(6, 42, barWidth, 14, 2);
+      context.fill();
+      
+      // Add health percentage text
+      context.font = 'bold 12px Arial';
+      context.textAlign = 'center';
+      context.fillStyle = 'white';
+      context.strokeStyle = 'rgba(0,0,0,0.5)';
+      context.lineWidth = 2;
+      context.strokeText(`${Math.floor(healthPercent * 100)}%`, 128, 54);
+      context.fillText(`${Math.floor(healthPercent * 100)}%`, 128, 54);
       
       // Create a texture from the canvas
       const texture = new THREE.CanvasTexture(canvas);
+      texture.minFilter = THREE.LinearFilter; // Better quality scaling
       
       // Store the canvas context for updating the health bar
       this.healthBarContext = context;
@@ -766,16 +860,17 @@ export abstract class BaseTank implements ITank {
       const spriteMaterial = new THREE.SpriteMaterial({
         map: texture,
         transparent: true,
+        depthTest: false // Always render on top
       });
       
       // Create a sprite that will always face the camera
       const sprite = new THREE.Sprite(spriteMaterial);
       
-      // Position the sprite above the tank
+      // Position the sprite above the tank at consistent height
       sprite.position.set(0, 3.7, 0);
       
       // Scale the sprite to an appropriate size
-      sprite.scale.set(4.0, 1.5, 1.0);
+      sprite.scale.set(4.0, 2.0, 1.0);
       
       // Add the sprite to the tank
       this.tank.add(sprite);
@@ -791,28 +886,65 @@ export abstract class BaseTank implements ITank {
   protected updateHealthBar(): void {
     if (!this.healthBarContext || !this.healthBarTexture) return;
     
+    // Ensure roundRect is available
+    this.ensureRoundRectMethod(this.healthBarContext);
+    
     // Calculate health percentage
     const healthPercent = this.health / this.MAX_HEALTH;
     
-    // Clear only the health bar portion
-    this.healthBarContext.clearRect(0, 28, 256, 20);
+    // Clear only the health bar portion (not the name)
+    this.healthBarContext.clearRect(0, 36, 256, 26);
     
-    // Draw background for health bar
-    this.healthBarContext.fillStyle = 'rgba(0,0,0,0.7)';
-    this.healthBarContext.fillRect(0, 28, 256, 20);
+    // Draw health bar container with 3D effect
+    // Outer frame with shadow
+    this.healthBarContext.fillStyle = 'rgba(30,30,30,0.85)';
+    this.healthBarContext.roundRect(0, 36, 256, 26, 4);
+    this.healthBarContext.fill();
     
-    // Determine color based on health percentage
+    // Inner frame
+    this.healthBarContext.fillStyle = 'rgba(50,50,50,0.9)';
+    this.healthBarContext.roundRect(2, 38, 252, 22, 3);
+    this.healthBarContext.fill();
+    
+    // Health bar background
+    this.healthBarContext.fillStyle = 'rgba(20,20,20,0.9)';
+    this.healthBarContext.roundRect(4, 40, 248, 18, 2);
+    this.healthBarContext.fill();
+    
+    // Draw the health bar with gradient
+    const barWidth = Math.floor(244 * healthPercent);
+    
+    // Determine colors based on health percentage
+    let startColor, endColor;
     if (healthPercent > 0.6) {
-      this.healthBarContext.fillStyle = '#00FF00'; // Green
+      startColor = '#32CD32'; // Lime green
+      endColor = '#00FF00';   // Bright green
     } else if (healthPercent > 0.3) {
-      this.healthBarContext.fillStyle = '#FFFF00'; // Yellow
+      startColor = '#FFD700'; // Gold
+      endColor = '#FFA500';   // Orange
     } else {
-      this.healthBarContext.fillStyle = '#FF0000'; // Red
+      startColor = '#FF4500'; // Orange Red
+      endColor = '#FF0000';   // Red
     }
     
-    // Draw health bar with current percentage
-    const barWidth = Math.floor(248 * healthPercent);
-    this.healthBarContext.fillRect(4, 30, barWidth, 16);
+    // Create gradient
+    const gradient = this.healthBarContext.createLinearGradient(4, 40, 4, 58);
+    gradient.addColorStop(0, startColor);
+    gradient.addColorStop(1, endColor);
+    this.healthBarContext.fillStyle = gradient;
+    
+    // Draw health bar with rounded corners
+    this.healthBarContext.roundRect(6, 42, barWidth, 14, 2);
+    this.healthBarContext.fill();
+    
+    // Add health percentage text
+    this.healthBarContext.font = 'bold 12px Arial';
+    this.healthBarContext.textAlign = 'center';
+    this.healthBarContext.fillStyle = 'white';
+    this.healthBarContext.strokeStyle = 'rgba(0,0,0,0.5)';
+    this.healthBarContext.lineWidth = 2;
+    this.healthBarContext.strokeText(`${Math.floor(healthPercent * 100)}%`, 128, 54);
+    this.healthBarContext.fillText(`${Math.floor(healthPercent * 100)}%`, 128, 54);
     
     // Update the texture
     this.healthBarTexture.needsUpdate = true;
@@ -820,6 +952,11 @@ export abstract class BaseTank implements ITank {
   
   // Collision detection methods
   protected checkCollision(other: ICollidable): boolean {
+    // Skip collision detection if this tank is destroyed
+    if (this.isDestroyed) {
+      return false;
+    }
+    
     const otherCollider = other.getCollider();
     
     if (otherCollider instanceof THREE.Sphere) {
@@ -944,6 +1081,11 @@ export abstract class BaseTank implements ITank {
     // Make tank visible again
     this.tank.visible = true;
     
+    // Make health bar sprite visible again
+    if (this.healthBarSprite) {
+      this.healthBarSprite.visible = true;
+    }
+    
     // Reset collider
     this.collider.center.copy(this.tank.position);
     
@@ -986,6 +1128,11 @@ export abstract class BaseTank implements ITank {
   }
   
   onCollision(other: ICollidable): void {
+    // Skip collision handling if tank is destroyed
+    if (this.isDestroyed) {
+      return;
+    }
+    
     if (other.getType() === 'shell') {
       // For shell collisions, handled by the shell's onCollision method
       return;
@@ -1021,6 +1168,108 @@ export abstract class BaseTank implements ITank {
     if (this.moveSound) this.moveSound.setSourcePosition(position);
     if (this.fireSound) this.fireSound.setSourcePosition(position);
     if (this.explodeSound) this.explodeSound.setSourcePosition(position);
+  }
+  
+  /**
+   * Creates a floating marker triangle above a tank
+   * This is used for both RemoteTank and NPCTank to visually identify them
+   * @param customColor Optional custom color for the marker
+   */
+  public addFloatingIdentifierMarker(customColor?: number): void {
+    // Determine the color based on tank type
+    let markerColor = customColor || 0xff0000; // Default is red
+    
+    // If no custom color provided, use preset colors based on tank type
+    if (!customColor) {
+      if (this instanceof NPCTank) {
+        markerColor = 0xff3300; // Orange-red for AI
+      } else if (this instanceof RemoteTank && !(this instanceof NPCTank)) {
+        markerColor = 0x3366ff; // Blue for remote players
+      }
+    }
+    
+    // Create a triangle pointing down to the tank
+    const triangleHeight = 2.2; // Height for the triangle
+    const triangleWidth = 1.6;  // Width for the triangle
+    
+    // Create an upside-down triangle geometry
+    const geometry = new THREE.BufferGeometry();
+    const vertices = new Float32Array([
+      0, 0, 0,                       // bottom point
+      -triangleWidth/2, triangleHeight, 0,  // top left
+      triangleWidth/2, triangleHeight, 0    // top right
+    ]);
+    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    geometry.setIndex([0, 1, 2]); // Connect vertices to form a triangle
+    
+    // Create a material with tank color
+    const material = new THREE.MeshBasicMaterial({
+      color: markerColor,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide // Visible from both sides
+    });
+    
+    // Create the triangle mesh
+    const triangleMesh = new THREE.Mesh(geometry, material);
+    
+    // Position it at a good height above the tank
+    triangleMesh.position.set(0, 4, 0);
+    
+    // Add a pulsing effect by creating a second triangle that will pulse
+    const pulseGeometry = geometry.clone();
+    const pulseMaterial = new THREE.MeshBasicMaterial({
+      color: markerColor,
+      transparent: true,
+      opacity: 0.3,
+      side: THREE.DoubleSide
+    });
+    
+    const pulseMesh = new THREE.Mesh(pulseGeometry, pulseMaterial);
+    pulseMesh.position.copy(triangleMesh.position);
+    
+    // Add animation data as properties
+    const userData = {
+      bobOffset: Math.random() * Math.PI * 2, // Random start phase
+      bobSpeed: 1.2 + Math.random() * 0.3,   // Slightly random speed
+      pulsePhase: Math.random() * Math.PI * 2 // Random pulse phase
+    };
+    
+    // Add triangles to a container
+    const markerContainer = new THREE.Object3D();
+    markerContainer.add(triangleMesh);
+    markerContainer.add(pulseMesh);
+    markerContainer.userData = userData;
+    
+    // Add an update function for the animation
+    // This will be called in the animation loop
+    const animate = function() {
+      if (markerContainer && markerContainer.userData) {
+        // Bob up and down
+        markerContainer.position.y = Math.sin(Date.now() * 0.002 + markerContainer.userData.bobOffset) * 0.5;
+        
+        // Rotate for better visibility from all angles
+        markerContainer.rotation.y += 0.015;
+        
+        // Pulse effect for the second triangle
+        if (pulseMesh) {
+          const pulseScale = 1.0 + Math.sin(Date.now() * 0.004 + markerContainer.userData.pulsePhase) * 0.2;
+          pulseMesh.scale.set(pulseScale, pulseScale, pulseScale);
+          
+          // Also vary opacity for more interesting effect
+          pulseMaterial.opacity = 0.15 + Math.sin(Date.now() * 0.003) * 0.15;
+        }
+        
+        // Continue animation
+        requestAnimationFrame(animate);
+      }
+    };
+    
+    // Start the animation
+    animate();
+    
+    // Add the marker container to the tank
+    this.tank.add(markerContainer);
   }
   
   // Tank owner ID
@@ -3334,97 +3583,7 @@ export class RemoteTank extends BaseTank {
     this.createHealthBar();
   }
   
-  private createHealthBar(): void {
-    // Follow the billboarding example from three.js manual
-    // Creating a canvas for the health bar and name tag
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;  // Much wider canvas to fit the player ID
-    canvas.height = 48;  // Taller canvas for name + health bar
-    const context = canvas.getContext('2d');
-    
-    if (context) {
-      // Clear the entire canvas
-      context.clearRect(0, 0, 256, 48);
-      
-      // Draw the tank name
-      context.font = 'bold 20px Arial'; // Larger font
-      context.textAlign = 'center';
-      context.fillStyle = 'white';
-      context.strokeStyle = 'black';
-      context.lineWidth = 3; // Thicker outline for better visibility
-      context.strokeText(this.tankName, 128, 20); // Centered text
-      context.fillText(this.tankName, 128, 20);
-      
-      // Draw the background (black) for health bar
-      context.fillStyle = 'rgba(0,0,0,0.7)'; // Slightly more opaque
-      context.fillRect(0, 28, 256, 20); // Taller health bar
-      
-      // Draw the health bar (green)
-      context.fillStyle = '#00FF00';
-      context.fillRect(4, 30, 248, 16); // Adjusted position and size
-      
-      // Create a texture from the canvas
-      const texture = new THREE.CanvasTexture(canvas);
-      
-      // Store the canvas context for updating the health bar
-      this.healthBarContext = context;
-      this.healthBarTexture = texture;
-      
-      // Create a sprite material that uses the canvas texture
-      const spriteMaterial = new THREE.SpriteMaterial({
-        map: texture,
-        transparent: true,
-      });
-      
-      // Create a sprite that will always face the camera
-      const sprite = new THREE.Sprite(spriteMaterial);
-      
-      // Position the sprite above the tank at a consistent height
-      sprite.position.set(0, 3.2, 0); // Standardized height for all tanks
-      
-      // Scale the sprite to an appropriate size
-      sprite.scale.set(4.0, 1.5, 1.0); // Wider and taller to accommodate name
-      
-      // Add the sprite to the tank
-      this.tank.add(sprite);
-      
-      // Store the sprite for later reference
-      this.healthBarSprite = sprite;
-    }
-    
-    // Update health bar initially
-    this.updateHealthBar();
-  }
-  
-  private updateHealthBar(): void {
-    if (!this.healthBarContext || !this.healthBarTexture) return;
-    
-    // Calculate health percentage
-    const healthPercent = this.health / this.MAX_HEALTH;
-    
-    // Clear only the health bar portion (bottom half of the canvas)
-    this.healthBarContext.clearRect(0, 28, 256, 20);
-    
-    // Draw background (black) for health bar
-    this.healthBarContext.fillStyle = 'rgba(0,0,0,0.7)';
-    this.healthBarContext.fillRect(0, 28, 256, 20);
-    
-    // Determine color based on health percentage
-    if (healthPercent > 0.6) {
-      this.healthBarContext.fillStyle = '#00FF00'; // Green
-    } else if (healthPercent > 0.3) {
-      this.healthBarContext.fillStyle = '#FFFF00'; // Yellow
-    } else {
-      this.healthBarContext.fillStyle = '#FF0000'; // Red
-    }
-    
-    // Draw health bar with current percentage
-    const barWidth = Math.floor(248 * healthPercent);
-    this.healthBarContext.fillRect(4, 30, barWidth, 16);
-    
-    // Update the texture
-    this.healthBarTexture.needsUpdate = true;
-  }
+  // Health bar rendering is now consolidated in the BaseTank class
 
   private createTank() {
     // Tank body - more detailed with beveled edges

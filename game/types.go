@@ -55,10 +55,10 @@ const (
 
 // GameEvent represents a consolidated game event
 type GameEvent struct {
-	Type      EventType        `json:"type"`
-	Data      interface{}      `json:"data"`
-	PlayerID  string           `json:"playerId,omitempty"`
-	Timestamp int64            `json:"timestamp"`
+	Type      EventType   `json:"type"`
+	Data      interface{} `json:"data"`
+	PlayerID  string      `json:"playerId,omitempty"`
+	Timestamp int64       `json:"timestamp"`
 }
 
 // HitData represents a tank hit event

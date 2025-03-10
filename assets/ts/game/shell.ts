@@ -292,6 +292,15 @@ export class Shell implements ICollidable {
     // or if we've already processed a collision for this shell
     if (other === this.owner || !this.isActive || this.hasProcessedCollision) return;
     
+    // If we hit a tank that's already destroyed, ignore the collision
+    if (other.getType() === 'tank') {
+      const tank = other as ITank;
+      // Access the isDestroyed property
+      if ((tank as any).isDestroyed) {
+        return;
+      }
+    }
+    
     // Immediately mark shell as inactive and that we've processed a collision
     this.isActive = false;
     this.hasProcessedCollision = true;
