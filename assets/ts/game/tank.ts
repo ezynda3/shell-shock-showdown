@@ -1176,100 +1176,11 @@ export abstract class BaseTank implements ITank {
    * @param customColor Optional custom color for the marker
    */
   public addFloatingIdentifierMarker(customColor?: number): void {
-    // Determine the color based on tank type
-    let markerColor = customColor || 0xff0000; // Default is red
+    // This method has been modified to do nothing, removing floating triangles 
+    // from NPC and Remote tanks as requested.
     
-    // If no custom color provided, use preset colors based on tank type
-    if (!customColor) {
-      if (this instanceof NPCTank) {
-        markerColor = 0xff3300; // Orange-red for AI
-      } else if (this instanceof RemoteTank && !(this instanceof NPCTank)) {
-        markerColor = 0x3366ff; // Blue for remote players
-      }
-    }
-    
-    // Create a triangle pointing down to the tank
-    const triangleHeight = 2.2; // Height for the triangle
-    const triangleWidth = 1.6;  // Width for the triangle
-    
-    // Create an upside-down triangle geometry
-    const geometry = new THREE.BufferGeometry();
-    const vertices = new Float32Array([
-      0, 0, 0,                       // bottom point
-      -triangleWidth/2, triangleHeight, 0,  // top left
-      triangleWidth/2, triangleHeight, 0    // top right
-    ]);
-    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-    geometry.setIndex([0, 1, 2]); // Connect vertices to form a triangle
-    
-    // Create a material with tank color
-    const material = new THREE.MeshBasicMaterial({
-      color: markerColor,
-      transparent: true,
-      opacity: 0.9,
-      side: THREE.DoubleSide // Visible from both sides
-    });
-    
-    // Create the triangle mesh
-    const triangleMesh = new THREE.Mesh(geometry, material);
-    
-    // Position it at a good height above the tank
-    triangleMesh.position.set(0, 4, 0);
-    
-    // Add a pulsing effect by creating a second triangle that will pulse
-    const pulseGeometry = geometry.clone();
-    const pulseMaterial = new THREE.MeshBasicMaterial({
-      color: markerColor,
-      transparent: true,
-      opacity: 0.3,
-      side: THREE.DoubleSide
-    });
-    
-    const pulseMesh = new THREE.Mesh(pulseGeometry, pulseMaterial);
-    pulseMesh.position.copy(triangleMesh.position);
-    
-    // Add animation data as properties
-    const userData = {
-      bobOffset: Math.random() * Math.PI * 2, // Random start phase
-      bobSpeed: 1.2 + Math.random() * 0.3,   // Slightly random speed
-      pulsePhase: Math.random() * Math.PI * 2 // Random pulse phase
-    };
-    
-    // Add triangles to a container
-    const markerContainer = new THREE.Object3D();
-    markerContainer.add(triangleMesh);
-    markerContainer.add(pulseMesh);
-    markerContainer.userData = userData;
-    
-    // Add an update function for the animation
-    // This will be called in the animation loop
-    const animate = function() {
-      if (markerContainer && markerContainer.userData) {
-        // Bob up and down
-        markerContainer.position.y = Math.sin(Date.now() * 0.002 + markerContainer.userData.bobOffset) * 0.5;
-        
-        // Rotate for better visibility from all angles
-        markerContainer.rotation.y += 0.015;
-        
-        // Pulse effect for the second triangle
-        if (pulseMesh) {
-          const pulseScale = 1.0 + Math.sin(Date.now() * 0.004 + markerContainer.userData.pulsePhase) * 0.2;
-          pulseMesh.scale.set(pulseScale, pulseScale, pulseScale);
-          
-          // Also vary opacity for more interesting effect
-          pulseMaterial.opacity = 0.15 + Math.sin(Date.now() * 0.003) * 0.15;
-        }
-        
-        // Continue animation
-        requestAnimationFrame(animate);
-      }
-    };
-    
-    // Start the animation
-    animate();
-    
-    // Add the marker container to the tank
-    this.tank.add(markerContainer);
+    // The implementation below is empty to keep the method available in case
+    // other code calls it, but it won't create any visible markers.
   }
   
   // Tank owner ID
