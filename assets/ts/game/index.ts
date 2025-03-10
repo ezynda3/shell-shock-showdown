@@ -1933,7 +1933,6 @@ export class GameComponent extends LitElement {
     // Create environment objects
     this.createTrees();
     this.createRocks();
-    this.createRockFormation();
     
     // Create player tank at a random valid position
     const spawnPoint = this.findRandomSpawnPoint();
@@ -1967,21 +1966,8 @@ export class GameComponent extends LitElement {
   private createRocks() {
     if (!this.scene || !this.mapGenerator) return;
     
-    // Build the rock layout
-    this.mapGenerator.createRocks();
-    
-    // Add rock colliders to the collision system
-    const rockColliders = this.mapGenerator.getRockColliders();
-    for (const collider of rockColliders) {
-      this.collisionSystem.addCollider(collider);
-    }
-  }
-  
-  private createRockFormation() {
-    if (!this.scene || !this.mapGenerator) return;
-    
-    // Build the rock formation
-    this.mapGenerator.createRockFormation();
+    // Generate terrain (rocks and rock formations)
+    this.mapGenerator.generateTerrain();
     
     // Add rock colliders to the collision system
     const rockColliders = this.mapGenerator.getRockColliders();

@@ -12814,66 +12814,6 @@ class SphereGeometry extends BufferGeometry {
     return new SphereGeometry(data.radius, data.widthSegments, data.heightSegments, data.phiStart, data.phiLength, data.thetaStart, data.thetaLength);
   }
 }
-class TorusGeometry extends BufferGeometry {
-  constructor(radius = 1, tube = 0.4, radialSegments = 12, tubularSegments = 48, arc = Math.PI * 2) {
-    super();
-    this.type = "TorusGeometry";
-    this.parameters = {
-      radius,
-      tube,
-      radialSegments,
-      tubularSegments,
-      arc
-    };
-    radialSegments = Math.floor(radialSegments);
-    tubularSegments = Math.floor(tubularSegments);
-    const indices = [];
-    const vertices = [];
-    const normals = [];
-    const uvs = [];
-    const center = new Vector3;
-    const vertex = new Vector3;
-    const normal = new Vector3;
-    for (let j = 0;j <= radialSegments; j++) {
-      for (let i = 0;i <= tubularSegments; i++) {
-        const u = i / tubularSegments * arc;
-        const v = j / radialSegments * Math.PI * 2;
-        vertex.x = (radius + tube * Math.cos(v)) * Math.cos(u);
-        vertex.y = (radius + tube * Math.cos(v)) * Math.sin(u);
-        vertex.z = tube * Math.sin(v);
-        vertices.push(vertex.x, vertex.y, vertex.z);
-        center.x = radius * Math.cos(u);
-        center.y = radius * Math.sin(u);
-        normal.subVectors(vertex, center).normalize();
-        normals.push(normal.x, normal.y, normal.z);
-        uvs.push(i / tubularSegments);
-        uvs.push(j / radialSegments);
-      }
-    }
-    for (let j = 1;j <= radialSegments; j++) {
-      for (let i = 1;i <= tubularSegments; i++) {
-        const a = (tubularSegments + 1) * j + i - 1;
-        const b = (tubularSegments + 1) * (j - 1) + i - 1;
-        const c = (tubularSegments + 1) * (j - 1) + i;
-        const d2 = (tubularSegments + 1) * j + i;
-        indices.push(a, b, d2);
-        indices.push(b, c, d2);
-      }
-    }
-    this.setIndex(indices);
-    this.setAttribute("position", new Float32BufferAttribute(vertices, 3));
-    this.setAttribute("normal", new Float32BufferAttribute(normals, 3));
-    this.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
-  }
-  copy(source) {
-    super.copy(source);
-    this.parameters = Object.assign({}, source.parameters);
-    return this;
-  }
-  static fromJSON(data) {
-    return new TorusGeometry(data.radius, data.tube, data.radialSegments, data.tubularSegments, data.arc);
-  }
-}
 class MeshStandardMaterial extends Material {
   constructor(parameters) {
     super();
@@ -28083,7 +28023,7 @@ class CollisionSystem {
   }
 }
 
-class StaticCollider {
+class StaticCollider2 {
   collider;
   position;
   type;
@@ -28155,7 +28095,7 @@ class TreeGenerator {
     this.scene.add(tree);
     const collisionRadius = 1 * scale;
     const position = new Vector3(x, collisionRadius, z);
-    const treeCollider = new StaticCollider(position, "tree", collisionRadius);
+    const treeCollider = new StaticCollider2(position, "tree", collisionRadius);
     this.treeColliders.push(treeCollider);
     return treeCollider;
   }
@@ -28176,7 +28116,7 @@ class TreeGenerator {
     this.scene.add(tree);
     const collisionRadius = 1.2 * scale;
     const position = new Vector3(x, collisionRadius, z);
-    const treeCollider = new StaticCollider(position, "tree", collisionRadius);
+    const treeCollider = new StaticCollider2(position, "tree", collisionRadius);
     this.treeColliders.push(treeCollider);
     return treeCollider;
   }
@@ -28340,16 +28280,14 @@ class TreeGenerator {
   }
 }
 
-// assets/ts/game/map.ts
-class MapGenerator {
+// assets/ts/game/rocks.ts
+class RockGenerator {
   scene;
-  treeGenerator;
   rockColliders = [];
   rockMaterial;
   darkRockMaterial;
   constructor(scene) {
     this.scene = scene;
-    this.treeGenerator = new TreeGenerator(scene);
     this.rockMaterial = new MeshStandardMaterial({
       color: 8421504,
       roughness: 0.9,
@@ -28360,6 +28298,419 @@ class MapGenerator {
       roughness: 0.9,
       metalness: 0.3
     });
+  }
+  noise2D(x, y, seed = 12345) {
+    const permute = (i) => {
+      return (i * 34 + seed * 6547 + 12345) % 289;
+    };
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    const fx = x - ix;
+    const fy = y - iy;
+    const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+    const a = permute(ix) + permute(iy);
+    const b = permute(ix + 1) + permute(iy);
+    const c = permute(ix) + permute(iy + 1);
+    const d2 = permute(ix + 1) + permute(iy + 1);
+    const getGrad = (h, x2, y2) => {
+      const h1 = h % 4;
+      let u2 = h1 < 2 ? x2 : y2;
+      let v2 = h1 < 2 ? y2 : x2;
+      return (h1 & 1 ? -u2 : u2) + (h1 & 2 ? -v2 * 2 : v2 * 2);
+    };
+    const ga = getGrad(a, fx, fy);
+    const gb = getGrad(b, fx - 1, fy);
+    const gc = getGrad(c, fx, fy - 1);
+    const gd = getGrad(d2, fx - 1, fy - 1);
+    const u = fade(fx);
+    const v = fade(fy);
+    const result = (1 - u) * ((1 - v) * ga + v * gc) + u * ((1 - v) * gb + v * gd);
+    return (result + 1) * 0.5;
+  }
+  fbm(x, y, octaves = 6, lacunarity = 2, persistence = 0.5, seed = 12345) {
+    let total = 0;
+    let frequency = 0.005;
+    let amplitude = 1;
+    let maxValue = 0;
+    for (let i = 0;i < octaves; i++) {
+      total += this.noise2D(x * frequency, y * frequency, seed + i * 1000) * amplitude;
+      maxValue += amplitude;
+      frequency *= lacunarity;
+      amplitude *= persistence;
+    }
+    return total / maxValue;
+  }
+  createRock(size, deformSeed, x, y, z, rotation, scale, material, colliderPosition) {
+    const rockGeometry = new DodecahedronGeometry(size, 0);
+    const positions = rockGeometry.attributes.position;
+    for (let j = 0;j < positions.count; j++) {
+      const vx = positions.getX(j);
+      const vy = positions.getY(j);
+      const vz = positions.getZ(j);
+      const xFactor = 0.8 + Math.sin(vx * deformSeed) * 0.2;
+      const yFactor = 0.8 + Math.cos(vy * deformSeed) * 0.2;
+      const zFactor = 0.8 + Math.sin(vz * deformSeed) * 0.2;
+      positions.setX(j, vx * xFactor);
+      positions.setY(j, vy * yFactor);
+      positions.setZ(j, vz * zFactor);
+    }
+    const rock = new Mesh(rockGeometry, material);
+    rock.position.set(x, y, z);
+    rock.rotation.set(rotation.x, rotation.y, rotation.z);
+    rock.scale.set(scale.x, scale.y, scale.z);
+    rock.castShadow = true;
+    rock.receiveShadow = true;
+    const maxScale = Math.max(scale.x, scale.y, scale.z);
+    const collisionRadius = size * maxScale * 1.2;
+    const position = colliderPosition ? colliderPosition.clone() : new Vector3(x, y, z);
+    const rockCollider = new StaticCollider2(position, "rock", collisionRadius);
+    this.rockColliders.push(rockCollider);
+    return rock;
+  }
+  createRockCluster(centerX, centerZ, seed) {
+    const cluster = new Group;
+    const rockCount = 5;
+    for (let i = 0;i < rockCount; i++) {
+      const angle = i / rockCount * Math.PI * 2;
+      const distance = 1 + Math.sin(seed + i) * 0.5;
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      const y = 0.2 + Math.sin(seed * (i + 1)) * 0.3;
+      const rotX = Math.sin(seed + i) * Math.PI;
+      const rotY = Math.cos(seed + i * 2) * Math.PI;
+      const rotZ = Math.sin(seed + i * 3) * Math.PI;
+      const baseScale = 0.8 + Math.sin(seed * i) * 0.7;
+      const scaleX = baseScale;
+      const scaleY = baseScale * 0.8;
+      const scaleZ = baseScale * 1.2;
+      const material = i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial;
+      const absX = x + centerX;
+      const absY = y;
+      const absZ = z + centerZ;
+      const rock = this.createRock(0.5 + Math.sin(seed + i * 7) * 0.3, seed + i, x, y, z, new Vector3(rotX, rotY, rotZ), new Vector3(scaleX, scaleY, scaleZ), material, new Vector3(absX, absY, absZ));
+      cluster.add(rock);
+    }
+    cluster.position.set(centerX, 0, centerZ);
+    this.scene.add(cluster);
+  }
+  createStoneCircle(centerX, centerZ, radius, count, seed) {
+    for (let i = 0;i < count; i++) {
+      const angle = i / count * Math.PI * 2;
+      const x = centerX + Math.cos(angle) * radius;
+      const z = centerZ + Math.sin(angle) * radius;
+      this.createRockCluster(x, z, seed + i);
+    }
+  }
+  createRockSpire(x, z, height, seed) {
+    const spireGroup = new Group;
+    const segments = 8;
+    const baseSize = 2;
+    for (let i = 0;i < segments; i++) {
+      const segmentSize = baseSize * (1 - i / segments * 0.7);
+      const segmentHeight = height / segments;
+      const y = i * segmentHeight;
+      const xOffset = Math.cos(seed + i * 0.5) * segmentSize * 0.3;
+      const zOffset = Math.sin(seed + i * 1.2) * segmentSize * 0.3;
+      const material = i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial;
+      const rock = this.createRock(segmentSize, seed + i, xOffset, y, zOffset, new Vector3(Math.sin(i * 0.3 + seed) * Math.PI, Math.sin(i * 0.7 + seed) * Math.PI * 2, Math.sin(i * 0.5 + seed) * Math.PI), new Vector3(1, 0.8, 1), material);
+      spireGroup.add(rock);
+    }
+    const topRock = this.createRock(baseSize * 0.3, seed + 100, 0, height, 0, new Vector3(0, 0, 0), new Vector3(2, 1.5, 2), this.rockMaterial);
+    spireGroup.add(topRock);
+    spireGroup.position.set(x, 0, z);
+    this.scene.add(spireGroup);
+    const colliderPosition = new Vector3(x, height / 2, z);
+    const rockCollider = new StaticCollider2(colliderPosition, "rock", baseSize * 2.5);
+    this.rockColliders.push(rockCollider);
+  }
+  createRockArch(x, z, width, height, depth, rotation, seed) {
+    const archGroup = new Group;
+    const pillarWidth = width * 0.15;
+    const pillarDepth = depth * 0.3;
+    const leftPillar = new BoxGeometry(pillarWidth, height * 0.8, pillarDepth);
+    const leftPillarMesh = new Mesh(leftPillar, this.rockMaterial);
+    leftPillarMesh.position.set(-width / 2 + pillarWidth / 2, height * 0.4, 0);
+    archGroup.add(leftPillarMesh);
+    const rightPillar = new BoxGeometry(pillarWidth, height * 0.8, pillarDepth);
+    const rightPillarMesh = new Mesh(rightPillar, this.rockMaterial);
+    rightPillarMesh.position.set(width / 2 - pillarWidth / 2, height * 0.4, 0);
+    archGroup.add(rightPillarMesh);
+    const archCurve = new Shape;
+    const segments = 10;
+    const archWidth = width - pillarWidth;
+    for (let i = 0;i <= segments; i++) {
+      const angle = Math.PI - i / segments * Math.PI;
+      const x2 = Math.cos(angle) * (archWidth / 2);
+      const y = Math.sin(angle) * (height * 0.2) + height * 0.8;
+      if (i === 0) {
+        archCurve.moveTo(x2, y);
+      } else {
+        archCurve.lineTo(x2, y);
+      }
+    }
+    archCurve.lineTo(archWidth / 2, height * 0.8);
+    archCurve.lineTo(-archWidth / 2, height * 0.8);
+    const extrudeSettings = {
+      steps: 1,
+      depth: pillarDepth,
+      bevelEnabled: true,
+      bevelThickness: 0.2,
+      bevelSize: 0.1,
+      bevelSegments: 2
+    };
+    const archGeometry = new ExtrudeGeometry(archCurve, extrudeSettings);
+    const archMesh = new Mesh(archGeometry, this.darkRockMaterial);
+    archMesh.position.z = -pillarDepth / 2;
+    archGroup.add(archMesh);
+    for (let i = 0;i < 5; i++) {
+      const decorationPosition = new Vector3((Math.sin(seed + i) - 0.5) * width, height * 1.1 + Math.sin(seed + i * 2) * height * 0.2, (Math.cos(seed + i) - 0.5) * depth);
+      const rock = this.createRock(0.4 + Math.sin(seed + i * 3) * 0.2, seed + i * 10, decorationPosition.x, decorationPosition.y, decorationPosition.z, new Vector3(Math.sin(seed + i * 4) * Math.PI, Math.sin(seed + i * 5) * Math.PI, Math.sin(seed + i * 6) * Math.PI), new Vector3(1, 1, 1), i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial);
+      archGroup.add(rock);
+    }
+    archGroup.position.set(x, 0, z);
+    archGroup.rotation.y = rotation;
+    this.scene.add(archGroup);
+    const leftColliderPos = new Vector3(x - Math.cos(rotation) * (width / 2 - pillarWidth / 2), height * 0.4, z - Math.sin(rotation) * (width / 2 - pillarWidth / 2));
+    const rightColliderPos = new Vector3(x + Math.cos(rotation) * (width / 2 - pillarWidth / 2), height * 0.4, z + Math.sin(rotation) * (width / 2 - pillarWidth / 2));
+    this.rockColliders.push(new StaticCollider2(leftColliderPos, "rock", pillarWidth));
+    this.rockColliders.push(new StaticCollider2(rightColliderPos, "rock", pillarWidth));
+    const archTopCollider = new StaticCollider2(new Vector3(x, height * 0.9, z), "rock", width * 0.4);
+    this.rockColliders.push(archTopCollider);
+  }
+  createBalancedRocks(x, z, height, seed) {
+    const balancedRockGroup = new Group;
+    const baseRock = this.createRock(3, seed, 0, 1.5, 0, new Vector3(0, 0, 0), new Vector3(2, 1, 2), this.darkRockMaterial);
+    balancedRockGroup.add(baseRock);
+    const middleRock = this.createRock(2, seed + 10, Math.sin(seed) * 0.5, 3, Math.cos(seed) * 0.5, new Vector3(Math.sin(seed + 5) * 0.3, Math.sin(seed + 6) * 0.3, Math.sin(seed + 7) * 0.3), new Vector3(1.5, 1.2, 1.5), this.rockMaterial);
+    balancedRockGroup.add(middleRock);
+    const topRock = this.createRock(1.5, seed + 20, Math.sin(seed + 10) * 0.8, 5, Math.cos(seed + 10) * 0.8, new Vector3(Math.sin(seed + 15) * 0.5, Math.sin(seed + 16) * 0.5, Math.sin(seed + 17) * 0.5), new Vector3(1.2, 1, 1.2), this.darkRockMaterial);
+    balancedRockGroup.add(topRock);
+    if (Math.sin(seed + 30) > 0) {
+      const tinyRock = this.createRock(0.7, seed + 30, Math.sin(seed + 20) * 0.3, 6, Math.cos(seed + 20) * 0.3, new Vector3(Math.sin(seed + 25) * 1, Math.sin(seed + 26) * 1, Math.sin(seed + 27) * 1), new Vector3(0.8, 0.8, 0.8), this.rockMaterial);
+      balancedRockGroup.add(tinyRock);
+    }
+    balancedRockGroup.position.set(x, 0, z);
+    this.scene.add(balancedRockGroup);
+    const colliderPosition = new Vector3(x, height / 2, z);
+    const rockCollider = new StaticCollider2(colliderPosition, "rock", 3);
+    this.rockColliders.push(rockCollider);
+  }
+  createRockWall(startX, startZ, endX, endZ, height, seed) {
+    const direction = new Vector2(endX - startX, endZ - startZ).normalize();
+    const length = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endZ - startZ, 2));
+    const rockCount = Math.ceil(length / 5);
+    for (let i = 0;i < rockCount; i++) {
+      const t = i / (rockCount - 1);
+      const x = startX + (endX - startX) * t;
+      const z = startZ + (endZ - startZ) * t;
+      const perpX = -direction.y;
+      const perpZ = direction.x;
+      const offset = (Math.sin(seed + i * 5) - 0.5) * 2;
+      const xPos = x + perpX * offset;
+      const zPos = z + perpZ * offset;
+      const yPos = Math.sin(seed + i * 3) * height * 0.4;
+      const size = 1 + Math.sin(seed + i * 7) * 0.5;
+      this.createRock(size, seed + i * 10, 0, yPos, 0, new Vector3(Math.sin(seed + i * 11) * Math.PI, Math.sin(seed + i * 13) * Math.PI, Math.sin(seed + i * 17) * Math.PI), new Vector3(1, height / size, 1), i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial, new Vector3(xPos, height / 2, zPos));
+    }
+    const segments = 4;
+    for (let i = 0;i < segments; i++) {
+      const t = i / segments;
+      const x = startX + (endX - startX) * t;
+      const z = startZ + (endZ - startZ) * t;
+      const colliderPosition = new Vector3(x, height / 2, z);
+      const segmentLength = length / segments;
+      const rockCollider = new StaticCollider2(colliderPosition, "rock", segmentLength / 2);
+      this.rockColliders.push(rockCollider);
+    }
+  }
+  createMountainPeak(x, z, height, radius, seed) {
+    const peakGroup = new Group;
+    const baseGeometry = new ConeGeometry(radius, height * 0.8, 8);
+    const base = new Mesh(baseGeometry, this.darkRockMaterial);
+    base.position.y = height * 0.4;
+    base.castShadow = true;
+    base.receiveShadow = true;
+    peakGroup.add(base);
+    const middleGeometry = new ConeGeometry(radius * 0.7, height * 0.5, 7);
+    const middle = new Mesh(middleGeometry, this.rockMaterial);
+    middle.position.y = height * 0.7;
+    middle.castShadow = true;
+    middle.receiveShadow = true;
+    peakGroup.add(middle);
+    const topGeometry = new ConeGeometry(radius * 0.4, height * 0.3, 6);
+    const top = new Mesh(topGeometry, this.darkRockMaterial);
+    top.position.y = height * 0.95;
+    top.castShadow = true;
+    top.receiveShadow = true;
+    peakGroup.add(top);
+    [base, middle, top].forEach((mesh, i) => {
+      const positions = mesh.geometry.attributes.position;
+      for (let j = 0;j < positions.count; j++) {
+        const vx = positions.getX(j);
+        const vy = positions.getY(j);
+        const vz = positions.getZ(j);
+        const deformSeed = i * 10 + seed;
+        const xFactor = 0.9 + Math.sin(vx * deformSeed * 0.1) * 0.3;
+        const zFactor = 0.9 + Math.cos(vz * deformSeed * 0.1) * 0.3;
+        positions.setX(j, vx * xFactor);
+        positions.setZ(j, vz * zFactor);
+      }
+      mesh.geometry.attributes.position.needsUpdate = true;
+    });
+    peakGroup.position.set(x, 0, z);
+    this.scene.add(peakGroup);
+    const colliderPosition = new Vector3(x, height * 0.5, z);
+    const rockCollider = new StaticCollider2(colliderPosition, "rock", radius * 0.8);
+    this.rockColliders.push(rockCollider);
+  }
+  rockNoiseValue(x, y, biomeScale = 1, heightScale = 1) {
+    const mountainRangeNoise = this.fbm(x, y, 2, 2, 0.5, 234);
+    const formationNoise = this.fbm(x, y, 3, 2.2, 0.5, 567);
+    const clusterNoise = this.fbm(x, y, 4, 2.5, 0.6, 789);
+    const combinedNoise = mountainRangeNoise * 0.5 + formationNoise * 0.3 + clusterNoise * 0.2;
+    const scaledNoise = combinedNoise * biomeScale;
+    const sizeNoise = this.fbm(x, y, 2, 2, 0.5, 987);
+    const size = (0.7 + sizeNoise * 1.3) * biomeScale;
+    const heightNoise = this.fbm(x, y, 3, 1.8, 0.6, 654);
+    const height = (0.5 + heightNoise * 0.8) * heightScale;
+    const typeNoise = this.fbm(x, y, 2, 2.5, 0.5, 321);
+    const type = typeNoise > 0.5 ? "standard" : "dark";
+    return {
+      value: scaledNoise,
+      size,
+      height,
+      type
+    };
+  }
+  createRockFormationFromNoise(x, z, densityThreshold, biomeScale = 1, heightScale = 1, formationType = "cluster") {
+    const noise = this.rockNoiseValue(x, z, biomeScale, heightScale);
+    if (noise.value > densityThreshold) {
+      const seed = Math.floor((x * 1000 + z) * noise.value);
+      if (formationType === "cluster") {
+        this.createRockCluster(x, z, seed);
+      } else if (formationType === "spire" && noise.value > densityThreshold + 0.1) {
+        const spireHeight = 5 + noise.height * 15;
+        this.createRockSpire(x, z, spireHeight, seed);
+      } else if (formationType === "mountain" && noise.value > densityThreshold + 0.2) {
+        if (this.fbm(x, z, 2, 2, 0.5, 111) > 0.75) {
+          this.createMountainPeak(x, z, 80 + noise.height * 150, 40 + noise.size * 60, seed);
+        } else if (this.fbm(x, z, 2, 2, 0.5, 222) > 0.85) {
+          this.createBalancedRocks(x, z, 10 + noise.height * 10, seed);
+        } else {
+          this.createRockArch(x, z, 10 + noise.size * 20, 5 + noise.height * 10, 5 + noise.size * 10, this.fbm(x, z, 1, 1, 0.5, 333) * Math.PI * 2, seed);
+        }
+      }
+    }
+  }
+  createSmallRockFromNoise(x, z, densityThreshold, biomeScale = 1) {
+    const noise = this.rockNoiseValue(x, z, biomeScale, 1);
+    if (noise.value > densityThreshold) {
+      const size = 0.3 + noise.size * 0.7;
+      const y = 0.2 + noise.height * 0.6;
+      const seed = Math.floor((x * 1000 + z) * noise.value);
+      const rotX = Math.sin(seed * 0.1) * Math.PI;
+      const rotY = Math.cos(seed * 0.2) * Math.PI;
+      const rotZ = Math.sin(seed * 0.3) * Math.PI;
+      const scaleX = 0.8 + this.fbm(x, z, 2, 2, 0.5, 444) * 0.4;
+      const scaleY = 0.8 + this.fbm(x, z, 2, 2, 0.5, 555) * 0.4;
+      const scaleZ = 0.8 + this.fbm(x, z, 2, 2, 0.5, 666) * 0.4;
+      const material = noise.type === "standard" ? this.rockMaterial : this.darkRockMaterial;
+      this.createRock(size, seed, x, y, z, new Vector3(rotX, rotY, rotZ), new Vector3(scaleX, scaleY, scaleZ), material);
+    }
+  }
+  createRocks() {
+    for (let i = 0;i < 8; i++) {
+      const angle = i / 8 * Math.PI * 2;
+      const x = Math.cos(angle) * 20;
+      const z = Math.sin(angle) * 20;
+      this.createRockCluster(x, z, i);
+    }
+    for (let i = 0;i < 4; i++) {
+      const x = i < 2 ? -100 : 100;
+      const z = i % 2 === 0 ? -100 : 100;
+      this.createRockCluster(x, z, i + 10);
+    }
+    for (let x = -400;x <= 400; x += 30) {
+      for (let z = 280;z <= 400; z += 30) {
+        this.createRockFormationFromNoise(x, z, 0.65, 1.2, 1.1, "cluster");
+      }
+    }
+    for (let x = -350;x <= 350; x += 60) {
+      for (let z = 420;z <= 550; z += 60) {
+        this.createRockFormationFromNoise(x, z, 0.7, 1, 1.2, "mountain");
+      }
+    }
+    for (let x = 280;x <= 400; x += 30) {
+      for (let z = -400;z <= 400; z += 30) {
+        this.createRockFormationFromNoise(x, z, 0.65, 1.2, 1.1, "cluster");
+      }
+    }
+    for (let x = 420;x <= 550; x += 60) {
+      for (let z = -350;z <= 350; z += 60) {
+        this.createRockFormationFromNoise(x, z, 0.7, 1, 1.2, "mountain");
+      }
+    }
+    for (let x = -400;x <= 400; x += 30) {
+      for (let z = -400;z >= -550; z -= 30) {
+        this.createRockFormationFromNoise(x, z, 0.68, 0.9, 0.9, "cluster");
+      }
+    }
+    for (let x = -400;x >= -550; x -= 30) {
+      for (let z = -400;z <= 400; z += 30) {
+        this.createRockFormationFromNoise(x, z, 0.68, 0.9, 0.9, "cluster");
+      }
+    }
+    for (let x = -600;x <= 600; x += 150) {
+      for (let z = -600;z <= 600; z += 150) {
+        this.createRockFormationFromNoise(x + this.fbm(x, z, 2, 2, 0.5, 777) * 50 - 25, z + this.fbm(z, x, 2, 2, 0.5, 888) * 50 - 25, 0.75, 0.8, 1.3, "spire");
+      }
+    }
+    this.createStoneCircle(500, 500, 50, 12, 400);
+    this.createStoneCircle(-500, 500, 50, 12, 500);
+    this.createStoneCircle(500, -500, 50, 12, 600);
+    this.createStoneCircle(-500, -500, 50, 12, 700);
+    const gridSize = 100;
+    for (let x = -800;x <= 800; x += gridSize) {
+      for (let z = -800;z <= 800; z += gridSize) {
+        for (let i = 0;i < 5; i++) {
+          const offsetX = this.fbm(x + i, z, 2, 2, 0.5, 999 + i) * gridSize;
+          const offsetZ = this.fbm(x, z + i, 2, 2, 0.5, 1000 + i) * gridSize;
+          this.createSmallRockFromNoise(x + offsetX, z + offsetZ, 0.72, 0.9);
+        }
+      }
+    }
+    for (let x = -600;x <= 600; x += 200) {
+      for (let z = -600;z <= 600; z += 200) {
+        const ridgeNoise = this.fbm(x, z, 3, 2, 0.5, 123);
+        if (ridgeNoise > 0.6) {
+          const angle = this.fbm(x, z, 2, 2, 0.5, 456) * Math.PI * 2;
+          const length = 50 + this.fbm(x, z, 2, 2, 0.5, 789) * 100;
+          const startX = x - Math.cos(angle) * length / 2;
+          const startZ = z - Math.sin(angle) * length / 2;
+          const endX = x + Math.cos(angle) * length / 2;
+          const endZ = z + Math.sin(angle) * length / 2;
+          const height = 5 + this.fbm(x, z, 2, 2, 0.5, 321) * 10;
+          this.createRockWall(startX, startZ, endX, endZ, height, Math.floor(x * z));
+        }
+      }
+    }
+  }
+  createRockFormation() {
+  }
+  getRockColliders() {
+    return [...this.rockColliders];
+  }
+}
+
+// assets/ts/game/map.ts
+class MapGenerator {
+  scene;
+  treeGenerator;
+  rockGenerator;
+  constructor(scene) {
+    this.scene = scene;
+    this.treeGenerator = new TreeGenerator(scene);
+    this.rockGenerator = new RockGenerator(scene);
     this.treeGenerator.generateTrees();
   }
   noise2D(x, y, seed = 12345) {
@@ -28586,480 +28937,17 @@ class MapGenerator {
       this.rockColliders.push(rockCollider);
     }
   }
-  createGiantMountain(x, z, seed) {
-    const mountainGroup = new Group;
-    const mountainHeight = 160 + Math.sin(seed) * 40;
-    const mountainWidth = 100 + Math.sin(seed * 1.3) * 30;
-    const mountainDepth = 100 + Math.cos(seed * 0.7) * 30;
-    const baseGeometry = new ConeGeometry(mountainWidth / 2, mountainHeight * 0.7, 8);
-    const baseMesh = new Mesh(baseGeometry, this.darkRockMaterial);
-    baseMesh.position.y = mountainHeight * 0.35;
-    baseMesh.castShadow = true;
-    baseMesh.receiveShadow = true;
-    const middleGeometry = new ConeGeometry(mountainWidth * 0.6 / 2, mountainHeight * 0.5, 7);
-    const middleMesh = new Mesh(middleGeometry, this.rockMaterial);
-    middleMesh.position.y = mountainHeight * 0.65;
-    middleMesh.castShadow = true;
-    middleMesh.receiveShadow = true;
-    const upperGeometry = new ConeGeometry(mountainWidth * 0.4 / 2, mountainHeight * 0.3, 6);
-    const upperMesh = new Mesh(upperGeometry, this.darkRockMaterial);
-    upperMesh.position.y = mountainHeight * 0.9;
-    upperMesh.castShadow = true;
-    upperMesh.receiveShadow = true;
-    const peakGeometry = new ConeGeometry(mountainWidth * 0.2 / 2, mountainHeight * 0.15, 5);
-    const peakMesh = new Mesh(peakGeometry, this.rockMaterial);
-    peakMesh.position.y = mountainHeight * 1.05;
-    peakMesh.castShadow = true;
-    peakMesh.receiveShadow = true;
-    mountainGroup.add(baseMesh);
-    mountainGroup.add(middleMesh);
-    mountainGroup.add(upperMesh);
-    mountainGroup.add(peakMesh);
-    [baseMesh, middleMesh, upperMesh, peakMesh].forEach((mesh, i) => {
-      const positions = mesh.geometry.attributes.position;
-      for (let j = 0;j < positions.count; j++) {
-        const vx = positions.getX(j);
-        const vy = positions.getY(j);
-        const vz = positions.getZ(j);
-        const deformSeed = seed + i * 100;
-        const xFactor = 0.9 + Math.sin(vx * deformSeed * 0.01) * 0.4;
-        const zFactor = 0.9 + Math.cos(vz * deformSeed * 0.01) * 0.4;
-        positions.setX(j, vx * xFactor);
-        positions.setZ(j, vz * zFactor);
-        if (i < 3) {
-          const yFactor = 1 + Math.cos(vx * vz * deformSeed * 0.001) * 0.1;
-          positions.setY(j, vy * yFactor);
-        }
-      }
-      mesh.geometry.attributes.position.needsUpdate = true;
-    });
-    const baseRadius = mountainWidth / 2 * 1.2;
-    const clusterCount = 12;
-    for (let i = 0;i < clusterCount; i++) {
-      const angle = i / clusterCount * Math.PI * 2;
-      const distance = baseRadius * (0.9 + Math.sin(seed + i * 7) * 0.3);
-      const clusterX = Math.cos(angle) * distance;
-      const clusterZ = Math.sin(angle) * distance;
-      const rockCluster = new Group;
-      const rockCount = 3 + Math.floor(Math.abs(Math.sin(seed + i * 13)) * 3);
-      for (let j = 0;j < rockCount; j++) {
-        const offsetAngle = Math.PI * 2 * Math.sin(seed + i * j);
-        const offsetDist = 2 + Math.sin(seed + i * j * 3) * 1.5;
-        const rockX = clusterX + Math.cos(offsetAngle) * offsetDist;
-        const rockZ = clusterZ + Math.sin(offsetAngle) * offsetDist;
-        const rockY = Math.abs(Math.sin(seed + i * j * 5)) * 2;
-        const rockSize = 1 + Math.abs(Math.sin(seed + i * j * 11)) * 2;
-        const rock = this.createRock(rockSize, seed + i * 100 + j, rockX, rockY, rockZ, new Vector3(Math.sin(seed + i * j * 17) * Math.PI, Math.sin(seed + i * j * 19) * Math.PI * 2, Math.sin(seed + i * j * 23) * Math.PI), new Vector3(1 + Math.sin(seed + i * j * 29) * 0.4, 0.7 + Math.abs(Math.sin(seed + i * j * 31)) * 0.6, 1 + Math.sin(seed + i * j * 37) * 0.4), j % 2 === 0 ? this.rockMaterial : this.darkRockMaterial);
-        mountainGroup.add(rock);
-      }
-    }
-    mountainGroup.position.set(x, 0, z);
-    this.scene.add(mountainGroup);
-    const mountainCollider = new StaticCollider(new Vector3(x, mountainHeight * 0.5, z), "rock", mountainWidth * 0.6);
-    this.rockColliders.push(mountainCollider);
-    for (let i = 0;i < 8; i++) {
-      const angle = i / 8 * Math.PI * 2;
-      const distance = mountainWidth * 0.4;
-      const colliderX = x + Math.cos(angle) * distance;
-      const colliderZ = z + Math.sin(angle) * distance;
-      const collider = new StaticCollider(new Vector3(colliderX, mountainHeight * 0.3, colliderZ), "rock", mountainWidth * 0.25);
-      this.rockColliders.push(collider);
-    }
-  }
-  createMountainRange(x, z, height, seed) {
-    const rangeLength = 300;
-    const rangeWidth = 100;
-    const segmentCount = 5;
-    const isHorizontal = Math.abs(x) > Math.abs(z);
-    for (let i = 0;i < segmentCount; i++) {
-      const t = i / (segmentCount - 1) * 2 - 1;
-      const peakX = isHorizontal ? x + t * rangeLength / 2 : x;
-      const peakZ = isHorizontal ? z : z + t * rangeLength / 2;
-      const peakHeight = height * (0.7 + Math.sin(seed + i * 5) * 0.3);
-      this.createMountainPeak(peakX, peakZ, peakHeight, rangeWidth * (0.5 + Math.sin(seed + i * 7) * 0.3), seed + i * 1000);
-      if (i < segmentCount - 1) {
-        const midT = t + 1 / (segmentCount - 1);
-        const midX = isHorizontal ? x + midT * rangeLength / 2 : x;
-        const midZ = isHorizontal ? z : z + midT * rangeLength / 2;
-        this.createMountainPeak(midX, midZ, peakHeight * 0.7, rangeWidth * 0.6, seed + i * 1000 + 500);
-      }
-    }
-    const ridgeSegments = 20;
-    for (let i = 0;i < ridgeSegments; i++) {
-      const t = i / (ridgeSegments - 1) * 2 - 1;
-      const baseX = isHorizontal ? x + t * rangeLength / 2 : x;
-      const baseZ = isHorizontal ? z : z + t * rangeLength / 2;
-      const perpOffset = Math.sin(seed + i * 13) * rangeWidth * 0.3;
-      const finalX = isHorizontal ? baseX : baseX + perpOffset;
-      const finalZ = isHorizontal ? baseZ + perpOffset : baseZ;
-      const hillHeight = height * 0.15 * (1 + Math.sin(t * Math.PI * 3 + seed));
-      this.createRockCluster(finalX, finalZ, seed + i * 100);
-      if (i % 3 === 0) {
-        this.createRockCluster(finalX + (isHorizontal ? 0 : rangeWidth * 0.2 * Math.sin(seed + i)), finalZ + (isHorizontal ? rangeWidth * 0.2 * Math.sin(seed + i) : 0), seed + i * 200);
-      }
-    }
-  }
-  createMountainPeak(x, z, height, width, seed) {
-    const peakGroup = new Group;
-    const coneGeometry = new ConeGeometry(width / 2, height, 8);
-    const coneMesh = new Mesh(coneGeometry, this.darkRockMaterial);
-    coneMesh.position.y = height / 2;
-    coneMesh.castShadow = true;
-    coneMesh.receiveShadow = true;
-    const positions = coneMesh.geometry.attributes.position;
-    for (let i = 0;i < positions.count; i++) {
-      const vx = positions.getX(i);
-      const vy = positions.getY(i);
-      const vz = positions.getZ(i);
-      const xFactor = 0.9 + Math.sin(vx * seed * 0.01 + vz * 0.1) * 0.3;
-      const zFactor = 0.9 + Math.cos(vz * seed * 0.01 + vx * 0.1) * 0.3;
-      positions.setX(i, vx * xFactor);
-      positions.setZ(i, vz * zFactor);
-      if (vy > 0) {
-        const yFactor = 1 + Math.sin(vx * vz * 0.1 + seed) * 0.1;
-        positions.setY(i, vy * yFactor);
-      }
-    }
-    coneMesh.geometry.attributes.position.needsUpdate = true;
-    peakGroup.add(coneMesh);
-    if (height > 30) {
-      const upperGeometry = new ConeGeometry(width * 0.3 / 2, height * 0.3, 6);
-      const upperMesh = new Mesh(upperGeometry, this.rockMaterial);
-      upperMesh.position.y = height * 0.85;
-      upperMesh.castShadow = true;
-      upperMesh.receiveShadow = true;
-      const upperPositions = upperMesh.geometry.attributes.position;
-      for (let i = 0;i < upperPositions.count; i++) {
-        const vx = upperPositions.getX(i);
-        const vz = upperPositions.getZ(i);
-        const xFactor = 0.9 + Math.sin(vx * (seed + 100) * 0.02) * 0.3;
-        const zFactor = 0.9 + Math.cos(vz * (seed + 200) * 0.02) * 0.3;
-        upperPositions.setX(i, vx * xFactor);
-        upperPositions.setZ(i, vz * zFactor);
-      }
-      upperMesh.geometry.attributes.position.needsUpdate = true;
-      peakGroup.add(upperMesh);
-    }
-    const rockCount = 6 + Math.floor(Math.abs(Math.sin(seed) * 6));
-    for (let i = 0;i < rockCount; i++) {
-      const angle = i / rockCount * Math.PI * 2;
-      const distance = width * 0.6 * (0.8 + Math.sin(seed + i * 5) * 0.3);
-      const rockX = Math.cos(angle) * distance;
-      const rockZ = Math.sin(angle) * distance;
-      const rockY = Math.abs(Math.sin(seed + i * 7)) * 4;
-      const rockSize = 1 + Math.abs(Math.sin(seed + i * 11)) * 3;
-      const rock = this.createRock(rockSize, seed + i * 100, rockX, rockY, rockZ, new Vector3(Math.sin(seed + i * 17) * Math.PI, Math.sin(seed + i * 19) * Math.PI * 2, Math.sin(seed + i * 23) * Math.PI), new Vector3(1 + Math.sin(seed + i * 29) * 0.4, 0.7 + Math.abs(Math.sin(seed + i * 31)) * 0.4, 1 + Math.sin(seed + i * 37) * 0.4), i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial);
-      peakGroup.add(rock);
-    }
-    peakGroup.position.set(x, 0, z);
-    this.scene.add(peakGroup);
-    const peakCollider = new StaticCollider(new Vector3(x, height * 0.5, z), "rock", width * 0.5);
-    this.rockColliders.push(peakCollider);
-  }
-  createVolcanicCrater(x, z, seed) {
-    const outerRadius = 80 + Math.sin(seed) * 20;
-    const innerRadius = outerRadius * 0.6;
-    const height = 120 + Math.sin(seed * 1.3) * 30;
-    const craterDepth = height * 0.3;
-    const craterGroup = new Group;
-    const craterGeometry = new TorusGeometry(innerRadius, (outerRadius - innerRadius) / 2, 16, 24);
-    craterGeometry.rotateX(Math.PI / 2);
-    const craterMesh = new Mesh(craterGeometry, this.darkRockMaterial);
-    craterMesh.position.y = height * 0.7;
-    craterMesh.castShadow = true;
-    craterMesh.receiveShadow = true;
-    const baseGeometry = new ConeGeometry(outerRadius, height * 0.9, 20);
-    const basePositions = baseGeometry.attributes.position;
-    for (let i = 0;i < basePositions.count; i++) {
-      const vx = basePositions.getX(i);
-      const vy = basePositions.getY(i);
-      const vz = basePositions.getZ(i);
-      const distFromCenter = Math.sqrt(vx * vx + vz * vz);
-      if (distFromCenter < innerRadius * 0.8 && vy > height * 0.7) {
-        const newY = height * 0.7 - (height * 0.7 - vy) * (craterDepth / height);
-        basePositions.setY(i, newY);
-      }
-      const deformFactor = 0.9 + Math.sin(vx * seed * 0.01 + vz * 0.1) * 0.3;
-      basePositions.setX(i, vx * deformFactor);
-      basePositions.setZ(i, vz * deformFactor);
-    }
-    baseGeometry.attributes.position.needsUpdate = true;
-    const baseMesh = new Mesh(baseGeometry, this.rockMaterial);
-    baseMesh.position.y = height * 0.45;
-    baseMesh.castShadow = true;
-    baseMesh.receiveShadow = true;
-    craterGroup.add(baseMesh);
-    craterGroup.add(craterMesh);
-    const rimRockCount = 16;
-    for (let i = 0;i < rimRockCount; i++) {
-      const angle = i / rimRockCount * Math.PI * 2;
-      const rimX = Math.cos(angle) * innerRadius;
-      const rimZ = Math.sin(angle) * innerRadius;
-      const rimHeight = height * 0.75 + Math.sin(seed + i * 5) * height * 0.1;
-      const rock = this.createRock(4 + Math.abs(Math.sin(seed + i * 11)) * 3, seed + i * 100, rimX, rimHeight - height * 0.45, rimZ, new Vector3(Math.sin(seed + i * 17) * Math.PI, Math.sin(seed + i * 19) * Math.PI * 0.5, Math.sin(seed + i * 23) * Math.PI), new Vector3(1.2 + Math.sin(seed + i * 29) * 0.3, 1.5 + Math.abs(Math.sin(seed + i * 31)) * 0.5, 1.2 + Math.sin(seed + i * 37) * 0.3), i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial);
-      craterGroup.add(rock);
-    }
-    const innerRockCount = 8;
-    for (let i = 0;i < innerRockCount; i++) {
-      const angle = i / innerRockCount * Math.PI * 2;
-      const dist = innerRadius * (0.3 + Math.abs(Math.sin(seed + i * 7)) * 0.3);
-      const innerX = Math.cos(angle) * dist;
-      const innerZ = Math.sin(angle) * dist;
-      const innerY = height * 0.7 - craterDepth + Math.abs(Math.sin(seed + i * 13)) * 5;
-      const rock = this.createRock(2 + Math.abs(Math.sin(seed + i * 19)) * 2, seed + i * 200, innerX, innerY - height * 0.45, innerZ, new Vector3(Math.sin(seed + i * 29) * Math.PI, Math.sin(seed + i * 31) * Math.PI * 2, Math.sin(seed + i * 37) * Math.PI), new Vector3(0.7 + Math.sin(seed + i * 41) * 0.3, 1.8 + Math.abs(Math.sin(seed + i * 43)) * 0.7, 0.7 + Math.sin(seed + i * 47) * 0.3), this.darkRockMaterial);
-      craterGroup.add(rock);
-    }
-    craterGroup.position.set(x, 0, z);
-    this.scene.add(craterGroup);
-    const mainCollider = new StaticCollider(new Vector3(x, height * 0.4, z), "rock", outerRadius * 0.8);
-    this.rockColliders.push(mainCollider);
-    for (let i = 0;i < 8; i++) {
-      const angle = i / 8 * Math.PI * 2;
-      const colliderX = x + Math.cos(angle) * innerRadius;
-      const colliderZ = z + Math.sin(angle) * innerRadius;
-      const rimCollider = new StaticCollider(new Vector3(colliderX, height * 0.7, colliderZ), "rock", 10);
-      this.rockColliders.push(rimCollider);
-    }
-  }
-  createFloatingRocks(x, z, seed) {
-    const floatingRockGroup = new Group;
-    const radius = 10;
-    const rockCount = 10 + Math.floor(Math.abs(Math.sin(seed) * 5));
-    for (let i = 0;i < rockCount; i++) {
-      const angle = i / rockCount * Math.PI * 2;
-      const distance = radius * (0.5 + Math.abs(Math.sin(seed + i * 3)) * 0.5);
-      const xPos = Math.cos(angle) * distance;
-      const yPos = 4 + Math.sin(seed + i * 7) * 3;
-      const zPos = Math.sin(angle) * distance;
-      const size = 0.7 + Math.abs(Math.sin(seed + i * 11)) * 1.3;
-      const rock = this.createRock(size, seed + i * 13, xPos, yPos, zPos, new Vector3(Math.sin(seed + i * 17) * Math.PI, Math.sin(seed + i * 19) * Math.PI, Math.sin(seed + i * 23) * Math.PI), new Vector3(1 + Math.sin(seed + i * 29) * 0.3, 1 + Math.sin(seed + i * 31) * 0.3, 1 + Math.sin(seed + i * 37) * 0.3), i % 2 === 0 ? this.rockMaterial : this.darkRockMaterial);
-      floatingRockGroup.add(rock);
-      const colliderPosition = new Vector3(x + xPos, yPos, z + zPos);
-      const rockCollider = new StaticCollider(colliderPosition, "rock", size * 1.2);
-      this.rockColliders.push(rockCollider);
-    }
-    floatingRockGroup.position.set(x, 0, z);
-    this.scene.add(floatingRockGroup);
-  }
-  rockNoiseValue(x, y, biomeScale = 1, heightScale = 1) {
-    const mountainRangeNoise = this.fbm(x, y, 2, 2, 0.5, 234);
-    const formationNoise = this.fbm(x, y, 3, 2.2, 0.5, 567);
-    const clusterNoise = this.fbm(x, y, 4, 2.5, 0.6, 789);
-    const combinedNoise = mountainRangeNoise * 0.5 + formationNoise * 0.3 + clusterNoise * 0.2;
-    const scaledNoise = combinedNoise * biomeScale;
-    const sizeNoise = this.fbm(x, y, 2, 2, 0.5, 987);
-    const size = (0.7 + sizeNoise * 1.3) * biomeScale;
-    const heightNoise = this.fbm(x, y, 3, 1.8, 0.6, 654);
-    const height = (0.5 + heightNoise * 0.8) * heightScale;
-    const typeNoise = this.fbm(x, y, 2, 2.5, 0.5, 321);
-    const type = typeNoise > 0.5 ? "standard" : "dark";
-    return {
-      value: scaledNoise,
-      size,
-      height,
-      type
-    };
-  }
-  createRockFormationFromNoise(x, z, densityThreshold, biomeScale = 1, heightScale = 1, formationType = "cluster") {
-    const noise = this.rockNoiseValue(x, z, biomeScale, heightScale);
-    if (noise.value > densityThreshold) {
-      const seed = Math.floor((x * 1000 + z) * noise.value);
-      if (formationType === "cluster") {
-        this.createRockCluster(x, z, seed);
-      } else if (formationType === "spire" && noise.value > densityThreshold + 0.1) {
-        const spireHeight = 5 + noise.height * 15;
-        this.createRockSpire(x, z, spireHeight, seed);
-      } else if (formationType === "mountain" && noise.value > densityThreshold + 0.2) {
-        if (this.fbm(x, z, 2, 2, 0.5, 111) > 0.75) {
-          this.createMountainPeak(x, z, 80 + noise.height * 150, 40 + noise.size * 60, seed);
-        } else if (this.fbm(x, z, 2, 2, 0.5, 222) > 0.85) {
-          this.createBalancedRocks(x, z, 10 + noise.height * 10, seed);
-        } else {
-          this.createRockArch(x, z, 10 + noise.size * 20, 5 + noise.height * 10, 5 + noise.size * 10, this.fbm(x, z, 1, 1, 0.5, 333) * Math.PI * 2, seed);
-        }
-      }
-    }
-  }
-  createSmallRockFromNoise(x, z, densityThreshold, biomeScale = 1) {
-    const noise = this.rockNoiseValue(x, z, biomeScale, 1);
-    if (noise.value > densityThreshold) {
-      const size = 0.3 + noise.size * 0.7;
-      const y = 0.2 + noise.height * 0.6;
-      const seed = Math.floor((x * 1000 + z) * noise.value);
-      const rotX = Math.sin(seed * 0.1) * Math.PI;
-      const rotY = Math.cos(seed * 0.2) * Math.PI;
-      const rotZ = Math.sin(seed * 0.3) * Math.PI;
-      const scaleX = 0.8 + this.fbm(x, z, 2, 2, 0.5, 444) * 0.4;
-      const scaleY = 0.8 + this.fbm(x, z, 2, 2, 0.5, 555) * 0.4;
-      const scaleZ = 0.8 + this.fbm(x, z, 2, 2, 0.5, 666) * 0.4;
-      const material = noise.type === "standard" ? this.rockMaterial : this.darkRockMaterial;
-      this.createRock(size, seed, x, y, z, new Vector3(rotX, rotY, rotZ), new Vector3(scaleX, scaleY, scaleZ), material);
-    }
-  }
-  createRocks() {
-    for (let i = 0;i < 8; i++) {
-      const angle = i / 8 * Math.PI * 2;
-      const x = Math.cos(angle) * 20;
-      const z = Math.sin(angle) * 20;
-      this.createRockCluster(x, z, i);
-    }
-    for (let i = 0;i < 4; i++) {
-      const x = i < 2 ? -100 : 100;
-      const z = i % 2 === 0 ? -100 : 100;
-      this.createRockCluster(x, z, i + 10);
-    }
-    for (let x = -400;x <= 400; x += 30) {
-      for (let z = 280;z <= 400; z += 30) {
-        this.createRockFormationFromNoise(x, z, 0.65, 1.2, 1.1, "cluster");
-      }
-    }
-    for (let x = -350;x <= 350; x += 60) {
-      for (let z = 420;z <= 550; z += 60) {
-        this.createRockFormationFromNoise(x, z, 0.7, 1, 1.2, "mountain");
-      }
-    }
-    for (let x = 280;x <= 400; x += 30) {
-      for (let z = -400;z <= 400; z += 30) {
-        this.createRockFormationFromNoise(x, z, 0.65, 1.2, 1.1, "cluster");
-      }
-    }
-    for (let x = 420;x <= 550; x += 60) {
-      for (let z = -350;z <= 350; z += 60) {
-        this.createRockFormationFromNoise(x, z, 0.7, 1, 1.2, "mountain");
-      }
-    }
-    for (let x = -400;x <= 400; x += 30) {
-      for (let z = -400;z >= -550; z -= 30) {
-        this.createRockFormationFromNoise(x, z, 0.68, 0.9, 0.9, "cluster");
-      }
-    }
-    for (let x = -400;x >= -550; x -= 30) {
-      for (let z = -400;z <= 400; z += 30) {
-        this.createRockFormationFromNoise(x, z, 0.68, 0.9, 0.9, "cluster");
-      }
-    }
-    for (let x = -600;x <= 600; x += 150) {
-      for (let z = -600;z <= 600; z += 150) {
-        this.createRockFormationFromNoise(x + this.fbm(x, z, 2, 2, 0.5, 777) * 50 - 25, z + this.fbm(z, x, 2, 2, 0.5, 888) * 50 - 25, 0.75, 0.8, 1.3, "spire");
-      }
-    }
-    this.createStoneCircle(500, 500, 50, 12, 400);
-    this.createStoneCircle(-500, 500, 50, 12, 500);
-    this.createStoneCircle(500, -500, 50, 12, 600);
-    this.createStoneCircle(-500, -500, 50, 12, 700);
-    const gridSize = 100;
-    for (let x = -800;x <= 800; x += gridSize) {
-      for (let z = -800;z <= 800; z += gridSize) {
-        for (let i = 0;i < 5; i++) {
-          const offsetX = this.fbm(x + i, z, 2, 2, 0.5, 999 + i) * gridSize;
-          const offsetZ = this.fbm(x, z + i, 2, 2, 0.5, 1000 + i) * gridSize;
-          this.createSmallRockFromNoise(x + offsetX, z + offsetZ, 0.72, 0.9);
-        }
-      }
-    }
-    this.createRockFormation();
-    this.createGiantMountain(300, 300, 1234);
-    this.createGiantMountain(-300, 300, 5678);
-    this.createGiantMountain(300, -300, 9012);
-    this.createGiantMountain(-300, -300, 3456);
-    this.createVolcanicCrater(400, 400, 8765);
-    this.createVolcanicCrater(-400, -400, 4321);
-    for (let x = -600;x <= 600; x += 200) {
-      for (let z = -600;z <= 600; z += 200) {
-        const ridgeNoise = this.fbm(x, z, 3, 2, 0.5, 123);
-        if (ridgeNoise > 0.6) {
-          const angle = this.fbm(x, z, 2, 2, 0.5, 456) * Math.PI * 2;
-          const length = 50 + this.fbm(x, z, 2, 2, 0.5, 789) * 100;
-          const startX = x - Math.cos(angle) * length / 2;
-          const startZ = z - Math.sin(angle) * length / 2;
-          const endX = x + Math.cos(angle) * length / 2;
-          const endZ = z + Math.sin(angle) * length / 2;
-          const height = 5 + this.fbm(x, z, 2, 2, 0.5, 321) * 10;
-          this.createRockWall(startX, startZ, endX, endZ, height, Math.floor(x * z));
-        }
-      }
-    }
-  }
-  createRockFormation() {
-    const formationRadius = 160;
-    const centerRockGroup = new Group;
-    const peakHeight = 180;
-    const peakWidth = 100;
-    const peakDepth = 100;
-    const baseGeometry = new ConeGeometry(peakWidth / 2, peakHeight * 0.8, 8);
-    const base = new Mesh(baseGeometry, this.darkRockMaterial);
-    base.position.y = peakHeight * 0.4;
-    base.castShadow = true;
-    base.receiveShadow = true;
-    centerRockGroup.add(base);
-    const middleGeometry = new ConeGeometry(peakWidth / 3, peakHeight * 0.5, 7);
-    const middle = new Mesh(middleGeometry, this.rockMaterial);
-    middle.position.y = peakHeight * 0.7;
-    middle.castShadow = true;
-    middle.receiveShadow = true;
-    centerRockGroup.add(middle);
-    const topGeometry = new ConeGeometry(peakWidth / 6, peakHeight * 0.3, 6);
-    const top = new Mesh(topGeometry, this.darkRockMaterial);
-    top.position.y = peakHeight * 0.95;
-    top.castShadow = true;
-    top.receiveShadow = true;
-    centerRockGroup.add(top);
-    [base, middle, top].forEach((mesh, i) => {
-      const positions = mesh.geometry.attributes.position;
-      for (let j = 0;j < positions.count; j++) {
-        const vx = positions.getX(j);
-        const vy = positions.getY(j);
-        const vz = positions.getZ(j);
-        const deformSeed = i * 10 + 5;
-        const xFactor = 0.9 + Math.sin(vx * deformSeed * 0.1) * 0.3;
-        const zFactor = 0.9 + Math.cos(vz * deformSeed * 0.1) * 0.3;
-        positions.setX(j, vx * xFactor);
-        positions.setZ(j, vz * zFactor);
-      }
-      mesh.geometry.attributes.position.needsUpdate = true;
-    });
-    centerRockGroup.position.set(0, 0, 0);
-    this.scene.add(centerRockGroup);
-    const peakCollider = new StaticCollider(new Vector3(0, peakHeight * 0.5, 0), "rock", peakWidth * 0.6);
-    this.rockColliders.push(peakCollider);
-    const clusters = 16;
-    for (let i = 0;i < clusters; i++) {
-      const angle = i / clusters * Math.PI * 2;
-      const distance = formationRadius * 0.5 * (0.8 + 0.4 * Math.sin(i * 3.7));
-      const x = Math.cos(angle) * distance;
-      const z = Math.sin(angle) * distance;
-      this.createRockCluster(x, z, i * 100);
-      if (i % 2 === 0) {
-        const innerDistance = distance * 0.6;
-        const innerX = Math.cos(angle) * innerDistance;
-        const innerZ = Math.sin(angle) * innerDistance;
-        this.createRockCluster(innerX, innerZ, i * 100 + 50);
-      }
-      if (i % 3 === 0) {
-        const outerDistance = distance * 1.4;
-        const outerX = Math.cos(angle) * outerDistance;
-        const outerZ = Math.sin(angle) * outerDistance;
-        this.createRockCluster(outerX, outerZ, i * 100 + 25);
-      }
-    }
-    const pathWidth = 15;
-    for (let z = -formationRadius;z <= formationRadius; z += 20) {
-      this.createRock(0.8, z * 0.1, -pathWidth / 2, 0.4, z, new Vector3(0, z * 0.1, 0), new Vector3(0.8, 0.6, 0.8), this.rockMaterial);
-      this.createRock(0.8, z * 0.1 + 10, pathWidth / 2, 0.4, z, new Vector3(0, z * 0.1 + 1, 0), new Vector3(0.8, 0.6, 0.8), this.darkRockMaterial);
-    }
-    for (let x = -formationRadius;x <= formationRadius; x += 20) {
-      this.createRock(0.8, x * 0.1, x, 0.4, -pathWidth / 2, new Vector3(0, x * 0.1, 0), new Vector3(0.8, 0.6, 0.8), this.rockMaterial);
-      this.createRock(0.8, x * 0.1 + 10, x, 0.4, pathWidth / 2, new Vector3(0, x * 0.1 + 1, 0), new Vector3(0.8, 0.6, 0.8), this.darkRockMaterial);
-    }
+  generateTerrain() {
+    this.rockGenerator.createRocks();
   }
   getAllColliders() {
-    return [...this.treeGenerator.getTreeColliders(), ...this.rockColliders];
+    return [...this.treeGenerator.getTreeColliders(), ...this.rockGenerator.getRockColliders()];
   }
   getTreeColliders() {
     return this.treeGenerator.getTreeColliders();
   }
   getRockColliders() {
-    return [...this.rockColliders];
+    return this.rockGenerator.getRockColliders();
   }
 }
 
@@ -34382,7 +34270,6 @@ class GameComponent extends LitElement {
     this.mapGenerator = new MapGenerator(this.scene);
     this.createTrees();
     this.createRocks();
-    this.createRockFormation();
     const spawnPoint = this.findRandomSpawnPoint();
     this.playerTank = new Tank(this.scene, this.camera);
     this.playerTank.respawn(spawnPoint);
@@ -34402,16 +34289,7 @@ class GameComponent extends LitElement {
   createRocks() {
     if (!this.scene || !this.mapGenerator)
       return;
-    this.mapGenerator.createRocks();
-    const rockColliders = this.mapGenerator.getRockColliders();
-    for (const collider of rockColliders) {
-      this.collisionSystem.addCollider(collider);
-    }
-  }
-  createRockFormation() {
-    if (!this.scene || !this.mapGenerator)
-      return;
-    this.mapGenerator.createRockFormation();
+    this.mapGenerator.generateTerrain();
     const rockColliders = this.mapGenerator.getRockColliders();
     for (const collider of rockColliders) {
       this.collisionSystem.addCollider(collider);
