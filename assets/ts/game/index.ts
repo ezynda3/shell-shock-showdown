@@ -1954,8 +1954,8 @@ export class GameComponent extends LitElement {
   private createTrees() {
     if (!this.scene || !this.mapGenerator) return;
     
-    // Build the tree layout
-    this.mapGenerator.createTrees();
+    // The trees are now generated in the TreeGenerator class,
+    // which is instantiated by the MapGenerator
     
     // Add tree colliders to the collision system
     const treeColliders = this.mapGenerator.getTreeColliders();

@@ -1,41 +1,23 @@
 import * as THREE from 'three';
 import { ICollidable, StaticCollider } from './collision';
+import { TreeGenerator } from './trees';
 
 export class MapGenerator {
   private scene: THREE.Scene;
+  private treeGenerator: TreeGenerator;
   
   // Collider arrays for environment objects
-  private treeColliders: StaticCollider[] = [];
   private rockColliders: StaticCollider[] = [];
-  private buildingColliders: StaticCollider[] = [];
   
   // Materials
-  private trunkMaterial: THREE.MeshStandardMaterial;
-  private leafMaterial: THREE.MeshStandardMaterial;
   private rockMaterial: THREE.MeshStandardMaterial;
   private darkRockMaterial: THREE.MeshStandardMaterial;
   
-  // Building materials
-  private buildingMaterials: THREE.MeshStandardMaterial[] = [];
-  private glassMaterial: THREE.MeshStandardMaterial;
-  private roadMaterial: THREE.MeshStandardMaterial;
-  
   constructor(scene: THREE.Scene) {
     this.scene = scene;
+    this.treeGenerator = new TreeGenerator(scene);
     
     // Initialize materials
-    this.trunkMaterial = new THREE.MeshStandardMaterial({
-      color: 0x8B4513, // Brown
-      roughness: 0.9,
-      metalness: 0.0
-    });
-    
-    this.leafMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2E8B57, // Dark green
-      roughness: 0.8,
-      metalness: 0.1
-    });
-    
     this.rockMaterial = new THREE.MeshStandardMaterial({
       color: 0x808080, // Gray
       roughness: 0.9,
@@ -48,283 +30,85 @@ export class MapGenerator {
       metalness: 0.3
     });
     
-    // Building materials with different colors
-    this.buildingMaterials = [
-      new THREE.MeshStandardMaterial({
-        color: 0x708090, // Slate gray
-        roughness: 0.7,
-        metalness: 0.3
-      }),
-      new THREE.MeshStandardMaterial({
-        color: 0xA9A9A9, // Dark gray
-        roughness: 0.7,
-        metalness: 0.2
-      }),
-      new THREE.MeshStandardMaterial({
-        color: 0x4682B4, // Steel blue
-        roughness: 0.6,
-        metalness: 0.4
-      }),
-      new THREE.MeshStandardMaterial({
-        color: 0x8B4513, // Brown
-        roughness: 0.8,
-        metalness: 0.1
-      }),
-      new THREE.MeshStandardMaterial({
-        color: 0x2F4F4F, // Dark slate gray
-        roughness: 0.7,
-        metalness: 0.3
-      })
-    ];
-    
-    // Glass material for windows
-    this.glassMaterial = new THREE.MeshStandardMaterial({
-      color: 0x87CEEB, // Sky blue
-      roughness: 0.2,
-      metalness: 0.8,
-      transparent: true,
-      opacity: 0.6
-    });
-    
-    // Road material
-    this.roadMaterial = new THREE.MeshStandardMaterial({
-      color: 0x333333, // Dark gray
-      roughness: 0.9,
-      metalness: 0.1
-    });
+    // Generate trees after initialization
+    this.treeGenerator.generateTrees();
   }
   
-  // ===== TREE METHODS =====
+  // TreeGenerator will handle all tree creation methods
   
-  createPineTree(scale: number, x: number, z: number) {
-    const tree = new THREE.Group();
+  // Share the noise functions
+  noise2D(x: number, y: number, seed: number = 12345): number {
+    // Deterministic pseudo-random number generator based on position and seed
+    const permute = (i: number): number => {
+      return ((i * 34) + seed * 6547 + 12345) % 289;
+    };
     
-    // Tree trunk - reduced segments for lower polygon count
-    const trunkGeometry = new THREE.CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 6);
-    const trunk = new THREE.Mesh(trunkGeometry, this.trunkMaterial);
-    trunk.position.y = 0.75 * scale;
-    trunk.castShadow = true;
-    trunk.receiveShadow = true;
-    tree.add(trunk);
+    // Grid cell coordinates
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
     
-    // Tree foliage (cones) - reduced segments for lower polygon count
-    const foliageGeometry1 = new THREE.ConeGeometry(1 * scale, 2 * scale, 6);
-    const foliage1 = new THREE.Mesh(foliageGeometry1, this.leafMaterial);
-    foliage1.position.y = 2 * scale;
-    foliage1.castShadow = true;
-    tree.add(foliage1);
+    // Fractional parts
+    const fx = x - ix;
+    const fy = y - iy;
     
-    const foliageGeometry2 = new THREE.ConeGeometry(0.8 * scale, 1.8 * scale, 6);
-    const foliage2 = new THREE.Mesh(foliageGeometry2, this.leafMaterial);
-    foliage2.position.y = 3 * scale;
-    foliage2.castShadow = true;
-    tree.add(foliage2);
+    // Smoothing function
+    const fade = (t: number): number => t * t * t * (t * (t * 6 - 15) + 10);
     
-    const foliageGeometry3 = new THREE.ConeGeometry(0.6 * scale, 1.6 * scale, 6);
-    const foliage3 = new THREE.Mesh(foliageGeometry3, this.leafMaterial);
-    foliage3.position.y = 4 * scale;
-    foliage3.castShadow = true;
-    tree.add(foliage3);
+    // Grid cell indices
+    const a = permute(ix) + permute(iy);
+    const b = permute(ix + 1) + permute(iy);
+    const c = permute(ix) + permute(iy + 1);
+    const d = permute(ix + 1) + permute(iy + 1);
     
-    // Position tree
-    tree.position.set(x, 0, z);
+    // Gradient selection
+    const getGrad = (h: number, x: number, y: number): number => {
+      const h1 = h % 4;
+      let u = h1 < 2 ? x : y;
+      let v = h1 < 2 ? y : x;
+      return ((h1 & 1) ? -u : u) + ((h1 & 2) ? -v * 2 : v * 2);
+    };
     
-    // Add to scene
-    this.scene.add(tree);
+    // Gradient values
+    const ga = getGrad(a, fx, fy);
+    const gb = getGrad(b, fx - 1, fy);
+    const gc = getGrad(c, fx, fy - 1);
+    const gd = getGrad(d, fx - 1, fy - 1);
     
-    // Create a collider for the tree
-    const collisionRadius = 1.0 * scale; // Size based on tree scale
-    const position = new THREE.Vector3(x, collisionRadius, z);
-    const treeCollider = new StaticCollider(position, 'tree', collisionRadius);
-    this.treeColliders.push(treeCollider);
+    // Interpolation
+    const u = fade(fx);
+    const v = fade(fy);
     
-    return treeCollider;
+    // Blend gradients
+    const result = 
+      (1 - u) * ((1 - v) * ga + v * gc) + 
+      u * ((1 - v) * gb + v * gd);
+    
+    // Normalize to [0, 1] range
+    return (result + 1) * 0.5;
   }
   
-  createRoundTree(scale: number, x: number, z: number) {
-    const tree = new THREE.Group();
+  // Fractal Brownian Motion (fBm) to create multiple octaves of noise
+  fbm(x: number, y: number, octaves: number = 6, lacunarity: number = 2.0, persistence: number = 0.5, seed: number = 12345): number {
+    let total = 0;
+    let frequency = 0.005; // Base frequency - controls pattern scale
+    let amplitude = 1.0;
+    let maxValue = 0;
     
-    // Tree trunk - reduced segments
-    const trunkGeometry = new THREE.CylinderGeometry(0.2 * scale, 0.3 * scale, 1.5 * scale, 6);
-    const trunk = new THREE.Mesh(trunkGeometry, this.trunkMaterial);
-    trunk.position.y = 0.75 * scale;
-    trunk.castShadow = true;
-    trunk.receiveShadow = true;
-    tree.add(trunk);
-    
-    // Tree foliage (sphere) - reduced segments
-    const foliageGeometry = new THREE.SphereGeometry(1.2 * scale, 6, 6);
-    const foliage = new THREE.Mesh(foliageGeometry, this.leafMaterial);
-    foliage.position.y = 2.5 * scale;
-    foliage.castShadow = true;
-    tree.add(foliage);
-    
-    // Position tree
-    tree.position.set(x, 0, z);
-    
-    // Add to scene
-    this.scene.add(tree);
-    
-    // Create a collider for the tree
-    const collisionRadius = 1.2 * scale; // Size based on tree scale
-    const position = new THREE.Vector3(x, collisionRadius, z);
-    const treeCollider = new StaticCollider(position, 'tree', collisionRadius);
-    this.treeColliders.push(treeCollider);
-    
-    return treeCollider;
-  }
-  
-  createCircleOfTrees(radius: number, count: number, treeType: 'pine' | 'round') {
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2;
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
+    for (let i = 0; i < octaves; i++) {
+      // Add noise at current frequency and amplitude
+      total += this.noise2D(x * frequency, y * frequency, seed + i * 1000) * amplitude;
+      maxValue += amplitude;
       
-      const scale = 1.0 + (Math.sin(angle * 3) + 1) * 0.3; // Deterministic scale variation
-      
-      if (treeType === 'pine') {
-        this.createPineTree(scale, x, z);
-      } else {
-        this.createRoundTree(scale, x, z);
-      }
+      // Increase frequency and decrease amplitude for next octave
+      frequency *= lacunarity;
+      amplitude *= persistence;
     }
+    
+    // Normalize to [0, 1]
+    return total / maxValue;
   }
   
-  createSacredGrove(centerX: number, centerZ: number, radius: number, count: number) {
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2;
-      const x = centerX + Math.cos(angle) * radius;
-      const z = centerZ + Math.sin(angle) * radius;
-      
-      const scale = 1.5; // All trees same size
-      
-      if (i % 2 === 0) {
-        this.createPineTree(scale, x, z);
-      } else {
-        this.createRoundTree(scale, x, z);
-      }
-    }
-  }
-  
-  createTrees() {
-    // 1. Trees surrounding the starting area
-    // Create a circle of trees around the origin (tank starting point)
-    this.createCircleOfTrees(30, 10, 'pine');   // Inner ring of pine trees (reduced from 12)
-    this.createCircleOfTrees(45, 12, 'round');  // Middle ring of round trees (reduced from 16)
-    this.createCircleOfTrees(60, 16, 'pine');   // Outer ring of pine trees (reduced from 20)
-    
-    // 2. Sacred grove - a perfect circle of alternating trees
-    // Several sacred groves at key locations
-    this.createSacredGrove(200, 200, 40, 12);   // Reduced from 16
-    this.createSacredGrove(-200, -200, 40, 12); // Reduced from 16
-    this.createSacredGrove(200, -200, 40, 12);  // Reduced from 16
-    this.createSacredGrove(-200, 200, 40, 12);  // Reduced from 16
-    
-    // 3. Large forests in distinct patterns with spacing optimization
-    
-    // North Forest - Pine
-    for (let x = -400; x <= 400; x += 40) {     // Increased spacing (from 25)
-      for (let z = 400; z <= 800; z += 40) {    // Increased spacing (from 25)
-        // Skip some trees in a deterministic pattern for clearings
-        if ((x + z) % 75 === 0) continue;
-        
-        // Scale based on position
-        const scale = 1.2 + Math.sin(x * 0.01) * Math.cos(z * 0.01) * 0.5;
-        
-        // Add some randomness to reduce regular patterns
-        const offsetX = (Math.random() - 0.5) * 15;
-        const offsetZ = (Math.random() - 0.5) * 15;
-        
-        this.createPineTree(scale, x + offsetX, z + offsetZ);
-      }
-    }
-    
-    // South Forest - Round
-    for (let x = -400; x <= 400; x += 40) {     // Increased spacing (from 25)
-      for (let z = -800; z <= -400; z += 40) {  // Increased spacing (from 25)
-        // Skip some trees in a deterministic pattern
-        if ((x - z) % 75 === 0) continue;
-        
-        // Scale based on position
-        const scale = 1.0 + Math.cos(x * 0.01) * Math.sin(z * 0.01) * 0.4;
-        
-        // Add some randomness to reduce regular patterns
-        const offsetX = (Math.random() - 0.5) * 15;
-        const offsetZ = (Math.random() - 0.5) * 15;
-        
-        this.createRoundTree(scale, x + offsetX, z + offsetZ);
-      }
-    }
-    
-    // East Forest - Mixed (with reduced density)
-    for (let x = 400; x <= 800; x += 50) {      // Increased spacing (from 25)
-      for (let z = -400; z <= 400; z += 50) {   // Increased spacing (from 25)
-        // Skip some trees in a deterministic pattern
-        if ((x * z) % 1200 === 0) continue;
-        if (Math.random() < 0.2) continue;      // Skip 20% of trees randomly
-        
-        // Scale based on position
-        const scale = 1.1 + Math.sin(x * 0.02) * Math.cos(z * 0.02) * 0.3;
-        
-        // Alternate tree types in a checkerboard pattern
-        if ((Math.floor(x / 50) + Math.floor(z / 50)) % 2 === 0) {
-          this.createPineTree(scale, x, z);
-        } else {
-          this.createRoundTree(scale, x, z);
-        }
-      }
-    }
-    
-    // West Forest - Mixed (with reduced density)
-    for (let x = -800; x <= -400; x += 50) {    // Increased spacing (from 25)
-      for (let z = -400; z <= 400; z += 50) {   // Increased spacing (from 25)
-        // Skip some trees in a deterministic pattern
-        if ((x * z) % 1000 === 0) continue;
-        if (Math.random() < 0.2) continue;      // Skip 20% of trees randomly
-        
-        // Scale based on position
-        const scale = 1.1 + Math.cos(x * 0.015) * Math.sin(z * 0.015) * 0.3;
-        
-        // Alternate in rows
-        if (Math.floor(z / 50) % 2 === 0) {
-          this.createPineTree(scale, x, z);
-        } else {
-          this.createRoundTree(scale, x, z);
-        }
-      }
-    }
-    
-    // 4. Tree lines - roads through the forests
-    // North-South Road
-    for (let z = -1000; z <= 1000; z += 30) {
-      this.createPineTree(1.5, -15, z);
-      this.createPineTree(1.5, 15, z);
-    }
-    
-    // East-West Road
-    for (let x = -1000; x <= 1000; x += 30) {
-      this.createRoundTree(1.3, x, -15);
-      this.createRoundTree(1.3, x, 15);
-    }
-    
-    // 5. Distinctive landmarks
-    
-    // Large pine tree at origin
-    this.createPineTree(4.0, 0, 100);
-    
-    // Circle of 8 large round trees
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2;
-      this.createRoundTree(2.5, Math.cos(angle) * 120, Math.sin(angle) * 120);
-    }
-    
-    // Spiral of pine trees
-    for (let i = 0; i < 40; i++) {
-      const angle = i * 0.5;
-      const radius = 100 + i * 5;
-      this.createPineTree(1.0 + i * 0.05, Math.cos(angle) * radius, Math.sin(angle) * radius);
-    }
-  }
+  // Tree generation is now handled by the TreeGenerator class
   
   // ===== ROCK METHODS =====
   
@@ -1305,9 +1089,132 @@ export class MapGenerator {
     this.scene.add(floatingRockGroup);
   }
   
+  // Calculate rock formation density at a given position
+  private rockNoiseValue(x: number, y: number, biomeScale: number = 1.0, heightScale: number = 1.0): {
+    value: number,
+    size: number,
+    height: number,
+    type: 'standard' | 'dark'
+  } {
+    // Use different seeds from tree noise to create distinct patterns
+    // Large-scale mountain ranges and geological features
+    const mountainRangeNoise = this.fbm(x, y, 2, 2.0, 0.5, 234);
+    
+    // Medium-scale rock formations
+    const formationNoise = this.fbm(x, y, 3, 2.2, 0.5, 567);
+    
+    // Small-scale rock clusters and details
+    const clusterNoise = this.fbm(x, y, 4, 2.5, 0.6, 789);
+    
+    // Combine noise layers with different weights
+    const combinedNoise = 
+      mountainRangeNoise * 0.5 + 
+      formationNoise * 0.3 + 
+      clusterNoise * 0.2;
+    
+    // Scale by biome factor
+    const scaledNoise = combinedNoise * biomeScale;
+    
+    // Determine rock size based on noise
+    const sizeNoise = this.fbm(x, y, 2, 2.0, 0.5, 987);
+    const size = (0.7 + sizeNoise * 1.3) * biomeScale;
+    
+    // Determine rock height based on separate noise
+    const heightNoise = this.fbm(x, y, 3, 1.8, 0.6, 654);
+    const height = (0.5 + heightNoise * 0.8) * heightScale;
+    
+    // Determine rock type based on position
+    const typeNoise = this.fbm(x, y, 2, 2.5, 0.5, 321);
+    const type = typeNoise > 0.5 ? 'standard' : 'dark';
+    
+    return {
+      value: scaledNoise,
+      size,
+      height,
+      type
+    };
+  }
+  
+  // Create a rock cluster based on noise patterns
+  private createRockFormationFromNoise(x: number, z: number, densityThreshold: number, 
+                                      biomeScale: number = 1.0, heightScale: number = 1.0,
+                                      formationType: 'cluster' | 'mountain' | 'spire' = 'cluster'): void {
+    // Get noise value at this position
+    const noise = this.rockNoiseValue(x, z, biomeScale, heightScale);
+    
+    // Only place rocks where noise value exceeds threshold
+    if (noise.value > densityThreshold) {
+      // Use noise to determine formation characteristics
+      const seed = Math.floor((x * 1000 + z) * noise.value);
+      
+      if (formationType === 'cluster') {
+        this.createRockCluster(x, z, seed);
+      } else if (formationType === 'spire' && noise.value > densityThreshold + 0.1) {
+        // For spires, use a higher threshold to make them more rare
+        const spireHeight = 5 + noise.height * 15; 
+        this.createRockSpire(x, z, spireHeight, seed);
+      } else if (formationType === 'mountain' && noise.value > densityThreshold + 0.2) {
+        // For mountains, use an even higher threshold to make them very rare
+        if (this.fbm(x, z, 2, 2.0, 0.5, 111) > 0.75) {
+          this.createMountainPeak(x, z, 80 + noise.height * 150, 40 + noise.size * 60, seed);
+        } else if (this.fbm(x, z, 2, 2.0, 0.5, 222) > 0.85) {
+          this.createBalancedRocks(x, z, 10 + noise.height * 10, seed);
+        } else {
+          this.createRockArch(
+            x, z, 
+            10 + noise.size * 20, // width
+            5 + noise.height * 10, // height
+            5 + noise.size * 10, // depth
+            this.fbm(x, z, 1, 1.0, 0.5, 333) * Math.PI * 2, // rotation
+            seed
+          );
+        }
+      }
+    }
+  }
+  
+  // Create smaller individual rock based on noise
+  private createSmallRockFromNoise(x: number, z: number, densityThreshold: number, biomeScale: number = 1.0): void {
+    // Get noise value at this position
+    const noise = this.rockNoiseValue(x, z, biomeScale, 1.0);
+    
+    // Only place rocks where noise value exceeds threshold
+    if (noise.value > densityThreshold) {
+      // Size based on noise
+      const size = 0.3 + noise.size * 0.7;
+      
+      // Position with slight y-variation for more natural look
+      const y = 0.2 + noise.height * 0.6;
+      
+      // Rotation based on position
+      const seed = Math.floor((x * 1000 + z) * noise.value);
+      const rotX = Math.sin(seed * 0.1) * Math.PI;
+      const rotY = Math.cos(seed * 0.2) * Math.PI;
+      const rotZ = Math.sin(seed * 0.3) * Math.PI;
+      
+      // Scale variation
+      const scaleX = 0.8 + this.fbm(x, z, 2, 2.0, 0.5, 444) * 0.4;
+      const scaleY = 0.8 + this.fbm(x, z, 2, 2.0, 0.5, 555) * 0.4;
+      const scaleZ = 0.8 + this.fbm(x, z, 2, 2.0, 0.5, 666) * 0.4;
+      
+      // Use appropriate material based on noise type
+      const material = noise.type === 'standard' ? this.rockMaterial : this.darkRockMaterial;
+      
+      // Create the rock
+      this.createRock(
+        size,
+        seed,
+        x, y, z,
+        new THREE.Vector3(rotX, rotY, rotZ),
+        new THREE.Vector3(scaleX, scaleY, scaleZ),
+        material
+      );
+    }
+  }
+
   createRocks() {
     // 1. Rocks near the tank starting area
-    // Create a circle of rocks around the starting point at a small distance
+    // Keep the deterministic circle of rocks for gameplay consistency
     for (let i = 0; i < 8; i++) {
       const angle = (i / 8) * Math.PI * 2;
       const x = Math.cos(angle) * 20; // Closer to center than trees
@@ -1316,204 +1223,138 @@ export class MapGenerator {
     }
     
     // 2. Rock formations in geometric patterns
+    // Keep important gameplay landmarks
     
-    // Square formation
+    // Square formation at corners
     for (let i = 0; i < 4; i++) {
       const x = (i < 2 ? -100 : 100);
       const z = (i % 2 === 0 ? -100 : 100);
       this.createRockCluster(x, z, i + 10);
     }
     
-    // Rock line along X-axis
-    for (let x = -150; x <= 150; x += 30) {
-      this.createRockCluster(x, 150, x * 0.1);
+    // 3. Mountain Ranges and Rock Formations - using fractal noise patterns
+    
+    // Northern mountain region
+    for (let x = -400; x <= 400; x += 30) {
+      for (let z = 280; z <= 400; z += 30) {
+        this.createRockFormationFromNoise(x, z, 0.65, 1.2, 1.1, 'cluster');
+      }
     }
     
-    // Rock line along Z-axis
-    for (let z = -150; z <= 150; z += 30) {
-      this.createRockCluster(150, z, z * 0.1 + 100);
+    // Northern mountain peaks (more sparse)
+    for (let x = -350; x <= 350; x += 60) {
+      for (let z = 420; z <= 550; z += 60) {
+        this.createRockFormationFromNoise(x, z, 0.7, 1.0, 1.2, 'mountain');
+      }
     }
     
-    // 3. Mountain Ranges - orderly arrangements of rocks
-    
-    // Northern mountain range
-    for (let x = -300; x <= 300; x += 30) {
-      // Create 3 parallel lines of rocks with varying height
-      const zVariation = 30 * Math.sin(x * 0.02);
-      this.createRockCluster(x, 300 + zVariation, x * 0.3);
-      this.createRockCluster(x + 10, 330 + zVariation, x * 0.3 + 10);
-      this.createRockCluster(x - 5, 360 + zVariation, x * 0.3 + 20);
+    // Eastern mountain region
+    for (let x = 280; x <= 400; x += 30) {
+      for (let z = -400; z <= 400; z += 30) {
+        this.createRockFormationFromNoise(x, z, 0.65, 1.2, 1.1, 'cluster');
+      }
     }
     
-    // Eastern mountain range
-    for (let z = -300; z <= 300; z += 30) {
-      // Create 3 parallel lines of rocks with varying height
-      const xVariation = 30 * Math.sin(z * 0.02);
-      this.createRockCluster(300 + xVariation, z, z * 0.3 + 200);
-      this.createRockCluster(330 + xVariation, z + 10, z * 0.3 + 210);
-      this.createRockCluster(360 + xVariation, z - 5, z * 0.3 + 220);
+    // Eastern mountain peaks (more sparse) 
+    for (let x = 420; x <= 550; x += 60) {
+      for (let z = -350; z <= 350; z += 60) {
+        this.createRockFormationFromNoise(x, z, 0.7, 1.0, 1.2, 'mountain');
+      }
     }
     
-    // 4. Stone Circles - ceremonial-looking formations
+    // Southern rock region
+    for (let x = -400; x <= 400; x += 30) {
+      for (let z = -400; z >= -550; z -= 30) {
+        this.createRockFormationFromNoise(x, z, 0.68, 0.9, 0.9, 'cluster');
+      }
+    }
     
-    // Four stone circles at the corners
+    // Western rock region
+    for (let x = -400; x >= -550; x -= 30) {
+      for (let z = -400; z <= 400; z += 30) {
+        this.createRockFormationFromNoise(x, z, 0.68, 0.9, 0.9, 'cluster');
+      }
+    }
+    
+    // Scattered rock spires in all regions
+    for (let x = -600; x <= 600; x += 150) {
+      for (let z = -600; z <= 600; z += 150) {
+        // Use a higher threshold to make them more rare
+        this.createRockFormationFromNoise(
+          x + this.fbm(x, z, 2, 2.0, 0.5, 777) * 50 - 25,
+          z + this.fbm(z, x, 2, 2.0, 0.5, 888) * 50 - 25,
+          0.75, 0.8, 1.3, 'spire'
+        );
+      }
+    }
+    
+    // 4. Stone Circles - ceremonial-looking formations at key locations (preserved for gameplay)
     this.createStoneCircle(500, 500, 50, 12, 400);
     this.createStoneCircle(-500, 500, 50, 12, 500);
     this.createStoneCircle(500, -500, 50, 12, 600);
     this.createStoneCircle(-500, -500, 50, 12, 700);
     
-    // 5. Center-piece - large rock formation at 0,0,0
-    // Create a spiral of rocks outward from center
-    for (let i = 1; i < 12; i++) {
-      const angle = i * 0.5;
-      const radius = i * 5;
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
-      this.createRockCluster(x, z, i * 50);
-    }
-    
-    // 6. Rocky path connecting the quadrants
-    // Diagonal path from top-left to bottom-right
-    for (let i = -10; i <= 10; i++) {
-      this.createRockCluster(-500 + i * 50, -500 + i * 50, i * 5);
-    }
-    
-    // Diagonal path from top-right to bottom-left
-    for (let i = -10; i <= 10; i++) {
-      this.createRockCluster(500 - i * 50, -500 + i * 50, i * 5 + 1000);
-    }
-    
-    // ======= NEW GIANT MOUNTAIN FORMATIONS =======
-    
-    // Create multiple massive mountain formations at key locations
-    this.createGiantMountain(300, 300, 1234);
-    this.createGiantMountain(-300, 300, 5678);
-    this.createGiantMountain(300, -300, 9012);
-    this.createGiantMountain(-300, -300, 3456);
-    
-    // Create a mountain range that runs across the map
-    this.createMountainRange(0, 250, 200, 6789);
-    this.createMountainRange(250, 0, 180, 7890);
-    this.createMountainRange(0, -250, 220, 8901);
-    this.createMountainRange(-250, 0, 190, 9012);
-    
-    // Create a few volcanic crater formations
-    this.createVolcanicCrater(400, 400, 8765);
-    this.createVolcanicCrater(-400, -400, 4321);
-  }
-  
-  // ===== BUILDING AND CITY METHODS =====
-  
-  createSkyscraper(x: number, z: number, height: number, width: number, depth: number, materialIndex?: number) {
-    // Use provided material index or calculate deterministically
-    let buildingMaterialIndex = materialIndex;
-    if (buildingMaterialIndex === undefined) {
-      // Create a deterministic index based on building position
-      buildingMaterialIndex = Math.abs(Math.floor(Math.sin(x * 0.1 + z * 0.2) * this.buildingMaterials.length)) % this.buildingMaterials.length;
-    }
-    const buildingMaterial = this.buildingMaterials[buildingMaterialIndex];
-    
-    // LOW-POLY APPROACH: Create the building as a single mesh with a simple texture
-    // Create the main building structure
-    const buildingGeometry = new THREE.BoxGeometry(width, height, depth);
-    
-    // Create a canvas for the building texture with window pattern
-    const textureSize = 512;
-    const canvas = document.createElement('canvas');
-    canvas.width = textureSize;
-    canvas.height = textureSize;
-    const ctx = canvas.getContext('2d');
-    
-    if (ctx) {
-      // Fill with building base color
-      const color = buildingMaterial.color;
-      ctx.fillStyle = '#' + color.getHexString();
-      ctx.fillRect(0, 0, textureSize, textureSize);
-      
-      // Create window grid pattern - simple and efficient
-      const windowRows = 16; // Fixed number for texture
-      const windowCols = 16;
-      const windowWidth = textureSize / windowCols;
-      const windowHeight = textureSize / windowRows;
-      
-      // Draw windows as simple blue rectangles
-      ctx.fillStyle = 'rgba(135, 206, 235, 0.7)'; // Light blue windows
-      
-      // Vary the window pattern based on materialIndex for diversity
-      const offset = buildingMaterialIndex % 4; // 0-3 different patterns
-      
-      // Create windows based on pattern
-      for (let row = 1; row < windowRows; row++) {
-        for (let col = 1; col < windowCols; col++) {
-          // Skip some windows based on pattern
-          if ((row + col + offset) % 4 === 0) continue;
+    // 5. Scattered small rocks throughout the map using noise pattern
+    const gridSize = 100; // Size of the grid for small rock distribution
+    for (let x = -800; x <= 800; x += gridSize) {
+      for (let z = -800; z <= 800; z += gridSize) {
+        // For each grid cell, place several potential rocks
+        for (let i = 0; i < 5; i++) {
+          // Use noise to offset position within grid cell
+          const offsetX = this.fbm(x + i, z, 2, 2.0, 0.5, 999 + i) * gridSize;
+          const offsetZ = this.fbm(x, z + i, 2, 2.0, 0.5, 1000 + i) * gridSize;
           
-          // Draw window
-          ctx.fillRect(
-            col * windowWidth - windowWidth * 0.8,
-            row * windowHeight - windowHeight * 0.8,
-            windowWidth * 0.6,
-            windowHeight * 0.6
+          // Create small rock if noise value high enough
+          this.createSmallRockFromNoise(
+            x + offsetX,
+            z + offsetZ,
+            0.72, // High threshold for sparse distribution
+            0.9
           );
         }
       }
     }
     
-    // Create texture from canvas
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
+    // 6. Central mountain formation - important gameplay element
+    this.createRockFormation(); // Keep the special central formation
     
-    // Create material with the texture
-    const material = new THREE.MeshStandardMaterial({
-      map: texture,
-      color: buildingMaterial.color,
-      roughness: buildingMaterial.roughness,
-      metalness: buildingMaterial.metalness
-    });
+    // 7. Major mountain features at key locations
+    this.createGiantMountain(300, 300, 1234);
+    this.createGiantMountain(-300, 300, 5678);
+    this.createGiantMountain(300, -300, 9012);
+    this.createGiantMountain(-300, -300, 3456);
     
-    // Create the mesh with the optimized geometry and textured material
-    const buildingMesh = new THREE.Mesh(buildingGeometry, material);
-    buildingMesh.position.set(x, height / 2, 0);
-    buildingMesh.position.y = height / 2; // Position at ground level with height centered
-    buildingMesh.position.z = z;
-    buildingMesh.castShadow = true;
-    buildingMesh.receiveShadow = true;
+    // 8. Volcanic craters - distinctive landmarks
+    this.createVolcanicCrater(400, 400, 8765);
+    this.createVolcanicCrater(-400, -400, 4321);
     
-    // Add to scene directly (no group needed)
-    this.scene.add(buildingMesh);
-    
-    // Create a collider box for the building
-    const colliderPosition = new THREE.Vector3(x, height / 2, z);
-    // Use box collider instead of sphere for better building collision
-    const colliderSize = new THREE.Vector3(width, height, depth);
-    const buildingCollider = new StaticCollider(colliderPosition, 'building', undefined, colliderSize);
-    this.buildingColliders.push(buildingCollider);
-    
-    return buildingCollider;
+    // 9. Rock ridge lines for more interesting topography
+    // Create ridge lines using noise to determine location and properties
+    for (let x = -600; x <= 600; x += 200) {
+      for (let z = -600; z <= 600; z += 200) {
+        // Only place ridge if noise value high enough
+        const ridgeNoise = this.fbm(x, z, 3, 2.0, 0.5, 123);
+        if (ridgeNoise > 0.6) {
+          // Use noise to determine ridge direction and length
+          const angle = this.fbm(x, z, 2, 2.0, 0.5, 456) * Math.PI * 2;
+          const length = 50 + this.fbm(x, z, 2, 2.0, 0.5, 789) * 100;
+          
+          // Calculate start and end points
+          const startX = x - Math.cos(angle) * length/2;
+          const startZ = z - Math.sin(angle) * length/2;
+          const endX = x + Math.cos(angle) * length/2;
+          const endZ = z + Math.sin(angle) * length/2;
+          
+          // Height based on noise
+          const height = 5 + this.fbm(x, z, 2, 2.0, 0.5, 321) * 10;
+          
+          // Create the rock wall
+          this.createRockWall(startX, startZ, endX, endZ, height, Math.floor(x * z));
+        }
+      }
+    }
   }
   
-  createRoad(startX: number, startZ: number, endX: number, endZ: number, width: number) {
-    // Calculate road length and direction
-    const roadLength = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endZ - startZ, 2));
-    const angle = Math.atan2(endZ - startZ, endX - startX);
-    
-    // Create road geometry
-    const roadGeometry = new THREE.PlaneGeometry(roadLength, width);
-    const roadMesh = new THREE.Mesh(roadGeometry, this.roadMaterial);
-    
-    // Position and rotate road
-    roadMesh.rotation.x = -Math.PI / 2; // Lay flat on the ground
-    roadMesh.rotation.z = -angle; // Align with direction
-    
-    // Position at midpoint between start and end
-    const midX = (startX + endX) / 2;
-    const midZ = (startZ + endZ) / 2;
-    roadMesh.position.set(midX, 0.1, midZ); // Slightly above ground to prevent z-fighting
-    
-    // Add to scene
-    this.scene.add(roadMesh);
-  }
   
   createRockFormation() {
     // Create a large, deterministic rock formation in the center of the map
@@ -1668,18 +1509,14 @@ export class MapGenerator {
   
   // Methods to get colliders for collision detection
   getAllColliders(): ICollidable[] {
-    return [...this.treeColliders, ...this.rockColliders, ...this.buildingColliders];
+    return [...this.treeGenerator.getTreeColliders(), ...this.rockColliders];
   }
   
   getTreeColliders(): ICollidable[] {
-    return [...this.treeColliders];
+    return this.treeGenerator.getTreeColliders();
   }
   
   getRockColliders(): ICollidable[] {
     return [...this.rockColliders];
-  }
-  
-  getBuildingColliders(): ICollidable[] {
-    return [...this.buildingColliders];
   }
 }

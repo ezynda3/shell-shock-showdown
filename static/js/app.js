@@ -28109,19 +28109,12 @@ class StaticCollider {
   }
 }
 
-// assets/ts/game/map.ts
-class MapGenerator {
+// assets/ts/game/trees.ts
+class TreeGenerator {
   scene;
   treeColliders = [];
-  rockColliders = [];
-  buildingColliders = [];
   trunkMaterial;
   leafMaterial;
-  rockMaterial;
-  darkRockMaterial;
-  buildingMaterials = [];
-  glassMaterial;
-  roadMaterial;
   constructor(scene) {
     this.scene = scene;
     this.trunkMaterial = new MeshStandardMaterial({
@@ -28132,55 +28125,6 @@ class MapGenerator {
     this.leafMaterial = new MeshStandardMaterial({
       color: 3050327,
       roughness: 0.8,
-      metalness: 0.1
-    });
-    this.rockMaterial = new MeshStandardMaterial({
-      color: 8421504,
-      roughness: 0.9,
-      metalness: 0.2
-    });
-    this.darkRockMaterial = new MeshStandardMaterial({
-      color: 5263440,
-      roughness: 0.9,
-      metalness: 0.3
-    });
-    this.buildingMaterials = [
-      new MeshStandardMaterial({
-        color: 7372944,
-        roughness: 0.7,
-        metalness: 0.3
-      }),
-      new MeshStandardMaterial({
-        color: 11119017,
-        roughness: 0.7,
-        metalness: 0.2
-      }),
-      new MeshStandardMaterial({
-        color: 4620980,
-        roughness: 0.6,
-        metalness: 0.4
-      }),
-      new MeshStandardMaterial({
-        color: 9127187,
-        roughness: 0.8,
-        metalness: 0.1
-      }),
-      new MeshStandardMaterial({
-        color: 3100495,
-        roughness: 0.7,
-        metalness: 0.3
-      })
-    ];
-    this.glassMaterial = new MeshStandardMaterial({
-      color: 8900331,
-      roughness: 0.2,
-      metalness: 0.8,
-      transparent: true,
-      opacity: 0.6
-    });
-    this.roadMaterial = new MeshStandardMaterial({
-      color: 3355443,
-      roughness: 0.9,
       metalness: 0.1
     });
   }
@@ -28262,7 +28206,79 @@ class MapGenerator {
       }
     }
   }
-  createTrees() {
+  noise2D(x, y, seed = 12345) {
+    const permute = (i) => {
+      return (i * 34 + seed * 6547 + 12345) % 289;
+    };
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    const fx = x - ix;
+    const fy = y - iy;
+    const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+    const a = permute(ix) + permute(iy);
+    const b = permute(ix + 1) + permute(iy);
+    const c = permute(ix) + permute(iy + 1);
+    const d2 = permute(ix + 1) + permute(iy + 1);
+    const getGrad = (h, x2, y2) => {
+      const h1 = h % 4;
+      let u2 = h1 < 2 ? x2 : y2;
+      let v2 = h1 < 2 ? y2 : x2;
+      return (h1 & 1 ? -u2 : u2) + (h1 & 2 ? -v2 * 2 : v2 * 2);
+    };
+    const ga = getGrad(a, fx, fy);
+    const gb = getGrad(b, fx - 1, fy);
+    const gc = getGrad(c, fx, fy - 1);
+    const gd = getGrad(d2, fx - 1, fy - 1);
+    const u = fade(fx);
+    const v = fade(fy);
+    const result = (1 - u) * ((1 - v) * ga + v * gc) + u * ((1 - v) * gb + v * gd);
+    return (result + 1) * 0.5;
+  }
+  fbm(x, y, octaves = 6, lacunarity = 2, persistence = 0.5, seed = 12345) {
+    let total = 0;
+    let frequency = 0.005;
+    let amplitude = 1;
+    let maxValue = 0;
+    for (let i = 0;i < octaves; i++) {
+      total += this.noise2D(x * frequency, y * frequency, seed + i * 1000) * amplitude;
+      maxValue += amplitude;
+      frequency *= lacunarity;
+      amplitude *= persistence;
+    }
+    return total / maxValue;
+  }
+  treeNoiseValue(x, y, biomeScale = 1, foliageType = "mixed") {
+    const biomeNoise = this.fbm(x, y, 3, 2, 0.5, 42);
+    const terrainNoise = this.fbm(x, y, 4, 2, 0.5, 123);
+    const detailNoise = this.fbm(x, y, 6, 2.2, 0.6, 987);
+    const combinedNoise = biomeNoise * 0.4 + terrainNoise * 0.4 + detailNoise * 0.2;
+    const scaledNoise = combinedNoise * biomeScale;
+    let treeType;
+    if (foliageType === "pine") {
+      treeType = "pine";
+    } else if (foliageType === "round") {
+      treeType = "round";
+    } else {
+      const typeNoise = this.fbm(x, y, 2, 2.5, 0.5, 789);
+      treeType = typeNoise > 0.5 ? "pine" : "round";
+    }
+    return {
+      value: scaledNoise,
+      type: treeType
+    };
+  }
+  createTreeFromNoise(x, z, densityThreshold, scaleBase, biomeScale, foliageType) {
+    const noise = this.treeNoiseValue(x, z, biomeScale, foliageType);
+    if (noise.value > densityThreshold) {
+      const scale = scaleBase + this.fbm(x, z, 3, 2, 0.5, 555) * 0.5;
+      if (noise.type === "pine") {
+        this.createPineTree(scale, x, z);
+      } else {
+        this.createRoundTree(scale, x, z);
+      }
+    }
+  }
+  generateTrees() {
     this.createCircleOfTrees(30, 10, "pine");
     this.createCircleOfTrees(45, 12, "round");
     this.createCircleOfTrees(60, 16, "pine");
@@ -28270,52 +28286,24 @@ class MapGenerator {
     this.createSacredGrove(-200, -200, 40, 12);
     this.createSacredGrove(200, -200, 40, 12);
     this.createSacredGrove(-200, 200, 40, 12);
-    for (let x = -400;x <= 400; x += 40) {
-      for (let z = 400;z <= 800; z += 40) {
-        if ((x + z) % 75 === 0)
-          continue;
-        const scale = 1.2 + Math.sin(x * 0.01) * Math.cos(z * 0.01) * 0.5;
-        const offsetX = (Math.random() - 0.5) * 15;
-        const offsetZ = (Math.random() - 0.5) * 15;
-        this.createPineTree(scale, x + offsetX, z + offsetZ);
+    for (let x = -400;x <= 400; x += 20) {
+      for (let z = 400;z <= 800; z += 20) {
+        this.createTreeFromNoise(x, z, 0.55, 1.2, 1.2, "pine");
       }
     }
-    for (let x = -400;x <= 400; x += 40) {
-      for (let z = -800;z <= -400; z += 40) {
-        if ((x - z) % 75 === 0)
-          continue;
-        const scale = 1 + Math.cos(x * 0.01) * Math.sin(z * 0.01) * 0.4;
-        const offsetX = (Math.random() - 0.5) * 15;
-        const offsetZ = (Math.random() - 0.5) * 15;
-        this.createRoundTree(scale, x + offsetX, z + offsetZ);
+    for (let x = -400;x <= 400; x += 20) {
+      for (let z = -800;z <= -400; z += 20) {
+        this.createTreeFromNoise(x, z, 0.6, 1, 1.1, "round");
       }
     }
-    for (let x = 400;x <= 800; x += 50) {
-      for (let z = -400;z <= 400; z += 50) {
-        if (x * z % 1200 === 0)
-          continue;
-        if (Math.random() < 0.2)
-          continue;
-        const scale = 1.1 + Math.sin(x * 0.02) * Math.cos(z * 0.02) * 0.3;
-        if ((Math.floor(x / 50) + Math.floor(z / 50)) % 2 === 0) {
-          this.createPineTree(scale, x, z);
-        } else {
-          this.createRoundTree(scale, x, z);
-        }
+    for (let x = 400;x <= 800; x += 25) {
+      for (let z = -400;z <= 400; z += 25) {
+        this.createTreeFromNoise(x, z, 0.65, 1.1, 0.9, "mixed");
       }
     }
-    for (let x = -800;x <= -400; x += 50) {
-      for (let z = -400;z <= 400; z += 50) {
-        if (x * z % 1000 === 0)
-          continue;
-        if (Math.random() < 0.2)
-          continue;
-        const scale = 1.1 + Math.cos(x * 0.015) * Math.sin(z * 0.015) * 0.3;
-        if (Math.floor(z / 50) % 2 === 0) {
-          this.createPineTree(scale, x, z);
-        } else {
-          this.createRoundTree(scale, x, z);
-        }
+    for (let x = -800;x <= -400; x += 25) {
+      for (let z = -400;z <= 400; z += 25) {
+        this.createTreeFromNoise(x, z, 0.65, 1.1, 0.9, "mixed");
       }
     }
     for (let z = -1000;z <= 1000; z += 30) {
@@ -28336,6 +28324,84 @@ class MapGenerator {
       const radius = 100 + i * 5;
       this.createPineTree(1 + i * 0.05, Math.cos(angle) * radius, Math.sin(angle) * radius);
     }
+    for (let x = -600;x <= -300; x += 30) {
+      for (let z = 300;z <= 600; z += 30) {
+        this.createTreeFromNoise(x, z, 0.75, 1.3, 0.8, "mixed");
+      }
+    }
+    for (let x = 300;x <= 600; x += 30) {
+      for (let z = -600;z <= -300; z += 30) {
+        this.createTreeFromNoise(x, z, 0.75, 1.3, 0.8, "mixed");
+      }
+    }
+  }
+  getTreeColliders() {
+    return [...this.treeColliders];
+  }
+}
+
+// assets/ts/game/map.ts
+class MapGenerator {
+  scene;
+  treeGenerator;
+  rockColliders = [];
+  rockMaterial;
+  darkRockMaterial;
+  constructor(scene) {
+    this.scene = scene;
+    this.treeGenerator = new TreeGenerator(scene);
+    this.rockMaterial = new MeshStandardMaterial({
+      color: 8421504,
+      roughness: 0.9,
+      metalness: 0.2
+    });
+    this.darkRockMaterial = new MeshStandardMaterial({
+      color: 5263440,
+      roughness: 0.9,
+      metalness: 0.3
+    });
+    this.treeGenerator.generateTrees();
+  }
+  noise2D(x, y, seed = 12345) {
+    const permute = (i) => {
+      return (i * 34 + seed * 6547 + 12345) % 289;
+    };
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    const fx = x - ix;
+    const fy = y - iy;
+    const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+    const a = permute(ix) + permute(iy);
+    const b = permute(ix + 1) + permute(iy);
+    const c = permute(ix) + permute(iy + 1);
+    const d2 = permute(ix + 1) + permute(iy + 1);
+    const getGrad = (h, x2, y2) => {
+      const h1 = h % 4;
+      let u2 = h1 < 2 ? x2 : y2;
+      let v2 = h1 < 2 ? y2 : x2;
+      return (h1 & 1 ? -u2 : u2) + (h1 & 2 ? -v2 * 2 : v2 * 2);
+    };
+    const ga = getGrad(a, fx, fy);
+    const gb = getGrad(b, fx - 1, fy);
+    const gc = getGrad(c, fx, fy - 1);
+    const gd = getGrad(d2, fx - 1, fy - 1);
+    const u = fade(fx);
+    const v = fade(fy);
+    const result = (1 - u) * ((1 - v) * ga + v * gc) + u * ((1 - v) * gb + v * gd);
+    return (result + 1) * 0.5;
+  }
+  fbm(x, y, octaves = 6, lacunarity = 2, persistence = 0.5, seed = 12345) {
+    let total = 0;
+    let frequency = 0.005;
+    let amplitude = 1;
+    let maxValue = 0;
+    for (let i = 0;i < octaves; i++) {
+      total += this.noise2D(x * frequency, y * frequency, seed + i * 1000) * amplitude;
+      maxValue += amplitude;
+      frequency *= lacunarity;
+      amplitude *= persistence;
+    }
+    return total / maxValue;
   }
   createRock(size, deformSeed, x, y, z, rotation, scale, material, colliderPosition) {
     const rockGeometry = new DodecahedronGeometry(size, 0);
@@ -28775,6 +28841,61 @@ class MapGenerator {
     floatingRockGroup.position.set(x, 0, z);
     this.scene.add(floatingRockGroup);
   }
+  rockNoiseValue(x, y, biomeScale = 1, heightScale = 1) {
+    const mountainRangeNoise = this.fbm(x, y, 2, 2, 0.5, 234);
+    const formationNoise = this.fbm(x, y, 3, 2.2, 0.5, 567);
+    const clusterNoise = this.fbm(x, y, 4, 2.5, 0.6, 789);
+    const combinedNoise = mountainRangeNoise * 0.5 + formationNoise * 0.3 + clusterNoise * 0.2;
+    const scaledNoise = combinedNoise * biomeScale;
+    const sizeNoise = this.fbm(x, y, 2, 2, 0.5, 987);
+    const size = (0.7 + sizeNoise * 1.3) * biomeScale;
+    const heightNoise = this.fbm(x, y, 3, 1.8, 0.6, 654);
+    const height = (0.5 + heightNoise * 0.8) * heightScale;
+    const typeNoise = this.fbm(x, y, 2, 2.5, 0.5, 321);
+    const type = typeNoise > 0.5 ? "standard" : "dark";
+    return {
+      value: scaledNoise,
+      size,
+      height,
+      type
+    };
+  }
+  createRockFormationFromNoise(x, z, densityThreshold, biomeScale = 1, heightScale = 1, formationType = "cluster") {
+    const noise = this.rockNoiseValue(x, z, biomeScale, heightScale);
+    if (noise.value > densityThreshold) {
+      const seed = Math.floor((x * 1000 + z) * noise.value);
+      if (formationType === "cluster") {
+        this.createRockCluster(x, z, seed);
+      } else if (formationType === "spire" && noise.value > densityThreshold + 0.1) {
+        const spireHeight = 5 + noise.height * 15;
+        this.createRockSpire(x, z, spireHeight, seed);
+      } else if (formationType === "mountain" && noise.value > densityThreshold + 0.2) {
+        if (this.fbm(x, z, 2, 2, 0.5, 111) > 0.75) {
+          this.createMountainPeak(x, z, 80 + noise.height * 150, 40 + noise.size * 60, seed);
+        } else if (this.fbm(x, z, 2, 2, 0.5, 222) > 0.85) {
+          this.createBalancedRocks(x, z, 10 + noise.height * 10, seed);
+        } else {
+          this.createRockArch(x, z, 10 + noise.size * 20, 5 + noise.height * 10, 5 + noise.size * 10, this.fbm(x, z, 1, 1, 0.5, 333) * Math.PI * 2, seed);
+        }
+      }
+    }
+  }
+  createSmallRockFromNoise(x, z, densityThreshold, biomeScale = 1) {
+    const noise = this.rockNoiseValue(x, z, biomeScale, 1);
+    if (noise.value > densityThreshold) {
+      const size = 0.3 + noise.size * 0.7;
+      const y = 0.2 + noise.height * 0.6;
+      const seed = Math.floor((x * 1000 + z) * noise.value);
+      const rotX = Math.sin(seed * 0.1) * Math.PI;
+      const rotY = Math.cos(seed * 0.2) * Math.PI;
+      const rotZ = Math.sin(seed * 0.3) * Math.PI;
+      const scaleX = 0.8 + this.fbm(x, z, 2, 2, 0.5, 444) * 0.4;
+      const scaleY = 0.8 + this.fbm(x, z, 2, 2, 0.5, 555) * 0.4;
+      const scaleZ = 0.8 + this.fbm(x, z, 2, 2, 0.5, 666) * 0.4;
+      const material = noise.type === "standard" ? this.rockMaterial : this.darkRockMaterial;
+      this.createRock(size, seed, x, y, z, new Vector3(rotX, rotY, rotZ), new Vector3(scaleX, scaleY, scaleZ), material);
+    }
+  }
   createRocks() {
     for (let i = 0;i < 8; i++) {
       const angle = i / 8 * Math.PI * 2;
@@ -28787,115 +28908,77 @@ class MapGenerator {
       const z = i % 2 === 0 ? -100 : 100;
       this.createRockCluster(x, z, i + 10);
     }
-    for (let x = -150;x <= 150; x += 30) {
-      this.createRockCluster(x, 150, x * 0.1);
+    for (let x = -400;x <= 400; x += 30) {
+      for (let z = 280;z <= 400; z += 30) {
+        this.createRockFormationFromNoise(x, z, 0.65, 1.2, 1.1, "cluster");
+      }
     }
-    for (let z = -150;z <= 150; z += 30) {
-      this.createRockCluster(150, z, z * 0.1 + 100);
+    for (let x = -350;x <= 350; x += 60) {
+      for (let z = 420;z <= 550; z += 60) {
+        this.createRockFormationFromNoise(x, z, 0.7, 1, 1.2, "mountain");
+      }
     }
-    for (let x = -300;x <= 300; x += 30) {
-      const zVariation = 30 * Math.sin(x * 0.02);
-      this.createRockCluster(x, 300 + zVariation, x * 0.3);
-      this.createRockCluster(x + 10, 330 + zVariation, x * 0.3 + 10);
-      this.createRockCluster(x - 5, 360 + zVariation, x * 0.3 + 20);
+    for (let x = 280;x <= 400; x += 30) {
+      for (let z = -400;z <= 400; z += 30) {
+        this.createRockFormationFromNoise(x, z, 0.65, 1.2, 1.1, "cluster");
+      }
     }
-    for (let z = -300;z <= 300; z += 30) {
-      const xVariation = 30 * Math.sin(z * 0.02);
-      this.createRockCluster(300 + xVariation, z, z * 0.3 + 200);
-      this.createRockCluster(330 + xVariation, z + 10, z * 0.3 + 210);
-      this.createRockCluster(360 + xVariation, z - 5, z * 0.3 + 220);
+    for (let x = 420;x <= 550; x += 60) {
+      for (let z = -350;z <= 350; z += 60) {
+        this.createRockFormationFromNoise(x, z, 0.7, 1, 1.2, "mountain");
+      }
+    }
+    for (let x = -400;x <= 400; x += 30) {
+      for (let z = -400;z >= -550; z -= 30) {
+        this.createRockFormationFromNoise(x, z, 0.68, 0.9, 0.9, "cluster");
+      }
+    }
+    for (let x = -400;x >= -550; x -= 30) {
+      for (let z = -400;z <= 400; z += 30) {
+        this.createRockFormationFromNoise(x, z, 0.68, 0.9, 0.9, "cluster");
+      }
+    }
+    for (let x = -600;x <= 600; x += 150) {
+      for (let z = -600;z <= 600; z += 150) {
+        this.createRockFormationFromNoise(x + this.fbm(x, z, 2, 2, 0.5, 777) * 50 - 25, z + this.fbm(z, x, 2, 2, 0.5, 888) * 50 - 25, 0.75, 0.8, 1.3, "spire");
+      }
     }
     this.createStoneCircle(500, 500, 50, 12, 400);
     this.createStoneCircle(-500, 500, 50, 12, 500);
     this.createStoneCircle(500, -500, 50, 12, 600);
     this.createStoneCircle(-500, -500, 50, 12, 700);
-    for (let i = 1;i < 12; i++) {
-      const angle = i * 0.5;
-      const radius = i * 5;
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
-      this.createRockCluster(x, z, i * 50);
+    const gridSize = 100;
+    for (let x = -800;x <= 800; x += gridSize) {
+      for (let z = -800;z <= 800; z += gridSize) {
+        for (let i = 0;i < 5; i++) {
+          const offsetX = this.fbm(x + i, z, 2, 2, 0.5, 999 + i) * gridSize;
+          const offsetZ = this.fbm(x, z + i, 2, 2, 0.5, 1000 + i) * gridSize;
+          this.createSmallRockFromNoise(x + offsetX, z + offsetZ, 0.72, 0.9);
+        }
+      }
     }
-    for (let i = -10;i <= 10; i++) {
-      this.createRockCluster(-500 + i * 50, -500 + i * 50, i * 5);
-    }
-    for (let i = -10;i <= 10; i++) {
-      this.createRockCluster(500 - i * 50, -500 + i * 50, i * 5 + 1000);
-    }
+    this.createRockFormation();
     this.createGiantMountain(300, 300, 1234);
     this.createGiantMountain(-300, 300, 5678);
     this.createGiantMountain(300, -300, 9012);
     this.createGiantMountain(-300, -300, 3456);
-    this.createMountainRange(0, 250, 200, 6789);
-    this.createMountainRange(250, 0, 180, 7890);
-    this.createMountainRange(0, -250, 220, 8901);
-    this.createMountainRange(-250, 0, 190, 9012);
     this.createVolcanicCrater(400, 400, 8765);
     this.createVolcanicCrater(-400, -400, 4321);
-  }
-  createSkyscraper(x, z, height, width, depth, materialIndex) {
-    let buildingMaterialIndex = materialIndex;
-    if (buildingMaterialIndex === undefined) {
-      buildingMaterialIndex = Math.abs(Math.floor(Math.sin(x * 0.1 + z * 0.2) * this.buildingMaterials.length)) % this.buildingMaterials.length;
-    }
-    const buildingMaterial = this.buildingMaterials[buildingMaterialIndex];
-    const buildingGeometry = new BoxGeometry(width, height, depth);
-    const textureSize = 512;
-    const canvas = document.createElement("canvas");
-    canvas.width = textureSize;
-    canvas.height = textureSize;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      const color = buildingMaterial.color;
-      ctx.fillStyle = "#" + color.getHexString();
-      ctx.fillRect(0, 0, textureSize, textureSize);
-      const windowRows = 16;
-      const windowCols = 16;
-      const windowWidth = textureSize / windowCols;
-      const windowHeight = textureSize / windowRows;
-      ctx.fillStyle = "rgba(135, 206, 235, 0.7)";
-      const offset = buildingMaterialIndex % 4;
-      for (let row = 1;row < windowRows; row++) {
-        for (let col = 1;col < windowCols; col++) {
-          if ((row + col + offset) % 4 === 0)
-            continue;
-          ctx.fillRect(col * windowWidth - windowWidth * 0.8, row * windowHeight - windowHeight * 0.8, windowWidth * 0.6, windowHeight * 0.6);
+    for (let x = -600;x <= 600; x += 200) {
+      for (let z = -600;z <= 600; z += 200) {
+        const ridgeNoise = this.fbm(x, z, 3, 2, 0.5, 123);
+        if (ridgeNoise > 0.6) {
+          const angle = this.fbm(x, z, 2, 2, 0.5, 456) * Math.PI * 2;
+          const length = 50 + this.fbm(x, z, 2, 2, 0.5, 789) * 100;
+          const startX = x - Math.cos(angle) * length / 2;
+          const startZ = z - Math.sin(angle) * length / 2;
+          const endX = x + Math.cos(angle) * length / 2;
+          const endZ = z + Math.sin(angle) * length / 2;
+          const height = 5 + this.fbm(x, z, 2, 2, 0.5, 321) * 10;
+          this.createRockWall(startX, startZ, endX, endZ, height, Math.floor(x * z));
         }
       }
     }
-    const texture = new CanvasTexture(canvas);
-    texture.wrapS = RepeatWrapping;
-    texture.wrapT = RepeatWrapping;
-    const material = new MeshStandardMaterial({
-      map: texture,
-      color: buildingMaterial.color,
-      roughness: buildingMaterial.roughness,
-      metalness: buildingMaterial.metalness
-    });
-    const buildingMesh = new Mesh(buildingGeometry, material);
-    buildingMesh.position.set(x, height / 2, 0);
-    buildingMesh.position.y = height / 2;
-    buildingMesh.position.z = z;
-    buildingMesh.castShadow = true;
-    buildingMesh.receiveShadow = true;
-    this.scene.add(buildingMesh);
-    const colliderPosition = new Vector3(x, height / 2, z);
-    const colliderSize = new Vector3(width, height, depth);
-    const buildingCollider = new StaticCollider(colliderPosition, "building", undefined, colliderSize);
-    this.buildingColliders.push(buildingCollider);
-    return buildingCollider;
-  }
-  createRoad(startX, startZ, endX, endZ, width) {
-    const roadLength = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endZ - startZ, 2));
-    const angle = Math.atan2(endZ - startZ, endX - startX);
-    const roadGeometry = new PlaneGeometry(roadLength, width);
-    const roadMesh = new Mesh(roadGeometry, this.roadMaterial);
-    roadMesh.rotation.x = -Math.PI / 2;
-    roadMesh.rotation.z = -angle;
-    const midX = (startX + endX) / 2;
-    const midZ = (startZ + endZ) / 2;
-    roadMesh.position.set(midX, 0.1, midZ);
-    this.scene.add(roadMesh);
   }
   createRockFormation() {
     const formationRadius = 160;
@@ -28970,16 +29053,13 @@ class MapGenerator {
     }
   }
   getAllColliders() {
-    return [...this.treeColliders, ...this.rockColliders, ...this.buildingColliders];
+    return [...this.treeGenerator.getTreeColliders(), ...this.rockColliders];
   }
   getTreeColliders() {
-    return [...this.treeColliders];
+    return this.treeGenerator.getTreeColliders();
   }
   getRockColliders() {
     return [...this.rockColliders];
-  }
-  getBuildingColliders() {
-    return [...this.buildingColliders];
   }
 }
 
@@ -34314,7 +34394,6 @@ class GameComponent extends LitElement {
   createTrees() {
     if (!this.scene || !this.mapGenerator)
       return;
-    this.mapGenerator.createTrees();
     const treeColliders = this.mapGenerator.getTreeColliders();
     for (const collider of treeColliders) {
       this.collisionSystem.addCollider(collider);
