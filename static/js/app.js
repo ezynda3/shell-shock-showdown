@@ -29904,28 +29904,34 @@ class BaseTank {
       context.fillStyle = "rgba(50,50,50,0.9)";
       context.roundRect(2, 38, 252, 22, 3);
       context.fill();
-      context.fillStyle = "rgba(20,20,20,0.9)";
+      context.fillStyle = "#000000";
       context.roundRect(4, 40, 248, 18, 2);
       context.fill();
-      const healthPercent = this.health / this.MAX_HEALTH;
-      const barWidth = Math.floor(244 * healthPercent);
-      let startColor, endColor;
-      if (healthPercent > 0.6) {
-        startColor = "#32CD32";
-        endColor = "#00FF00";
-      } else if (healthPercent > 0.3) {
-        startColor = "#FFD700";
-        endColor = "#FFA500";
-      } else {
-        startColor = "#FF4500";
-        endColor = "#FF0000";
+      const healthPercent = Math.max(0, Math.min(1, this.health / this.MAX_HEALTH));
+      const barWidth = Math.max(0, Math.floor(244 * healthPercent));
+      if (barWidth > 0) {
+        let startColor, endColor;
+        if (healthPercent > 0.6) {
+          startColor = "#32CD32";
+          endColor = "#00FF00";
+        } else if (healthPercent > 0.3) {
+          startColor = "#FFD700";
+          endColor = "#FFA500";
+        } else {
+          startColor = "#FF4500";
+          endColor = "#FF0000";
+        }
+        const gradient = context.createLinearGradient(4, 40, 4, 58);
+        gradient.addColorStop(0, startColor);
+        gradient.addColorStop(1, endColor);
+        context.fillStyle = gradient;
+        context.beginPath();
+        context.roundRect(6, 42, barWidth, 14, 2);
+        context.fill();
+        context.strokeStyle = "rgba(255,255,255,0.4)";
+        context.lineWidth = 1;
+        context.stroke();
       }
-      const gradient = context.createLinearGradient(4, 40, 4, 58);
-      gradient.addColorStop(0, startColor);
-      gradient.addColorStop(1, endColor);
-      context.fillStyle = gradient;
-      context.roundRect(6, 42, barWidth, 14, 2);
-      context.fill();
       context.font = "bold 12px Arial";
       context.textAlign = "center";
       context.fillStyle = "white";
@@ -29954,7 +29960,7 @@ class BaseTank {
     if (!this.healthBarContext || !this.healthBarTexture)
       return;
     this.ensureRoundRectMethod(this.healthBarContext);
-    const healthPercent = this.health / this.MAX_HEALTH;
+    const healthPercent = Math.max(0, Math.min(1, this.health / this.MAX_HEALTH));
     this.healthBarContext.clearRect(0, 36, 256, 26);
     this.healthBarContext.fillStyle = "rgba(30,30,30,0.85)";
     this.healthBarContext.roundRect(0, 36, 256, 26, 4);
@@ -29962,27 +29968,34 @@ class BaseTank {
     this.healthBarContext.fillStyle = "rgba(50,50,50,0.9)";
     this.healthBarContext.roundRect(2, 38, 252, 22, 3);
     this.healthBarContext.fill();
-    this.healthBarContext.fillStyle = "rgba(20,20,20,0.9)";
+    this.healthBarContext.fillStyle = "#000000";
     this.healthBarContext.roundRect(4, 40, 248, 18, 2);
     this.healthBarContext.fill();
-    const barWidth = Math.floor(244 * healthPercent);
-    let startColor, endColor;
-    if (healthPercent > 0.6) {
-      startColor = "#32CD32";
-      endColor = "#00FF00";
-    } else if (healthPercent > 0.3) {
-      startColor = "#FFD700";
-      endColor = "#FFA500";
-    } else {
-      startColor = "#FF4500";
-      endColor = "#FF0000";
+    const barWidth = Math.max(0, Math.floor(244 * healthPercent));
+    if (barWidth > 0) {
+      let startColor, endColor;
+      if (healthPercent > 0.6) {
+        startColor = "#32CD32";
+        endColor = "#00FF00";
+      } else if (healthPercent > 0.3) {
+        startColor = "#FFD700";
+        endColor = "#FFA500";
+      } else {
+        startColor = "#FF4500";
+        endColor = "#FF0000";
+      }
+      const gradient = this.healthBarContext.createLinearGradient(4, 40, 4, 58);
+      gradient.addColorStop(0, startColor);
+      gradient.addColorStop(1, endColor);
+      this.healthBarContext.fillStyle = gradient;
+      this.healthBarContext.beginPath();
+      this.healthBarContext.roundRect(6, 42, barWidth, 14, 2);
+      this.healthBarContext.fill();
+      this.healthBarContext.strokeStyle = "rgba(255,255,255,0.4)";
+      this.healthBarContext.lineWidth = 1;
+      this.healthBarContext.stroke();
     }
-    const gradient = this.healthBarContext.createLinearGradient(4, 40, 4, 58);
-    gradient.addColorStop(0, startColor);
-    gradient.addColorStop(1, endColor);
-    this.healthBarContext.fillStyle = gradient;
-    this.healthBarContext.roundRect(6, 42, barWidth, 14, 2);
-    this.healthBarContext.fill();
+    this.healthBarTexture.needsUpdate = true;
     this.healthBarContext.font = "bold 12px Arial";
     this.healthBarContext.textAlign = "center";
     this.healthBarContext.fillStyle = "white";

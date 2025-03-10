@@ -807,37 +807,48 @@ export abstract class BaseTank implements ITank {
       context.roundRect(2, 38, 252, 22, 3);
       context.fill();
       
-      // Health bar background
-      context.fillStyle = 'rgba(20,20,20,0.9)';
+      // Draw a pure black background for the health bar
+      context.fillStyle = '#000000';
       context.roundRect(4, 40, 248, 18, 2);
       context.fill();
       
-      // Draw the health bar with gradient
-      const healthPercent = this.health / this.MAX_HEALTH;
-      const barWidth = Math.floor(244 * healthPercent);
+      // Calculate health percentage (force to 0-1 range)
+      const healthPercent = Math.max(0, Math.min(1, this.health / this.MAX_HEALTH));
       
-      // Determine colors based on health percentage
-      let startColor, endColor;
-      if (healthPercent > 0.6) {
-        startColor = '#32CD32'; // Lime green
-        endColor = '#00FF00';   // Bright green
-      } else if (healthPercent > 0.3) {
-        startColor = '#FFD700'; // Gold
-        endColor = '#FFA500';   // Orange
-      } else {
-        startColor = '#FF4500'; // Orange Red
-        endColor = '#FF0000';   // Red
+      // Accurately calculate colored health bar width
+      const barWidth = Math.max(0, Math.floor(244 * healthPercent));
+      
+      // Only draw the colored bar if there's any health left
+      if (barWidth > 0) {
+        // Determine colors based on health percentage
+        let startColor, endColor;
+        if (healthPercent > 0.6) {
+          startColor = '#32CD32'; // Lime green
+          endColor = '#00FF00';   // Bright green
+        } else if (healthPercent > 0.3) {
+          startColor = '#FFD700'; // Gold
+          endColor = '#FFA500';   // Orange
+        } else {
+          startColor = '#FF4500'; // Orange Red
+          endColor = '#FF0000';   // Red
+        }
+        
+        // Create gradient
+        const gradient = context.createLinearGradient(4, 40, 4, 58);
+        gradient.addColorStop(0, startColor);
+        gradient.addColorStop(1, endColor);
+        context.fillStyle = gradient;
+        
+        // Draw the colored health bar (will be shorter as health decreases)
+        context.beginPath();
+        context.roundRect(6, 42, barWidth, 14, 2);
+        context.fill();
+        
+        // Add a white outline for better visibility
+        context.strokeStyle = 'rgba(255,255,255,0.4)';
+        context.lineWidth = 1;
+        context.stroke();
       }
-      
-      // Create gradient
-      const gradient = context.createLinearGradient(4, 40, 4, 58);
-      gradient.addColorStop(0, startColor);
-      gradient.addColorStop(1, endColor);
-      context.fillStyle = gradient;
-      
-      // Draw health bar with rounded corners
-      context.roundRect(6, 42, barWidth, 14, 2);
-      context.fill();
       
       // Add health percentage text
       context.font = 'bold 12px Arial';
@@ -889,8 +900,8 @@ export abstract class BaseTank implements ITank {
     // Ensure roundRect is available
     this.ensureRoundRectMethod(this.healthBarContext);
     
-    // Calculate health percentage
-    const healthPercent = this.health / this.MAX_HEALTH;
+    // Calculate health percentage (force to 0-1 range)
+    const healthPercent = Math.max(0, Math.min(1, this.health / this.MAX_HEALTH));
     
     // Clear only the health bar portion (not the name)
     this.healthBarContext.clearRect(0, 36, 256, 26);
@@ -906,36 +917,48 @@ export abstract class BaseTank implements ITank {
     this.healthBarContext.roundRect(2, 38, 252, 22, 3);
     this.healthBarContext.fill();
     
-    // Health bar background
-    this.healthBarContext.fillStyle = 'rgba(20,20,20,0.9)';
+    // Draw a pure black background for the health bar
+    this.healthBarContext.fillStyle = '#000000';
     this.healthBarContext.roundRect(4, 40, 248, 18, 2);
     this.healthBarContext.fill();
     
-    // Draw the health bar with gradient
-    const barWidth = Math.floor(244 * healthPercent);
+    // Accurately calculate colored health bar width
+    const barWidth = Math.max(0, Math.floor(244 * healthPercent));
     
-    // Determine colors based on health percentage
-    let startColor, endColor;
-    if (healthPercent > 0.6) {
-      startColor = '#32CD32'; // Lime green
-      endColor = '#00FF00';   // Bright green
-    } else if (healthPercent > 0.3) {
-      startColor = '#FFD700'; // Gold
-      endColor = '#FFA500';   // Orange
-    } else {
-      startColor = '#FF4500'; // Orange Red
-      endColor = '#FF0000';   // Red
+    // Only draw the colored bar if there's any health left
+    if (barWidth > 0) {
+      // Determine colors based on health percentage
+      let startColor, endColor;
+      if (healthPercent > 0.6) {
+        startColor = '#32CD32'; // Lime green
+        endColor = '#00FF00';   // Bright green
+      } else if (healthPercent > 0.3) {
+        startColor = '#FFD700'; // Gold
+        endColor = '#FFA500';   // Orange
+      } else {
+        startColor = '#FF4500'; // Orange Red
+        endColor = '#FF0000';   // Red
+      }
+      
+      // Create gradient
+      const gradient = this.healthBarContext.createLinearGradient(4, 40, 4, 58);
+      gradient.addColorStop(0, startColor);
+      gradient.addColorStop(1, endColor);
+      this.healthBarContext.fillStyle = gradient;
+      
+      // Draw the colored health bar (will be shorter as health decreases)
+      this.healthBarContext.beginPath();
+      this.healthBarContext.roundRect(6, 42, barWidth, 14, 2);
+      this.healthBarContext.fill();
+      
+      // Add a white outline for better visibility
+      this.healthBarContext.strokeStyle = 'rgba(255,255,255,0.4)';
+      this.healthBarContext.lineWidth = 1;
+      this.healthBarContext.stroke();
     }
     
-    // Create gradient
-    const gradient = this.healthBarContext.createLinearGradient(4, 40, 4, 58);
-    gradient.addColorStop(0, startColor);
-    gradient.addColorStop(1, endColor);
-    this.healthBarContext.fillStyle = gradient;
-    
-    // Draw health bar with rounded corners
-    this.healthBarContext.roundRect(6, 42, barWidth, 14, 2);
-    this.healthBarContext.fill();
+    // Force texture update to ensure changes are displayed
+    this.healthBarTexture.needsUpdate = true;
     
     // Add health percentage text
     this.healthBarContext.font = 'bold 12px Arial';
