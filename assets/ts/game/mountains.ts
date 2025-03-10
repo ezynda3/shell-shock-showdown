@@ -90,8 +90,8 @@ export class MountainGenerator {
     // Create mountain mesh with the material
     const mountain = new THREE.Mesh(geometry, this.mountainMaterial);
     
-    // Position the mountain
-    mountain.position.set(centerX, 0, centerZ);
+    // Position the mountain with base slightly below ground level to avoid seams
+    mountain.position.set(centerX, -1, centerZ);
     
     // Enable shadows
     mountain.castShadow = true;
@@ -179,8 +179,8 @@ export class MountainGenerator {
     // Create snow mesh
     const snow = new THREE.Mesh(snowGeometry, this.snowMaterial);
     
-    // Position the snow at the same location as the mountain
-    snow.position.set(centerX, 0, centerZ);
+    // Position the snow at the same level as the mountain
+    snow.position.set(centerX, -1, centerZ);
     
     // Enable shadows
     snow.castShadow = true;
@@ -199,7 +199,7 @@ export class MountainGenerator {
     
     // Central peak collider
     const peakCollider = new StaticCollider(
-      new THREE.Vector3(centerX, height * 0.5, centerZ),
+      new THREE.Vector3(centerX, height * 0.5 - 1, centerZ),
       'mountain',
       Math.min(width, depth) * 0.3
     );
@@ -217,7 +217,7 @@ export class MountainGenerator {
       const z = centerZ + Math.sin(angle) * distance;
       
       const collider = new StaticCollider(
-        new THREE.Vector3(x, height * 0.3, z),
+        new THREE.Vector3(x, height * 0.3 - 1, z),
         'mountain',
         radius
       );

@@ -29036,7 +29036,7 @@ class MountainGenerator {
     }
     geometry.computeVertexNormals();
     const mountain = new Mesh(geometry, this.mountainMaterial);
-    mountain.position.set(centerX, 0, centerZ);
+    mountain.position.set(centerX, -1, centerZ);
     mountain.castShadow = true;
     mountain.receiveShadow = true;
     this.scene.add(mountain);
@@ -29077,14 +29077,14 @@ class MountainGenerator {
     }
     snowGeometry.computeVertexNormals();
     const snow = new Mesh(snowGeometry, this.snowMaterial);
-    snow.position.set(centerX, 0, centerZ);
+    snow.position.set(centerX, -1, centerZ);
     snow.castShadow = true;
     snow.receiveShadow = true;
     this.scene.add(snow);
     return snow;
   }
   addMountainColliders(centerX, centerZ, width, depth, height) {
-    const peakCollider = new StaticCollider2(new Vector3(centerX, height * 0.5, centerZ), "mountain", Math.min(width, depth) * 0.3);
+    const peakCollider = new StaticCollider2(new Vector3(centerX, height * 0.5 - 1, centerZ), "mountain", Math.min(width, depth) * 0.3);
     this.mountainColliders.push(peakCollider);
     const colliderCount = 4;
     const radius = Math.min(width, depth) * 0.25;
@@ -29093,7 +29093,7 @@ class MountainGenerator {
       const distance = Math.min(width, depth) * 0.3;
       const x = centerX + Math.cos(angle) * distance;
       const z = centerZ + Math.sin(angle) * distance;
-      const collider = new StaticCollider2(new Vector3(x, height * 0.3, z), "mountain", radius);
+      const collider = new StaticCollider2(new Vector3(x, height * 0.3 - 1, z), "mountain", radius);
       this.mountainColliders.push(collider);
     }
   }
