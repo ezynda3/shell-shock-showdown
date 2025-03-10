@@ -2,16 +2,19 @@ import * as THREE from 'three';
 import { ICollidable } from './collision';
 import { TreeGenerator } from './trees';
 import { RockGenerator } from './rocks';
+import { MountainGenerator } from './mountains';
 
 export class MapGenerator {
   private scene: THREE.Scene;
   private treeGenerator: TreeGenerator;
   private rockGenerator: RockGenerator;
+  private mountainGenerator: MountainGenerator;
   
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.treeGenerator = new TreeGenerator(scene);
     this.rockGenerator = new RockGenerator(scene);
+    this.mountainGenerator = new MountainGenerator(scene);
     
     // Generate trees after initialization
     this.treeGenerator.generateTrees();
@@ -524,12 +527,37 @@ export class MapGenerator {
   generateTerrain() {
     // Generate rocks after tree generation
     this.rockGenerator.createRocks();
-    // Rock formation removed
+    
+    // Generate mountains
+    this.generateMountains();
+  }
+  
+  // Generate mountains in specific areas of the map
+  private generateMountains() {
+    // 1. Northern mountain range
+    this.mountainGenerator.createMountainRangeGroup(0, 600, 800, 300, 5, 12345);
+    
+    // 2. Eastern mountain range
+    this.mountainGenerator.createMountainRangeGroup(600, 0, 300, 800, 4, 54321);
+    
+    // 3. Southwestern mountains
+    this.mountainGenerator.createMountainRangeGroup(-500, -500, 400, 400, 3, 98765);
+    
+    // 4. Create some individual mountain peaks at specific locations
+    this.mountainGenerator.createMountainRange(350, 350, 200, 200, 180, 64, 24680);
+    this.mountainGenerator.createMountainRange(-350, 350, 180, 180, 150, 64, 13579);
+    
+    // 5. Add a small mountain near the center for gameplay variety
+    this.mountainGenerator.createMountainRange(80, -80, 120, 120, 90, 48, 11223);
   }
   
   // Methods to get colliders for collision detection
   getAllColliders(): ICollidable[] {
-    return [...this.treeGenerator.getTreeColliders(), ...this.rockGenerator.getRockColliders()];
+    return [
+      ...this.treeGenerator.getTreeColliders(), 
+      ...this.rockGenerator.getRockColliders(),
+      ...this.mountainGenerator.getMountainColliders()
+    ];
   }
   
   getTreeColliders(): ICollidable[] {
@@ -538,5 +566,9 @@ export class MapGenerator {
   
   getRockColliders(): ICollidable[] {
     return this.rockGenerator.getRockColliders();
+  }
+  
+  getMountainColliders(): ICollidable[] {
+    return this.mountainGenerator.getMountainColliders();
   }
 }

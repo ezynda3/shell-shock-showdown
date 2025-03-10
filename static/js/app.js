@@ -28702,15 +28702,432 @@ class RockGenerator {
   }
 }
 
+// node_modules/three/examples/jsm/math/ImprovedNoise.js
+var _p = [
+  151,
+  160,
+  137,
+  91,
+  90,
+  15,
+  131,
+  13,
+  201,
+  95,
+  96,
+  53,
+  194,
+  233,
+  7,
+  225,
+  140,
+  36,
+  103,
+  30,
+  69,
+  142,
+  8,
+  99,
+  37,
+  240,
+  21,
+  10,
+  23,
+  190,
+  6,
+  148,
+  247,
+  120,
+  234,
+  75,
+  0,
+  26,
+  197,
+  62,
+  94,
+  252,
+  219,
+  203,
+  117,
+  35,
+  11,
+  32,
+  57,
+  177,
+  33,
+  88,
+  237,
+  149,
+  56,
+  87,
+  174,
+  20,
+  125,
+  136,
+  171,
+  168,
+  68,
+  175,
+  74,
+  165,
+  71,
+  134,
+  139,
+  48,
+  27,
+  166,
+  77,
+  146,
+  158,
+  231,
+  83,
+  111,
+  229,
+  122,
+  60,
+  211,
+  133,
+  230,
+  220,
+  105,
+  92,
+  41,
+  55,
+  46,
+  245,
+  40,
+  244,
+  102,
+  143,
+  54,
+  65,
+  25,
+  63,
+  161,
+  1,
+  216,
+  80,
+  73,
+  209,
+  76,
+  132,
+  187,
+  208,
+  89,
+  18,
+  169,
+  200,
+  196,
+  135,
+  130,
+  116,
+  188,
+  159,
+  86,
+  164,
+  100,
+  109,
+  198,
+  173,
+  186,
+  3,
+  64,
+  52,
+  217,
+  226,
+  250,
+  124,
+  123,
+  5,
+  202,
+  38,
+  147,
+  118,
+  126,
+  255,
+  82,
+  85,
+  212,
+  207,
+  206,
+  59,
+  227,
+  47,
+  16,
+  58,
+  17,
+  182,
+  189,
+  28,
+  42,
+  223,
+  183,
+  170,
+  213,
+  119,
+  248,
+  152,
+  2,
+  44,
+  154,
+  163,
+  70,
+  221,
+  153,
+  101,
+  155,
+  167,
+  43,
+  172,
+  9,
+  129,
+  22,
+  39,
+  253,
+  19,
+  98,
+  108,
+  110,
+  79,
+  113,
+  224,
+  232,
+  178,
+  185,
+  112,
+  104,
+  218,
+  246,
+  97,
+  228,
+  251,
+  34,
+  242,
+  193,
+  238,
+  210,
+  144,
+  12,
+  191,
+  179,
+  162,
+  241,
+  81,
+  51,
+  145,
+  235,
+  249,
+  14,
+  239,
+  107,
+  49,
+  192,
+  214,
+  31,
+  181,
+  199,
+  106,
+  157,
+  184,
+  84,
+  204,
+  176,
+  115,
+  121,
+  50,
+  45,
+  127,
+  4,
+  150,
+  254,
+  138,
+  236,
+  205,
+  93,
+  222,
+  114,
+  67,
+  29,
+  24,
+  72,
+  243,
+  141,
+  128,
+  195,
+  78,
+  66,
+  215,
+  61,
+  156,
+  180
+];
+for (let i = 0;i < 256; i++) {
+  _p[256 + i] = _p[i];
+}
+function fade(t) {
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+function lerp2(t, a, b) {
+  return a + t * (b - a);
+}
+function grad(hash, x, y, z) {
+  const h = hash & 15;
+  const u = h < 8 ? x : y, v = h < 4 ? y : h == 12 || h == 14 ? x : z;
+  return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
+}
+
+class ImprovedNoise {
+  noise(x, y, z) {
+    const floorX = Math.floor(x), floorY = Math.floor(y), floorZ = Math.floor(z);
+    const X = floorX & 255, Y = floorY & 255, Z = floorZ & 255;
+    x -= floorX;
+    y -= floorY;
+    z -= floorZ;
+    const xMinus1 = x - 1, yMinus1 = y - 1, zMinus1 = z - 1;
+    const u = fade(x), v = fade(y), w = fade(z);
+    const A = _p[X] + Y, AA = _p[A] + Z, AB = _p[A + 1] + Z, B = _p[X + 1] + Y, BA = _p[B] + Z, BB = _p[B + 1] + Z;
+    return lerp2(w, lerp2(v, lerp2(u, grad(_p[AA], x, y, z), grad(_p[BA], xMinus1, y, z)), lerp2(u, grad(_p[AB], x, yMinus1, z), grad(_p[BB], xMinus1, yMinus1, z))), lerp2(v, lerp2(u, grad(_p[AA + 1], x, y, zMinus1), grad(_p[BA + 1], xMinus1, y, zMinus1)), lerp2(u, grad(_p[AB + 1], x, yMinus1, zMinus1), grad(_p[BB + 1], xMinus1, yMinus1, zMinus1))));
+  }
+}
+
+// assets/ts/game/mountains.ts
+class MountainGenerator {
+  scene;
+  noise;
+  mountainColliders = [];
+  mountainMaterial;
+  snowMaterial;
+  constructor(scene) {
+    this.scene = scene;
+    this.noise = new ImprovedNoise;
+    this.mountainMaterial = new MeshStandardMaterial({
+      color: 6379595,
+      roughness: 0.9,
+      metalness: 0.1
+    });
+    this.snowMaterial = new MeshStandardMaterial({
+      color: 16777215,
+      roughness: 0.8,
+      metalness: 0.1
+    });
+  }
+  createMountainRange(centerX, centerZ, width, depth, height, resolution = 64, seed = 12345) {
+    const geometry = new PlaneGeometry(width, depth, resolution - 1, resolution - 1);
+    geometry.rotateX(-Math.PI / 2);
+    const positions = geometry.attributes.position;
+    for (let i = 0;i < positions.count; i++) {
+      const x = positions.getX(i);
+      const z = positions.getZ(i);
+      const nx = x / width + 0.5;
+      const nz = z / depth + 0.5;
+      const seedOffsetX = Math.sin(seed * 0.1) * 100;
+      const seedOffsetZ = Math.cos(seed * 0.1) * 100;
+      let y = 0;
+      y += this.noise.noise(nx * 3 + seedOffsetX, 0, nz * 3 + seedOffsetZ) * 0.5 + 0.5;
+      y += (this.noise.noise(nx * 6 + seedOffsetX, 0, nz * 6 + seedOffsetZ) * 0.5 + 0.5) * 0.25;
+      y += (this.noise.noise(nx * 12 + seedOffsetX, 0, nz * 12 + seedOffsetZ) * 0.5 + 0.5) * 0.125;
+      const ridgeNoise = Math.abs(this.noise.noise(nx * 4 + seedOffsetX, 0, nz * 4 + seedOffsetZ));
+      y += ridgeNoise * 0.2;
+      const distFromCenterX = Math.abs(x) / (width * 0.5);
+      const distFromCenterZ = Math.abs(z) / (depth * 0.5);
+      const distFromCenter = Math.sqrt(distFromCenterX * distFromCenterX + distFromCenterZ * distFromCenterZ);
+      const falloff = Math.max(0, 1 - Math.pow(distFromCenter, 2));
+      positions.setY(i, y * height * falloff);
+    }
+    geometry.computeVertexNormals();
+    const mountain = new Mesh(geometry, this.mountainMaterial);
+    mountain.position.set(centerX, 0, centerZ);
+    mountain.castShadow = true;
+    mountain.receiveShadow = true;
+    this.scene.add(mountain);
+    if (height > 100) {
+      this.createSnowCap(centerX, centerZ, width, depth, height, resolution, seed);
+    }
+    this.addMountainColliders(centerX, centerZ, width, depth, height);
+    return mountain;
+  }
+  createSnowCap(centerX, centerZ, width, depth, height, resolution, seed) {
+    const snowGeometry = new PlaneGeometry(width, depth, resolution - 1, resolution - 1);
+    snowGeometry.rotateX(-Math.PI / 2);
+    const positions = snowGeometry.attributes.position;
+    const snowLineHeight = height * 0.7;
+    for (let i = 0;i < positions.count; i++) {
+      const x = positions.getX(i);
+      const z = positions.getZ(i);
+      const nx = x / width + 0.5;
+      const nz = z / depth + 0.5;
+      const seedOffsetX = Math.sin(seed * 0.1) * 100;
+      const seedOffsetZ = Math.cos(seed * 0.1) * 100;
+      let y = 0;
+      y += this.noise.noise(nx * 3 + seedOffsetX, 0, nz * 3 + seedOffsetZ) * 0.5 + 0.5;
+      y += (this.noise.noise(nx * 6 + seedOffsetX, 0, nz * 6 + seedOffsetZ) * 0.5 + 0.5) * 0.25;
+      y += (this.noise.noise(nx * 12 + seedOffsetX, 0, nz * 12 + seedOffsetZ) * 0.5 + 0.5) * 0.125;
+      const ridgeNoise = Math.abs(this.noise.noise(nx * 4 + seedOffsetX, 0, nz * 4 + seedOffsetZ));
+      y += ridgeNoise * 0.2;
+      const distFromCenterX = Math.abs(x) / (width * 0.5);
+      const distFromCenterZ = Math.abs(z) / (depth * 0.5);
+      const distFromCenter = Math.sqrt(distFromCenterX * distFromCenterX + distFromCenterZ * distFromCenterZ);
+      const falloff = Math.max(0, 1 - Math.pow(distFromCenter, 2));
+      const mountainHeight = y * height * falloff;
+      if (mountainHeight > snowLineHeight) {
+        positions.setY(i, mountainHeight + 0.2);
+      } else {
+        positions.setY(i, -1000);
+      }
+    }
+    snowGeometry.computeVertexNormals();
+    const snow = new Mesh(snowGeometry, this.snowMaterial);
+    snow.position.set(centerX, 0, centerZ);
+    snow.castShadow = true;
+    snow.receiveShadow = true;
+    this.scene.add(snow);
+    return snow;
+  }
+  addMountainColliders(centerX, centerZ, width, depth, height) {
+    const peakCollider = new StaticCollider2(new Vector3(centerX, height * 0.5, centerZ), "mountain", Math.min(width, depth) * 0.3);
+    this.mountainColliders.push(peakCollider);
+    const colliderCount = 4;
+    const radius = Math.min(width, depth) * 0.25;
+    for (let i = 0;i < colliderCount; i++) {
+      const angle = i / colliderCount * Math.PI * 2;
+      const distance = Math.min(width, depth) * 0.3;
+      const x = centerX + Math.cos(angle) * distance;
+      const z = centerZ + Math.sin(angle) * distance;
+      const collider = new StaticCollider2(new Vector3(x, height * 0.3, z), "mountain", radius);
+      this.mountainColliders.push(collider);
+    }
+  }
+  createMountainRangeGroup(centerX, centerZ, width, depth, peakCount = 3, seed = 12345) {
+    const mountainGroup = new Group;
+    for (let i = 0;i < peakCount; i++) {
+      const offsetX = Math.sin(seed + i * 100) * 0.5 * width * 0.5;
+      const offsetZ = Math.cos(seed + i * 100) * 0.5 * depth * 0.5;
+      const sizeVariation = 0.6 + Math.sin(seed + i * 200) * 0.4;
+      const peakWidth = width * sizeVariation * 0.6;
+      const peakDepth = depth * sizeVariation * 0.6;
+      const heightVariation = 0.7 + Math.sin(seed + i * 300) * 0.3;
+      const peakHeight = (100 + i * 50) * heightVariation;
+      this.createMountainRange(centerX + offsetX, centerZ + offsetZ, peakWidth, peakDepth, peakHeight, 64, seed + i * 1000);
+    }
+    this.scene.add(mountainGroup);
+    return mountainGroup;
+  }
+  getMountainColliders() {
+    return [...this.mountainColliders];
+  }
+}
+
 // assets/ts/game/map.ts
 class MapGenerator {
   scene;
   treeGenerator;
   rockGenerator;
+  mountainGenerator;
   constructor(scene) {
     this.scene = scene;
     this.treeGenerator = new TreeGenerator(scene);
     this.rockGenerator = new RockGenerator(scene);
+    this.mountainGenerator = new MountainGenerator(scene);
     this.treeGenerator.generateTrees();
   }
   noise2D(x, y, seed = 12345) {
@@ -28721,7 +29138,7 @@ class MapGenerator {
     const iy = Math.floor(y);
     const fx = x - ix;
     const fy = y - iy;
-    const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+    const fade2 = (t) => t * t * t * (t * (t * 6 - 15) + 10);
     const a = permute(ix) + permute(iy);
     const b = permute(ix + 1) + permute(iy);
     const c = permute(ix) + permute(iy + 1);
@@ -28736,8 +29153,8 @@ class MapGenerator {
     const gb = getGrad(b, fx - 1, fy);
     const gc = getGrad(c, fx, fy - 1);
     const gd = getGrad(d2, fx - 1, fy - 1);
-    const u = fade(fx);
-    const v = fade(fy);
+    const u = fade2(fx);
+    const v = fade2(fy);
     const result = (1 - u) * ((1 - v) * ga + v * gc) + u * ((1 - v) * gb + v * gd);
     return (result + 1) * 0.5;
   }
@@ -28939,15 +29356,31 @@ class MapGenerator {
   }
   generateTerrain() {
     this.rockGenerator.createRocks();
+    this.generateMountains();
+  }
+  generateMountains() {
+    this.mountainGenerator.createMountainRangeGroup(0, 600, 800, 300, 5, 12345);
+    this.mountainGenerator.createMountainRangeGroup(600, 0, 300, 800, 4, 54321);
+    this.mountainGenerator.createMountainRangeGroup(-500, -500, 400, 400, 3, 98765);
+    this.mountainGenerator.createMountainRange(350, 350, 200, 200, 180, 64, 24680);
+    this.mountainGenerator.createMountainRange(-350, 350, 180, 180, 150, 64, 13579);
+    this.mountainGenerator.createMountainRange(80, -80, 120, 120, 90, 48, 11223);
   }
   getAllColliders() {
-    return [...this.treeGenerator.getTreeColliders(), ...this.rockGenerator.getRockColliders()];
+    return [
+      ...this.treeGenerator.getTreeColliders(),
+      ...this.rockGenerator.getRockColliders(),
+      ...this.mountainGenerator.getMountainColliders()
+    ];
   }
   getTreeColliders() {
     return this.treeGenerator.getTreeColliders();
   }
   getRockColliders() {
     return this.rockGenerator.getRockColliders();
+  }
+  getMountainColliders() {
+    return this.mountainGenerator.getMountainColliders();
   }
 }
 
