@@ -29086,14 +29086,24 @@ class MountainGenerator {
   addMountainColliders(centerX, centerZ, width, depth, height) {
     const peakCollider = new StaticCollider2(new Vector3(centerX, height * 0.5 - 1, centerZ), "mountain", Math.min(width, depth) * 0.3);
     this.mountainColliders.push(peakCollider);
-    const colliderCount = 4;
-    const radius = Math.min(width, depth) * 0.25;
-    for (let i = 0;i < colliderCount; i++) {
-      const angle = i / colliderCount * Math.PI * 2;
-      const distance = Math.min(width, depth) * 0.3;
-      const x = centerX + Math.cos(angle) * distance;
-      const z = centerZ + Math.sin(angle) * distance;
-      const collider = new StaticCollider2(new Vector3(x, height * 0.3 - 1, z), "mountain", radius);
+    const mainBaseColliderCount = 12;
+    const mainRadius = Math.min(width, depth) * 0.25;
+    const mainDistance = Math.min(width, depth) * 0.3;
+    for (let i = 0;i < mainBaseColliderCount; i++) {
+      const angle = i / mainBaseColliderCount * Math.PI * 2;
+      const x = centerX + Math.cos(angle) * mainDistance;
+      const z = centerZ + Math.sin(angle) * mainDistance;
+      const collider = new StaticCollider2(new Vector3(x, height * 0.3 - 1, z), "mountain", mainRadius);
+      this.mountainColliders.push(collider);
+    }
+    const outerBaseColliderCount = 8;
+    const outerRadius = Math.min(width, depth) * 0.2;
+    const outerDistance = Math.min(width, depth) * 0.45;
+    for (let i = 0;i < outerBaseColliderCount; i++) {
+      const angle = i / outerBaseColliderCount * Math.PI * 2 + Math.PI / outerBaseColliderCount;
+      const x = centerX + Math.cos(angle) * outerDistance;
+      const z = centerZ + Math.sin(angle) * outerDistance;
+      const collider = new StaticCollider2(new Vector3(x, height * 0.2 - 1, z), "mountain", outerRadius);
       this.mountainColliders.push(collider);
     }
   }
@@ -33881,8 +33891,7 @@ class GameComponent extends LitElement {
   turretJoystickThumb;
   fireButton;
   fullscreenButton;
-  lastTouchX = 0;
-  lastTouchY = 0;
+  activeTouches = new Map;
   firstUpdated() {
     this.initThree();
     this.initKeyboardControls();
@@ -33930,14 +33939,59 @@ class GameComponent extends LitElement {
       e.preventDefault();
       this.toggleFullscreen();
     }, { passive: false });
+    const touchControlsArea = this.shadowRoot?.querySelector(".touch-controls");
+    if (touchControlsArea) {
+      touchControlsArea.addEventListener("touchstart", (e) => {
+      }, { passive: true });
+      touchControlsArea.addEventListener("touchmove", (e) => {
+      }, { passive: true });
+      touchControlsArea.addEventListener("touchend", (e) => {
+        if (e.touches.length === 0) {
+          this.activeTouches.clear();
+          this.resetAllControls();
+        }
+      });
+    }
+  }
+  resetAllControls() {
+    if (this.joystickActive) {
+      this.joystickActive = false;
+      this.joystickTouchId = null;
+      this.resetJoystick();
+      this.keys["w"] = false;
+      this.keys["s"] = false;
+      this.keys["a"] = false;
+      this.keys["d"] = false;
+    }
+    if (this.turretJoystickActive) {
+      this.turretJoystickActive = false;
+      this.turretJoystickTouchId = null;
+      this.resetTurretJoystick();
+    }
+    if (this.fireButtonActive) {
+      this.fireButtonActive = false;
+      this.keys["mousefire"] = false;
+      if (this.fireButton) {
+        this.fireButton.style.backgroundColor = "rgba(255, 30, 30, 0.7)";
+        this.fireButton.style.transform = "translateX(-50%)";
+      }
+    }
   }
   handleJoystickStart(event) {
     event.preventDefault();
-    this.joystickActive = true;
-    if (event.touches.length > 0) {
-      const touch = event.touches[0];
-      this.joystickTouchId = touch.identifier;
-      this.updateJoystickPosition(touch.clientX, touch.clientY);
+    for (let i = 0;i < event.touches.length; i++) {
+      const touch = event.touches[i];
+      if (!this.activeTouches.has(touch.identifier)) {
+        this.joystickActive = true;
+        this.joystickTouchId = touch.identifier;
+        this.activeTouches.set(touch.identifier, {
+          element: "moveJoystick",
+          x: touch.clientX,
+          y: touch.clientY
+        });
+        this.updateJoystickPosition(touch.clientX, touch.clientY);
+        break;
+      }
     }
   }
   handleJoystickMove(event) {
@@ -33947,6 +34001,11 @@ class GameComponent extends LitElement {
         const touch = event.touches[i];
         if (touch.identifier === this.joystickTouchId) {
           this.updateJoystickPosition(touch.clientX, touch.clientY);
+          this.activeTouches.set(touch.identifier, {
+            element: "moveJoystick",
+            x: touch.clientX,
+            y: touch.clientY
+          });
           break;
         }
       }
@@ -33954,21 +34013,18 @@ class GameComponent extends LitElement {
   }
   handleJoystickEnd(event) {
     event.preventDefault();
-    let touchEnded = false;
     for (let i = 0;i < event.changedTouches.length; i++) {
-      if (event.changedTouches[i].identifier === this.joystickTouchId) {
-        touchEnded = true;
-        break;
+      const touch = event.changedTouches[i];
+      if (touch.identifier === this.joystickTouchId) {
+        this.joystickActive = false;
+        this.joystickTouchId = null;
+        this.resetJoystick();
+        this.activeTouches.delete(touch.identifier);
+        this.keys["w"] = false;
+        this.keys["s"] = false;
+        this.keys["a"] = false;
+        this.keys["d"] = false;
       }
-    }
-    if (touchEnded) {
-      this.joystickActive = false;
-      this.joystickTouchId = null;
-      this.resetJoystick();
-      this.keys["w"] = false;
-      this.keys["s"] = false;
-      this.keys["a"] = false;
-      this.keys["d"] = false;
     }
   }
   updateJoystickPosition(touchX, touchY) {
@@ -34046,29 +34102,55 @@ class GameComponent extends LitElement {
   }
   handleFireButtonStart(event) {
     event.preventDefault();
-    this.fireButtonActive = true;
-    this.keys["mousefire"] = true;
-    if (this.fireButton) {
-      this.fireButton.style.backgroundColor = "rgba(255, 0, 0, 0.8)";
-      this.fireButton.style.transform = "scale(0.95)";
+    for (let i = 0;i < event.touches.length; i++) {
+      const touch = event.touches[i];
+      if (!this.activeTouches.has(touch.identifier)) {
+        this.fireButtonActive = true;
+        this.keys["mousefire"] = true;
+        this.activeTouches.set(touch.identifier, {
+          element: "fireButton",
+          x: touch.clientX,
+          y: touch.clientY
+        });
+        if (this.fireButton) {
+          this.fireButton.style.backgroundColor = "rgba(255, 0, 0, 0.8)";
+          this.fireButton.style.transform = "translateX(-50%) scale(0.95)";
+        }
+        break;
+      }
     }
   }
   handleFireButtonEnd(event) {
     event.preventDefault();
-    this.fireButtonActive = false;
-    this.keys["mousefire"] = false;
-    if (this.fireButton) {
-      this.fireButton.style.backgroundColor = "rgba(255, 0, 0, 0.5)";
-      this.fireButton.style.transform = "scale(1)";
+    for (let i = 0;i < event.changedTouches.length; i++) {
+      const touch = event.changedTouches[i];
+      const touchInfo = this.activeTouches.get(touch.identifier);
+      if (touchInfo && touchInfo.element === "fireButton") {
+        this.fireButtonActive = false;
+        this.keys["mousefire"] = false;
+        this.activeTouches.delete(touch.identifier);
+        if (this.fireButton) {
+          this.fireButton.style.backgroundColor = "rgba(255, 30, 30, 0.7)";
+          this.fireButton.style.transform = "translateX(-50%)";
+        }
+      }
     }
   }
   handleTurretJoystickStart(event) {
     event.preventDefault();
-    this.turretJoystickActive = true;
-    if (event.touches.length > 0) {
-      const touch = event.touches[0];
-      this.turretJoystickTouchId = touch.identifier;
-      this.updateTurretJoystickPosition(touch.clientX, touch.clientY);
+    for (let i = 0;i < event.touches.length; i++) {
+      const touch = event.touches[i];
+      if (!this.activeTouches.has(touch.identifier)) {
+        this.turretJoystickActive = true;
+        this.turretJoystickTouchId = touch.identifier;
+        this.activeTouches.set(touch.identifier, {
+          element: "turretJoystick",
+          x: touch.clientX,
+          y: touch.clientY
+        });
+        this.updateTurretJoystickPosition(touch.clientX, touch.clientY);
+        break;
+      }
     }
   }
   handleTurretJoystickMove(event) {
@@ -34078,6 +34160,11 @@ class GameComponent extends LitElement {
         const touch = event.touches[i];
         if (touch.identifier === this.turretJoystickTouchId) {
           this.updateTurretJoystickPosition(touch.clientX, touch.clientY);
+          this.activeTouches.set(touch.identifier, {
+            element: "turretJoystick",
+            x: touch.clientX,
+            y: touch.clientY
+          });
           break;
         }
       }
@@ -34085,17 +34172,14 @@ class GameComponent extends LitElement {
   }
   handleTurretJoystickEnd(event) {
     event.preventDefault();
-    let touchEnded = false;
     for (let i = 0;i < event.changedTouches.length; i++) {
-      if (event.changedTouches[i].identifier === this.turretJoystickTouchId) {
-        touchEnded = true;
-        break;
+      const touch = event.changedTouches[i];
+      if (touch.identifier === this.turretJoystickTouchId) {
+        this.turretJoystickActive = false;
+        this.turretJoystickTouchId = null;
+        this.resetTurretJoystick();
+        this.activeTouches.delete(touch.identifier);
       }
-    }
-    if (touchEnded) {
-      this.turretJoystickActive = false;
-      this.turretJoystickTouchId = null;
-      this.resetTurretJoystick();
     }
   }
   updateTurretJoystickPosition(touchX, touchY) {

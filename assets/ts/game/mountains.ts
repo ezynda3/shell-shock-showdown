@@ -205,21 +205,40 @@ export class MountainGenerator {
     );
     this.mountainColliders.push(peakCollider);
     
-    // Add some additional colliders around the base
-    const colliderCount = 4;
-    const radius = Math.min(width, depth) * 0.25;
+    // Add colliders around the base of the mountain in a complete ring
+    const mainBaseColliderCount = 12; // Increased from 4 to 12 for better coverage
+    const mainRadius = Math.min(width, depth) * 0.25;
+    const mainDistance = Math.min(width, depth) * 0.3;
     
-    for (let i = 0; i < colliderCount; i++) {
-      const angle = (i / colliderCount) * Math.PI * 2;
-      const distance = Math.min(width, depth) * 0.3;
-      
-      const x = centerX + Math.cos(angle) * distance;
-      const z = centerZ + Math.sin(angle) * distance;
+    // First layer - primary ring of colliders with no gaps
+    for (let i = 0; i < mainBaseColliderCount; i++) {
+      const angle = (i / mainBaseColliderCount) * Math.PI * 2;
+      const x = centerX + Math.cos(angle) * mainDistance;
+      const z = centerZ + Math.sin(angle) * mainDistance;
       
       const collider = new StaticCollider(
         new THREE.Vector3(x, height * 0.3 - 1, z),
         'mountain',
-        radius
+        mainRadius
+      );
+      
+      this.mountainColliders.push(collider);
+    }
+    
+    // Second layer - outer ring of colliders
+    const outerBaseColliderCount = 8;
+    const outerRadius = Math.min(width, depth) * 0.2;
+    const outerDistance = Math.min(width, depth) * 0.45;
+    
+    for (let i = 0; i < outerBaseColliderCount; i++) {
+      const angle = ((i / outerBaseColliderCount) * Math.PI * 2) + (Math.PI / outerBaseColliderCount); // Offset
+      const x = centerX + Math.cos(angle) * outerDistance;
+      const z = centerZ + Math.sin(angle) * outerDistance;
+      
+      const collider = new StaticCollider(
+        new THREE.Vector3(x, height * 0.2 - 1, z),
+        'mountain',
+        outerRadius
       );
       
       this.mountainColliders.push(collider);
