@@ -47,10 +47,10 @@ func InitGameMap() *GameMap {
 				Rocks: []Rock{},
 			},
 		}
-		
+
 		// Generate trees
 		generateTrees()
-		
+
 		// Generate rocks
 		rockMap := InitRockMap()
 		gameMap.Rocks = *rockMap

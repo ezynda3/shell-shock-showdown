@@ -79,25 +79,27 @@ func main() {
 		log.Fatalf("Failed to initialize game manager: %v", err)
 	}
 	log.Println("Game manager initialized")
-	
+
 	// Initialize physics system
 	log.Println("\n\n==================================================")
 	log.Println("⚙️ INITIALIZING PHYSICS COLLISION DETECTION SYSTEM")
 	log.Println("==================================================\n")
-	
-	physics.Initialize()
+
+	// Create all the required components in the correct order
+	gameMap := game.GetGameMap() // Use GetGameMap instead of InitGameMap to avoid redeclaration
+	physics.PhysicsManagerInstance = physics.NewPhysicsManager(gameMap, gameManager)
 	physicsIntegration := physics.NewPhysicsIntegration(gameManager)
 	physicsIntegration.Start()
-	
+
 	// Initialize NPC controller
 	log.Println("\n==================================================")
 	log.Println("🤖 INITIALIZING NPC CONTROLLER")
 	log.Println("==================================================\n")
-	
-	gameMap := game.GetGameMap()
+
+	// Reuse the gameMap variable from above
 	npcController := game.NewNPCController(gameManager, gameMap)
 	npcController.Start()
-	
+
 	// Spawn 5 NPC tanks with different movement patterns
 	movementPatterns := []game.MovementPattern{
 		game.CircleMovement,
@@ -106,15 +108,15 @@ func main() {
 		game.RandomMovement,
 		game.CircleMovement,
 	}
-	
+
 	npcNames := []string{"Alpha", "Bravo", "Charlie", "Delta", "Echo"}
-	
+
 	for i := 0; i < 5; i++ {
 		npcController.SpawnNPC(npcNames[i], movementPatterns[i])
 		// Small delay between spawns to avoid physics conflicts
 		time.Sleep(100 * time.Millisecond)
 	}
-	
+
 	log.Println("\n==================================================")
 	log.Println("📊 SYSTEM STATUS:")
 	log.Println("  - NATS Server: Running ✅")

@@ -29326,36 +29326,19 @@ class Shell {
     if (other.getType() === "tank") {
       const tank = other;
       const isPlayerTank = !(tank instanceof RemoteTank);
-      let damageAmount = 25;
+      let hitLocation = "body";
       if (tank.getDetailedColliders && tank.getDetailedColliders().length > 0) {
         const shellPosition = this.mesh.position.clone();
-        let hitLocation = "body";
-        let damageMultiplier = 1;
         for (const collider of tank.getDetailedColliders()) {
           const distance = shellPosition.distanceTo(collider.collider.center);
           if (distance < collider.collider.radius) {
             hitLocation = collider.part;
-            damageMultiplier = collider.damageMultiplier;
             break;
           }
         }
-        damageAmount = Math.round(damageAmount * damageMultiplier);
-        console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit on ${hitLocation} with ${damageAmount} damage (x${damageMultiplier} multiplier). Current health: ${tank.getHealth()}`);
+        console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit on ${hitLocation}. Current health: ${tank.getHealth()}`);
       } else {
-        console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit with ${damageAmount} damage. Current health: ${tank.getHealth()}`);
-      }
-      const tankDestroyed = tank.takeDamage(damageAmount);
-      console.log(`After hit: ${isPlayerTank ? "PLAYER" : "NPC"} tank health: ${tank.getHealth()}%, destroyed: ${tankDestroyed}`);
-      if (tankDestroyed) {
-        const event = new CustomEvent("tank-destroyed", {
-          bubbles: true,
-          composed: true,
-          detail: {
-            tank,
-            source: this.source
-          }
-        });
-        document.dispatchEvent(event);
+        console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit. Current health: ${tank.getHealth()}`);
       }
       const hitEvent = new CustomEvent("tank-hit", {
         bubbles: true,
@@ -29363,7 +29346,7 @@ class Shell {
         detail: {
           tank,
           source: this.source,
-          damageAmount
+          hitLocation
         }
       });
       document.dispatchEvent(hitEvent);
@@ -30204,20 +30187,6 @@ class BaseTank {
       this.scene.remove(effect);
     }
     this.destroyedEffects = [];
-  }
-  takeDamage(amount) {
-    if (this.isDestroyed)
-      return true;
-    this.health = Math.max(0, this.health - amount);
-    console.log(`Tank taking damage: ${amount}, remaining health: ${this.health}`);
-    if (this.health <= 0) {
-      this.health = 0;
-      this.isDestroyed = true;
-      this.createDestroyedEffect();
-      return true;
-    }
-    this.updateHealthBar();
-    return false;
   }
   setHealth(health) {
     if (this.isDestroyed)
@@ -33152,6 +33121,7 @@ class GameComponent extends LitElement {
         }
         const playerCount = this.multiplayerState && this.multiplayerState.players ? Object.keys(this.multiplayerState.players).length : 0;
         this.updateRemotePlayers();
+        this.updateLocalPlayerHealth();
         if (!this.gameStateInitialized && this.playerTank) {
           if (!this.playerId) {
             this.playerId = "player_" + Math.random().toString(36).substring(2, 9);
@@ -33194,9 +33164,6 @@ class GameComponent extends LitElement {
   animationFrameId;
   playerTank;
   remoteTanks = new Map;
-  npcTanks = [];
-  NUM_NPC_TANKS = 15;
-  SOLO_PLAYER_NPC_COUNT = 25;
   lodDistance = 300;
   collisionSystem = new CollisionSystem;
   mapGenerator;
@@ -34034,6 +34001,21 @@ class GameComponent extends LitElement {
   }
   updated(changedProperties) {
   }
+  updateLocalPlayerHealth() {
+    if (!this.playerTank || !this.multiplayerState || !this.multiplayerState.players || !this.playerId) {
+      return;
+    }
+    const playerData = this.multiplayerState.players[this.playerId];
+    if (playerData && typeof playerData.health === "number") {
+      this.playerTank.setHealth(playerData.health);
+      if (playerData.health <= 0 && !this.playerTank.isDestroyed) {
+        console.log("Server reported player death, updating local state");
+      }
+      if (this.statsComponent) {
+        this.statsComponent.updateGameStats(playerData.health, playerData.kills || 0, playerData.deaths || 0);
+      }
+    }
+  }
   updateRemotePlayers() {
     if (!this.scene) {
       console.error("Cannot update remote players: scene not initialized");
@@ -34057,19 +34039,8 @@ class GameComponent extends LitElement {
       return;
     }
     const playerCount = playerKeys.length;
-    if (playerCount === 1 && this.npcTanks.length === 0) {
-      console.log("Single player detected, creating NPC tanks");
-      this.createNpcTanks();
-    } else if (playerCount > 1 && this.npcTanks.length > 0) {
-      console.log("Multiple players detected, removing NPC tanks");
-      for (const tank of this.npcTanks) {
-        this.collisionSystem.removeCollider(tank);
-        tank.dispose();
-      }
-      this.npcTanks = [];
-    }
     if (this.frameCounter % 300 === 0) {
-      console.log(`Current player count: ${playerCount}, NPC tanks: ${this.npcTanks.length}`);
+      console.log(`Current player count: ${playerCount} (including NPCs)`);
     }
     for (const [playerId, playerData] of Object.entries(this.multiplayerState.players)) {
       if (playerId === this.playerId) {
@@ -34125,21 +34096,22 @@ class GameComponent extends LitElement {
       console.error("Cannot create remote tank: Scene not available");
       return;
     }
-    console.log(`Creating remote tank for player ${playerId}`, playerData);
+    const isNPC = playerId.startsWith("npc_");
+    console.log(`Creating ${isNPC ? "NPC" : "remote"} tank for ${playerId}`, playerData);
     try {
       if (!playerData.position) {
         console.error("Remote player data missing position:", playerData);
         return;
       }
       const position = new Vector3(playerData.position.x, playerData.position.y, playerData.position.z);
-      console.log(`Remote tank position: (${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)})`);
+      console.log(`Tank position: (${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)})`);
       let tankColor = 16711680;
       if (playerData.color) {
         if (typeof playerData.color === "string" && playerData.color.startsWith("#")) {
           tankColor = parseInt(playerData.color.substring(1), 16);
         }
       }
-      const tankName = playerData.name || `Player ${playerId.substring(0, 6)}`;
+      const tankName = playerData.name || `${isNPC ? "NPC" : "Player"} ${playerId.substring(0, 6)}`;
       console.log(`Creating tank with name: ${tankName}, color: ${tankColor.toString(16)}`);
       const remoteTank = new RemoteTank(this.scene, position, tankColor, tankName);
       if (!remoteTank || !remoteTank.tank) {
@@ -34545,7 +34517,6 @@ class GameComponent extends LitElement {
     this.playerTank = new Tank(this.scene, this.camera);
     this.playerTank.respawn(spawnPoint);
     this.collisionSystem.addCollider(this.playerTank);
-    this.createNpcTanks();
     this.positionCamera();
     window.addEventListener("resize", this.handleResize.bind(this));
   }
@@ -34571,49 +34542,6 @@ class GameComponent extends LitElement {
       return;
     const skyLight = new HemisphereLight(8900331, 9560416, 1);
     this.scene.add(skyLight);
-  }
-  createNpcTanks() {
-    if (!this.scene)
-      return;
-    const colors = [
-      3368652,
-      14432530,
-      16750848,
-      1087000,
-      10027161,
-      39366,
-      14500983,
-      6728192,
-      12070446,
-      3236757,
-      9724442,
-      12868573,
-      6001117,
-      14506843,
-      7829367
-    ];
-    for (const tank of this.npcTanks) {
-      this.collisionSystem.removeCollider(tank);
-      tank.dispose();
-    }
-    this.npcTanks = [];
-    let npcCount = this.NUM_NPC_TANKS;
-    if (this.multiplayerState && this.multiplayerState.players) {
-      const playerCount = Object.keys(this.multiplayerState.players).length;
-      if (playerCount === 1) {
-        npcCount = this.SOLO_PLAYER_NPC_COUNT;
-        console.log(`Solo player detected. Adding ${npcCount} NPC tanks for player enjoyment.`);
-      }
-    }
-    for (let i = 0;i < npcCount; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 200 + Math.random() * 600;
-      const position = new Vector3(Math.cos(angle) * distance, 0, Math.sin(angle) * distance);
-      const npcTank = new NPCTank(this.scene, position, colors[i % colors.length]);
-      npcTank.addFloatingIdentifierMarker();
-      this.collisionSystem.addCollider(npcTank);
-      this.npcTanks.push(npcTank);
-    }
   }
   positionCamera() {
     if (!this.camera || !this.playerTank)
@@ -34883,33 +34811,6 @@ class GameComponent extends LitElement {
         this.showPlayerHitEffects();
       }
       this.lastPlayerHealth = currentHealth;
-    }
-    if (this.npcTanks.length > 0 && this.playerTank) {
-      const isInSoloMode = !this.multiplayerState || !this.multiplayerState.players || Object.keys(this.multiplayerState.players).length <= 1;
-      if (isInSoloMode) {
-        const tanksPerFrame = 2;
-        const startIdx = this.frameCounter % Math.ceil(this.npcTanks.length / tanksPerFrame) * tanksPerFrame;
-        const endIdx = Math.min(startIdx + tanksPerFrame, this.npcTanks.length);
-        for (let i = startIdx;i < endIdx; i++) {
-          const npcTank = this.npcTanks[i];
-          const distanceToPlayer = this.playerTank.tank.position.distanceTo(npcTank.tank.position);
-          let newShell = null;
-          if (distanceToPlayer < this.lodDistance) {
-            newShell = npcTank.update({}, allColliders);
-          } else if (distanceToPlayer < this.lodDistance * 2) {
-            if (Math.random() < 0.5) {
-              newShell = npcTank.update({}, allColliders);
-            }
-          } else {
-            if (Math.random() < 0.2) {
-              newShell = npcTank.update({}, allColliders);
-            }
-          }
-          if (newShell) {
-            this.addShell(newShell);
-          }
-        }
-      }
     }
     this.updateShells(allColliders);
     if (this.renderer && this.scene && this.camera) {

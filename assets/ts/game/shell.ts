@@ -316,22 +316,21 @@ export class Shell implements ICollidable {
     // Create explosion effect
     this.createExplosion(this.mesh.position.clone());
     
-    // If hit a tank, apply damage with more precise hit detection
+    // If hit a tank, create visual and sound effects but don't apply damage
+    // Health changes are now managed by the server
     if (other.getType() === 'tank') {
       const tank = other as ITank;
       
       // Check if this is a player-tank hit or a remote/NPC tank hit
       const isPlayerTank = !(tank instanceof RemoteTank);
       
-      // Base damage - 25% regardless, ensuring 4 hits to destroy
-      let damageAmount = 25;
+      // Determine hit location for visual effects only
+      let hitLocation = "body";
       
-      // Check for hit with compound colliders if available
+      // Check for hit location with compound colliders if available (for visual effects only)
       if (tank.getDetailedColliders && tank.getDetailedColliders().length > 0) {
         // Get the shell's position for precise hit detection
         const shellPosition = this.mesh.position.clone();
-        let hitLocation = "body"; // Default hit location
-        let damageMultiplier = 1.0; // Default multiplier
         
         // Check each detailed collider to see which was hit
         for (const collider of tank.getDetailedColliders()) {
@@ -339,45 +338,24 @@ export class Shell implements ICollidable {
           if (distance < collider.collider.radius) {
             // This is the part we hit!
             hitLocation = collider.part;
-            damageMultiplier = collider.damageMultiplier;
             break;
           }
         }
         
-        // Apply the damage multiplier
-        damageAmount = Math.round(damageAmount * damageMultiplier);
-        
-        console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit on ${hitLocation} with ${damageAmount} damage (x${damageMultiplier} multiplier). Current health: ${tank.getHealth()}`);
+        console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit on ${hitLocation}. Current health: ${tank.getHealth()}`);
       } else {
-        console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit with ${damageAmount} damage. Current health: ${tank.getHealth()}`);
+        console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit. Current health: ${tank.getHealth()}`);
       }
       
-      // Try to damage the tank
-      const tankDestroyed = tank.takeDamage(damageAmount);
-      console.log(`After hit: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank health: ${tank.getHealth()}%, destroyed: ${tankDestroyed}`);
-      
-      // Since we don't have a direct reference to the player tank,
-      // we'll add a custom event that game-component can listen for
-      if (tankDestroyed) {
-        const event = new CustomEvent('tank-destroyed', {
-          bubbles: true,
-          composed: true,
-          detail: { 
-            tank: tank,
-            source: this.source 
-          }
-        });
-        document.dispatchEvent(event);
-      }
-      
-      // Fire tank-hit event to notify of damage (even if not destroyed)
+      // Fire tank-hit event for visual effects and sound only
+      // Health changes will come from server state updates
       const hitEvent = new CustomEvent('tank-hit', {
         bubbles: true,
         composed: true,
         detail: {
           tank: tank,
           source: this.source,
-          damageAmount: damageAmount
+          hitLocation: hitLocation
         }
       });
       document.dispatchEvent(hitEvent);

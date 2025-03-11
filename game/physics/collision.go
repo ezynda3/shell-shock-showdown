@@ -42,7 +42,7 @@ func CheckCollision(a, b *Collider) bool {
 // GetTreeColliders creates colliders for all trees in the game map
 func GetTreeColliders(gameMap *game.GameMap) []*Collider {
 	colliders := make([]*Collider, 0, len(gameMap.Trees.Trees))
-	
+
 	for i, tree := range gameMap.Trees.Trees {
 		colliders = append(colliders, &Collider{
 			Position: tree.Position,
@@ -51,14 +51,14 @@ func GetTreeColliders(gameMap *game.GameMap) []*Collider {
 			ID:       string(tree.Type) + "_" + string(rune(i)),
 		})
 	}
-	
+
 	return colliders
 }
 
 // GetRockColliders creates colliders for all rocks in the game map
 func GetRockColliders(gameMap *game.GameMap) []*Collider {
 	colliders := make([]*Collider, 0, len(gameMap.Rocks.Rocks))
-	
+
 	for i, rock := range gameMap.Rocks.Rocks {
 		colliders = append(colliders, &Collider{
 			Position: rock.Position,
@@ -67,7 +67,7 @@ func GetRockColliders(gameMap *game.GameMap) []*Collider {
 			ID:       string(rock.Type) + "_" + string(rune(i)),
 		})
 	}
-	
+
 	return colliders
 }
 

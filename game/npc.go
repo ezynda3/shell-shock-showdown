@@ -189,19 +189,19 @@ func (c *NPCController) updateNPCs() {
 		serverState, exists := gameState.Players[npc.ID]
 		if exists {
 			// Update local state with server state
-			log.Printf("Updating NPC %s from server state: health=%d, position=(%f,%f,%f), destroyed=%v", 
+			log.Printf("Updating NPC %s from server state: health=%d, position=(%f,%f,%f), destroyed=%v",
 				npc.ID, serverState.Health, serverState.Position.X, serverState.Position.Y, serverState.Position.Z, serverState.IsDestroyed)
-			
+
 			// Update health and destroyed status from server
 			npc.State.Health = serverState.Health
 			npc.State.IsDestroyed = serverState.IsDestroyed
-			
+
 			// Only update position if significant movement happened on server side
 			dx := npc.State.Position.X - serverState.Position.X
 			dz := npc.State.Position.Z - serverState.Position.Z
 			dist := math.Sqrt(dx*dx + dz*dz)
 			if dist > 5.0 {
-				log.Printf("NPC %s position corrected by server from (%f,%f) to (%f,%f)", 
+				log.Printf("NPC %s position corrected by server from (%f,%f) to (%f,%f)",
 					npc.ID, npc.State.Position.X, npc.State.Position.Z, serverState.Position.X, serverState.Position.Z)
 				npc.State.Position = serverState.Position
 			}
@@ -232,7 +232,7 @@ func (c *NPCController) updateNPCs() {
 				c.mutex.Unlock() // Unlock before calling manager
 				c.manager.RespawnTank(respawnData)
 				c.mutex.Lock() // Lock again to continue processing
-				
+
 				// Reset tank state
 				npc.State.IsDestroyed = false
 				npc.State.Health = 100
@@ -246,7 +246,7 @@ func (c *NPCController) updateNPCs() {
 			log.Printf("NPC %s has been stationary for too long, forcing movement", npc.ID)
 			npc.State.IsMoving = true
 			npc.State.Velocity = 0.5 + rand.Float64()*0.5
-			
+
 			// Random new direction
 			npc.State.TankRotation = rand.Float64() * 2 * math.Pi
 		}
@@ -337,21 +337,21 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 
 	// Fixed speed that's guaranteed to move
 	speed := 1.0
-	
+
 	// Gradually turn (simple circle approximation)
 	turnAmount := 0.01 * speed
 	state.TankRotation += turnAmount
-	
+
 	// Normalize angle
 	state.TankRotation = normalizeAngle(state.TankRotation)
-	
+
 	// Always be moving
 	state.IsMoving = true
 	state.Velocity = speed
-	
+
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Printf("NPC tank moving in circle: rotation=%f, velocity=%f", 
+		log.Printf("NPC tank moving in circle: rotation=%f, velocity=%f",
 			state.TankRotation, state.Velocity)
 	}
 }
@@ -363,21 +363,21 @@ func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
 
 	// Get current time for basic oscillation
 	now := float64(time.Now().UnixNano()) / 1e9
-	
+
 	// Just use the sine of time to change direction
 	// This creates a simple zigzag without complex calculations
-	oscillation := math.Sin(now * 2.0) * 0.1
-	
+	oscillation := math.Sin(now*2.0) * 0.1
+
 	// Apply the oscillation to the tank's rotation
 	state.TankRotation += oscillation
-	
+
 	// Always be moving
 	state.IsMoving = true
 	state.Velocity = 1.0
-	
+
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Printf("NPC tank moving in zigzag: rotation=%f, velocity=%f, oscillation=%f", 
+		log.Printf("NPC tank moving in zigzag: rotation=%f, velocity=%f, oscillation=%f",
 			state.TankRotation, state.Velocity, oscillation)
 	}
 }
@@ -393,32 +393,32 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 
 	// Get current target point
 	target := npc.PatrolPoints[npc.CurrentPoint]
-	
+
 	// Calculate direction to target
 	dx := target.X - state.Position.X
 	dz := target.Z - state.Position.Z
 	dist := math.Sqrt(dx*dx + dz*dz)
-	
+
 	// Check if reached target point
 	if dist < 5.0 {
 		// Move to next patrol point
 		npc.CurrentPoint = (npc.CurrentPoint + 1) % len(npc.PatrolPoints)
 		log.Printf("NPC tank reached patrol point, moving to next point")
 	}
-	
+
 	// Calculate angle to target
 	targetAngle := math.Atan2(dz, dx)
-	
+
 	// Simple direct turning - no gradual turns
 	state.TankRotation = targetAngle
-	
+
 	// Always be moving
 	state.IsMoving = true
 	state.Velocity = 1.0
-	
+
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Printf("NPC tank patrolling: rotation=%f, velocity=%f, distance to target=%f", 
+		log.Printf("NPC tank patrolling: rotation=%f, velocity=%f, distance to target=%f",
 			state.TankRotation, state.Velocity, dist)
 	}
 }
@@ -426,27 +426,27 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 // moveRandomly makes the NPC move randomly
 func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 	// SIMPLIFIED RANDOM MOVEMENT
-	
+
 	// Occasionally change direction (20% chance per update)
 	if rand.Float64() < 0.2 {
 		// Random rotation change between -PI/4 and PI/4 (45 degrees)
 		rotationChange := (rand.Float64() - 0.5) * math.Pi / 2
 		state.TankRotation += rotationChange
-		
+
 		// Log direction changes occasionally
 		if rand.Float64() < 0.1 {
-			log.Printf("NPC %s randomly changing direction: rotation=%f, change=%f", 
+			log.Printf("NPC %s randomly changing direction: rotation=%f, change=%f",
 				npc.ID, state.TankRotation, rotationChange)
 		}
 	}
-	
+
 	// Always be moving
 	state.IsMoving = true
 	state.Velocity = 1.0
 
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Printf("NPC %s moving randomly: rotation=%f, velocity=%f", 
+		log.Printf("NPC %s moving randomly: rotation=%f, velocity=%f",
 			npc.ID, state.TankRotation, state.Velocity)
 	}
 }
@@ -454,22 +454,22 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 // updateAimingAndFiring handles NPC aiming and firing logic
 func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, gameState GameState) {
 	// SIMPLIFIED FIRING BEHAVIOR
-	
+
 	// Find any potential target, even without formal targeting
 	var nearestTarget *PlayerState
 	var nearestDistance float64 = 150.0 // Maximum target range
-	
+
 	for playerID, player := range gameState.Players {
 		// Skip self, other NPCs, and destroyed tanks
 		if playerID == npc.ID || player.IsDestroyed || strings.HasPrefix(playerID, "npc_") {
 			continue
 		}
-		
+
 		// Calculate distance
 		dx := player.Position.X - state.Position.X
 		dz := player.Position.Z - state.Position.Z
 		dist := math.Sqrt(dx*dx + dz*dz)
-		
+
 		// Track closest player
 		if dist < nearestDistance {
 			nearestTarget = &player
@@ -477,26 +477,26 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 			npc.TargetID = playerID
 		}
 	}
-	
+
 	// If we have a target, aim and fire
 	if nearestTarget != nil {
 		// Calculate direction to target
 		dx := nearestTarget.Position.X - state.Position.X
 		dz := nearestTarget.Position.Z - state.Position.Z
 		targetAngle := math.Atan2(dz, dx)
-		
+
 		// Update turret rotation to aim at target
 		// Add randomness to make it less precise
 		randomOffset := (rand.Float64() - 0.5) * 0.3
 		state.TurretRotation = targetAngle + randomOffset
-		
+
 		// Set fixed barrel elevation
 		state.BarrelElevation = 0.2
-		
+
 		// FIRE MORE AGGRESSIVELY - More frequent shots
 		// Use a fixed short cooldown rather than variable
 		cooledDown := time.Since(npc.LastFire) > 3*time.Second
-				
+
 		// Fire if cooldown has expired
 		if cooledDown && nearestDistance < 100 {
 			// Prepare shell data
@@ -509,18 +509,18 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 				},
 				Speed: 3.0,
 			}
-			
+
 			// Log firing attempt
-			log.Printf("NPC %s firing at target %s at distance %.2f", 
+			log.Printf("NPC %s firing at target %s at distance %.2f",
 				npc.ID, npc.TargetID, nearestDistance)
-			
+
 			// Fire the shell
 			c.mutex.Unlock() // Unlock before calling manager
 			if _, err := c.manager.FireShell(shellData, npc.ID); err != nil {
 				log.Printf("Error firing NPC shell: %v", err)
 			}
 			c.mutex.Lock() // Lock again to continue processing
-			
+
 			// Update last fire time
 			npc.LastFire = time.Now()
 		}
@@ -534,7 +534,7 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 func (c *NPCController) GetActiveNPCs() []string {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
-	
+
 	var npcs []string
 	for id, npc := range c.npcs {
 		if npc.IsActive {

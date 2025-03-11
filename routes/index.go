@@ -93,9 +93,22 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid shell data"})
 				}
 
-				// Fire shell with game manager
-				if _, err := gameManager.FireShell(shellData, playerID); err != nil {
+				// Fire shell with game manager and track it
+				shell, err := gameManager.FireShell(shellData, playerID)
+				if err != nil {
 					log.Println("Error firing shell:", err)
+				} else {
+					// Log detailed shell information
+					log.Printf("🚀 ROUTE: New shell registered with ID %s from player %s", shell.ID, playerID)
+					log.Printf("🔍 SHELL DATA: Pos=(%.2f,%.2f,%.2f), Dir=(%.2f,%.2f,%.2f), Speed=%.2f",
+						shell.Position.X, shell.Position.Y, shell.Position.Z,
+						shell.Direction.X, shell.Direction.Y, shell.Direction.Z,
+						shell.Speed)
+
+					// Add more context about the shell for debugging
+					log.Printf("⏱️ SHELL TIMESTAMP: %d (Time of registration: %d, Diff: %dms)",
+						shell.Timestamp, time.Now().UnixMilli(),
+						time.Now().UnixMilli()-shell.Timestamp)
 				}
 
 			case game.EventTankHit:

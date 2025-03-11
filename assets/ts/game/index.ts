@@ -122,6 +122,9 @@ export class GameComponent extends LitElement {
         // Update remote players
         this.updateRemotePlayers();
         
+        // Update local player health from server state if available
+        this.updateLocalPlayerHealth();
+        
         // Use the player ID from the attribute, or generate one if not set
         if (!this.gameStateInitialized && this.playerTank) {
           if (!this.playerId) {
@@ -200,10 +203,6 @@ export class GameComponent extends LitElement {
   // Tank instances
   private playerTank?: Tank;
   private remoteTanks: Map<string, RemoteTank> = new Map();
-  private npcTanks: NPCTank[] = [];
-  // Base NPC count; can be increased when only a single player is online
-  private readonly NUM_NPC_TANKS = 15; // Changed from 0 to add NPCs for testing
-  private readonly SOLO_PLAYER_NPC_COUNT = 25;
   
   // Performance settings
   private lodDistance = 300; // Distance at which to switch to lower detail
@@ -1287,6 +1286,38 @@ export class GameComponent extends LitElement {
     // Game state is now handled directly in the setter
   }
   
+  /**
+   * Updates the local player's tank health based on server state
+   */
+  private updateLocalPlayerHealth() {
+    // Skip if not initialized or player tank doesn't exist
+    if (!this.playerTank || !this.multiplayerState || !this.multiplayerState.players || !this.playerId) {
+      return;
+    }
+    
+    // Find the player's data in the game state
+    const playerData = this.multiplayerState.players[this.playerId];
+    if (playerData && typeof playerData.health === 'number') {
+      // Update player tank health from server state
+      this.playerTank.setHealth(playerData.health);
+      
+      // If server says player is dead but client doesn't know yet
+      if (playerData.health <= 0 && !this.playerTank.isDestroyed) {
+        console.log('Server reported player death, updating local state');
+        // Tank's setHealth method will handle the destruction effects
+      }
+      
+      // Update UI stats if available
+      if (this.statsComponent) {
+        this.statsComponent.updateGameStats(
+          playerData.health,
+          playerData.kills || 0,
+          playerData.deaths || 0
+        );
+      }
+    }
+  }
+  
   // Update remote players from game state
   private updateRemotePlayers() {
     // First, wait until we have a valid scene initialized
@@ -1320,28 +1351,10 @@ export class GameComponent extends LitElement {
       return;
     }
     
-    // Check if we need to update NPC tanks based on player count
+    // Log player count occasionally for debugging
     const playerCount = playerKeys.length;
-    
-    // If player count changes to or from 1, we need to update NPC tanks
-    if (playerCount === 1 && this.npcTanks.length === 0) {
-      // Single player detected, add NPCs
-      console.log('Single player detected, creating NPC tanks');
-      this.createNpcTanks();
-    } else if (playerCount > 1 && this.npcTanks.length > 0) {
-      // Multiple players detected, remove NPCs
-      console.log('Multiple players detected, removing NPC tanks');
-      // Clear existing NPC tanks
-      for (const tank of this.npcTanks) {
-        this.collisionSystem.removeCollider(tank);
-        tank.dispose();
-      }
-      this.npcTanks = [];
-    }
-    
-    // Debug log player count
     if (this.frameCounter % 300 === 0) { // Log every ~5 seconds
-      console.log(`Current player count: ${playerCount}, NPC tanks: ${this.npcTanks.length}`);
+      console.log(`Current player count: ${playerCount} (including NPCs)`);
     }
     
     // Process each player in the game state
@@ -1432,14 +1445,17 @@ export class GameComponent extends LitElement {
     }
   }
   
-  // Create a new remote tank for another player
+  // Create a new remote tank for another player or NPC
   private createRemoteTank(playerId: string, playerData: PlayerState) {
     if (!this.scene) {
       console.error('Cannot create remote tank: Scene not available');
       return;
     }
     
-    console.log(`Creating remote tank for player ${playerId}`, playerData);
+    // Determine if this is an NPC (server-side) by checking the ID prefix
+    const isNPC = playerId.startsWith('npc_');
+    
+    console.log(`Creating ${isNPC ? 'NPC' : 'remote'} tank for ${playerId}`, playerData);
     
     try {
       // Ensure we have position data
@@ -1455,9 +1471,8 @@ export class GameComponent extends LitElement {
         playerData.position.z
       );
       
-      console.log(`Remote tank position: (${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)})`);
+      console.log(`Tank position: (${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)})`);
       
-      // Create a new NPC tank with the player's name and color
       // Handle different color formats (hex string or object with r,g,b)
       let tankColor = 0xff0000; // Default red
       if (playerData.color) {
@@ -1466,10 +1481,11 @@ export class GameComponent extends LitElement {
         }
       }
       
-      const tankName = playerData.name || `Player ${playerId.substring(0, 6)}`;
+      const tankName = playerData.name || `${isNPC ? 'NPC' : 'Player'} ${playerId.substring(0, 6)}`;
       console.log(`Creating tank with name: ${tankName}, color: ${tankColor.toString(16)}`);
       
-      // Create the remote tank
+      // Create the remote tank - use RemoteTank class for both players and NPCs
+      // since server-side NPCs will be handled as regular remote tanks on the client
       const remoteTank = new RemoteTank(
         this.scene,
         position,
@@ -2073,9 +2089,6 @@ export class GameComponent extends LitElement {
     this.playerTank.respawn(spawnPoint); // Set initial position
     this.collisionSystem.addCollider(this.playerTank);
     
-    // Create NPC tanks
-    this.createNpcTanks();
-    
     // Position camera
     this.positionCamera();
     
@@ -2122,76 +2135,7 @@ export class GameComponent extends LitElement {
   }
   
   
-  private createNpcTanks() {
-    if (!this.scene) return;
-    
-    // Tank colors
-    const colors = [
-      0x3366cc, // Blue
-      0xdc3912, // Red
-      0xff9900, // Orange
-      0x109618, // Green
-      0x990099, // Purple
-      0x0099c6, // Teal
-      0xdd4477, // Pink
-      0x66aa00, // Lime
-      0xb82e2e, // Dark red
-      0x316395, // Dark blue
-      0x94621a, // Brown
-      0xc45bdd, // Light purple
-      0x5b91dd, // Light blue
-      0xdd5b5b, // Light red
-      0x777777  // Gray
-    ];
-    
-    // Clear any existing NPC tanks
-    for (const tank of this.npcTanks) {
-      this.collisionSystem.removeCollider(tank);
-      tank.dispose();
-    }
-    this.npcTanks = [];
-    
-    // Determine how many NPC tanks to create
-    let npcCount = this.NUM_NPC_TANKS;
-    
-    // Check if there's only one player online (the current player)
-    if (this.multiplayerState && this.multiplayerState.players) {
-      const playerCount = Object.keys(this.multiplayerState.players).length;
-      // Only enable NPCs when a single player is online
-      if (playerCount === 1) {
-        npcCount = this.SOLO_PLAYER_NPC_COUNT;
-        console.log(`Solo player detected. Adding ${npcCount} NPC tanks for player enjoyment.`);
-      }
-    }
-    
-    // Create new NPC tanks at random positions around the map
-    for (let i = 0; i < npcCount; i++) {
-      // Random position in a wider circle around origin (200-800 units away)
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 200 + Math.random() * 600;
-      const position = new THREE.Vector3(
-        Math.cos(angle) * distance,
-        0,
-        Math.sin(angle) * distance
-      );
-      
-      // Create AI-controlled tank with color from the colors array and a random name
-      const npcTank = new NPCTank(
-        this.scene,
-        position,
-        colors[i % colors.length],
-        // Name is auto-generated in the Tank constructor
-      );
-      
-      // Add floating triangle identifier marker
-      npcTank.addFloatingIdentifierMarker();
-      
-      // Add tank to the collision system
-      this.collisionSystem.addCollider(npcTank);
-      
-      this.npcTanks.push(npcTank);
-    }
-  }
+  // NPC tanks are now created and managed server-side
   
   private positionCamera() {
     if (!this.camera || !this.playerTank) return;
@@ -2647,51 +2591,7 @@ export class GameComponent extends LitElement {
       this.lastPlayerHealth = currentHealth;
     }
     
-    // Update NPC tanks with optimized frequency (only in solo mode)
-    if (this.npcTanks.length > 0 && this.playerTank) {
-      // Only update NPC tanks in solo player mode
-      // Check if we have 1 or fewer players in the game state
-      const isInSoloMode = !this.multiplayerState || 
-                          !this.multiplayerState.players || 
-                          Object.keys(this.multiplayerState.players).length <= 1;
-      
-      if (isInSoloMode) {
-        // Process up to 2 tanks per frame for consistent performance
-        const tanksPerFrame = 2;
-        const startIdx = (this.frameCounter % Math.ceil(this.npcTanks.length / tanksPerFrame)) * tanksPerFrame;
-        const endIdx = Math.min(startIdx + tanksPerFrame, this.npcTanks.length);
-        
-        for (let i = startIdx; i < endIdx; i++) {
-          const npcTank = this.npcTanks[i];
-          
-          // Get distance to player
-          const distanceToPlayer = this.playerTank.tank.position.distanceTo(npcTank.tank.position);
-          
-          // Determine update frequency based on distance
-          let newShell: Shell | null = null;
-          
-          if (distanceToPlayer < this.lodDistance) {
-            // Close tanks always update
-            newShell = npcTank.update({}, allColliders);
-          } else if (distanceToPlayer < this.lodDistance * 2) {
-            // Mid-range tanks update with 50% chance
-            if (Math.random() < 0.5) {
-              newShell = npcTank.update({}, allColliders);
-            }
-          } else {
-            // Distant tanks update very infrequently (20% chance)
-            if (Math.random() < 0.2) {
-              newShell = npcTank.update({}, allColliders);
-            }
-          }
-          
-          // Add new shell if one was fired
-          if (newShell) {
-            this.addShell(newShell);
-          }
-        }
-      }
-    }
+    // NPC tanks are now updated server-side
     
     // Update all active shells and handle collisions
     this.updateShells(allColliders);

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
@@ -133,7 +134,7 @@ func (m *Manager) UpdatePlayer(update PlayerState, playerID string, playerName s
 	m.state.Players[playerID] = update
 	m.mutex.Unlock()
 
-	// NOTE: Physics collision detection will occur in a separate goroutine 
+	// NOTE: Physics collision detection will occur in a separate goroutine
 	// via the PhysicsIntegration component initiated in main.go
 
 	// Save to KV store
@@ -184,34 +185,92 @@ func (m *Manager) FireShell(shellData ShellData, playerID string) (ShellState, e
 
 // ProcessTankHit handles when a tank is hit by a shell
 func (m *Manager) ProcessTankHit(hitData HitData) error {
-	// Update player health in game state
-	m.mutex.Lock()
-	if targetPlayer, exists := m.state.Players[hitData.TargetID]; exists {
-		// Apply damage to tank
-		targetPlayer.Health = targetPlayer.Health - hitData.DamageAmount
+	// Create a transaction function to be executed with proper locking
+	processTankHitFunc := func() error {
+		// NOTE: Caller must handle locking/unlocking
+		
+		// Check if target player exists
+		if targetPlayer, exists := m.state.Players[hitData.TargetID]; exists {
+			// Apply damage to tank
+			targetPlayer.Health = targetPlayer.Health - hitData.DamageAmount
 
-		// Check if destroyed
-		if targetPlayer.Health <= 0 {
-			targetPlayer.Health = 0
-			targetPlayer.IsDestroyed = true
+			// Check if destroyed
+			if targetPlayer.Health <= 0 {
+				targetPlayer.Health = 0
+				targetPlayer.IsDestroyed = true
 
-			log.Printf("Tank %s destroyed by %s", hitData.TargetID, hitData.SourceID)
+				log.Printf("Tank %s destroyed by %s", hitData.TargetID, hitData.SourceID)
+			}
+
+			// Save updated player back to game state
+			m.state.Players[hitData.TargetID] = targetPlayer
+			return nil
+		} else {
+			// Tank not found in player list - could be an NPC that wasn't properly registered
+			// Create a minimal player state for it
+			log.Printf("Target tank %s not found - creating placeholder entry", hitData.TargetID)
+			
+			// Is this an NPC based on ID?
+			isNPC := strings.HasPrefix(hitData.TargetID, "npc_")
+			
+			// Use playerName NPC-Something if we can parse it from ID
+			playerName := "Unknown"
+			if isNPC {
+				// Try to extract NPC name from ID
+				parts := strings.Split(hitData.TargetID, "_")
+				if len(parts) > 1 {
+					playerName = "NPC-" + parts[1]
+				} else {
+					playerName = "NPC-Unknown"
+				}
+			}
+			
+			// Create basic tank state
+			newPlayer := PlayerState{
+				ID:          hitData.TargetID,
+				Name:        playerName,
+				Health:      100 - hitData.DamageAmount, // Start with full health minus damage
+				Position:    Position{X: 0, Y: 0, Z: 0},  // Default position
+				Timestamp:   m.getTime(),
+				IsDestroyed: false,
+			}
+			
+			// Check if health is zero
+			if newPlayer.Health <= 0 {
+				newPlayer.Health = 0
+				newPlayer.IsDestroyed = true
+				log.Printf("Newly registered tank %s destroyed by %s", hitData.TargetID, hitData.SourceID)
+			}
+			
+			// Add to players map
+			m.state.Players[hitData.TargetID] = newPlayer
+			
+			log.Printf("⚠️ Created new tank entry for %s with health %d", hitData.TargetID, newPlayer.Health)
+			return nil
 		}
-
-		// Save updated player back to game state
-		m.state.Players[hitData.TargetID] = targetPlayer
-
-		// Save to KV store
-		m.mutex.Unlock()
-		if err := m.saveState(); err != nil {
-			log.Printf("Error saving game state after tank hit: %v", err)
-		}
-
-		return nil
-	} else {
-		m.mutex.Unlock()
-		return fmt.Errorf("target player %s not found", hitData.TargetID)
 	}
+	
+	// Acquire lock, process hit, release lock
+	m.mutex.Lock()
+	err := processTankHitFunc()
+	m.mutex.Unlock()
+	
+	// If we failed to process the hit, return the error
+	if err != nil {
+		log.Printf("Error processing tank hit: %v", err)
+		return err
+	}
+	
+	// Save state after processing hit (without holding lock)
+	if err := m.saveState(); err != nil {
+		log.Printf("Error saving game state after tank hit: %v", err)
+		return err
+	}
+	
+	log.Printf("✅ Tank hit processed successfully: Target=%s, Source=%s, Damage=%d", 
+		hitData.TargetID, hitData.SourceID, hitData.DamageAmount)
+	
+	return nil
 }
 
 // RespawnTank handles tank respawn events
@@ -295,18 +354,47 @@ func (m *Manager) loadState() error {
 
 // Save game state to KV store
 func (m *Manager) saveState() error {
+	// Don't hold the lock during potentially slow KV operations
+	var stateJSON []byte
+	var err error
+	
+	// Use a copy of state under read lock
 	m.mutex.RLock()
-	stateJSON, err := json.Marshal(m.state)
+	// Deep copy the state to avoid concurrent map access issues
+	stateCopy := GameState{
+		Players: make(map[string]PlayerState, len(m.state.Players)),
+		Shells:  make([]ShellState, len(m.state.Shells)),
+	}
+	
+	// Copy players map
+	for id, player := range m.state.Players {
+		stateCopy.Players[id] = player
+	}
+	
+	// Copy shells slice 
+	copy(stateCopy.Shells, m.state.Shells)
 	m.mutex.RUnlock()
-
+	
+	// Marshal the copied state
+	stateJSON, err = json.Marshal(stateCopy)
 	if err != nil {
+		log.Printf("Error marshaling game state: %v", err)
 		return fmt.Errorf("error marshaling game state: %v", err)
 	}
 
-	if _, err := m.kv.Put(m.ctx, "current", stateJSON); err != nil {
+	// Perform KV operation without holding lock
+	_, err = m.kv.Put(m.ctx, "current", stateJSON)
+	if err != nil {
+		log.Printf("Error saving game state to KV: %v", err)
 		return fmt.Errorf("error saving game state to KV: %v", err)
 	}
 
+	// Log successful save occasionally
+	if time.Now().UnixNano()%100 == 0 {
+		log.Printf("Game state saved successfully: %d players, %d shells", 
+			len(stateCopy.Players), len(stateCopy.Shells))
+	}
+	
 	return nil
 }
 
@@ -336,6 +424,57 @@ func (m *Manager) WatchState(ctx context.Context) (jetstream.KeyWatcher, error) 
 	return watcher, nil
 }
 
+// RemoveShells removes specific shells by ID from game state
+func (m *Manager) RemoveShells(shellIDs []string) error {
+	if len(shellIDs) == 0 {
+		return nil
+	}
+	
+	// First, create a function to handle the shell updates with proper locking
+	removeShellsFunc := func() []ShellState {
+		// NOTE: The caller must handle locking
+		
+		// Create a map for faster lookup of shell IDs to remove
+		removeMap := make(map[string]bool)
+		for _, id := range shellIDs {
+			removeMap[id] = true
+		}
+		
+		// Filter out shells that should be removed
+		var remainingShells []ShellState
+		var removedCount int
+		for _, shell := range m.state.Shells {
+			if !removeMap[shell.ID] {
+				remainingShells = append(remainingShells, shell)
+			} else {
+				removedCount++
+			}
+		}
+		
+		// Update shells in game state
+		m.state.Shells = remainingShells
+		
+		if removedCount > 0 {
+			log.Printf("Removed %d shells from state", removedCount)
+		}
+		
+		return remainingShells
+	}
+	
+	// Acquire lock, process shell removal, release lock
+	m.mutex.Lock()
+	removeShellsFunc()
+	m.mutex.Unlock()
+	
+	// Save state without holding the lock
+	if err := m.saveState(); err != nil {
+		log.Printf("Error saving game state after removing shells: %v", err)
+		return err
+	}
+	
+	return nil
+}
+
 // cleanupGameState removes inactive players and expired shells
 func (m *Manager) cleanupGameState() {
 	m.mutex.Lock()
@@ -352,20 +491,26 @@ func (m *Manager) cleanupGameState() {
 		}
 	}
 
-	// Clean up expired shells (older than 3 seconds)
+	// Clean up expired shells (older than 5 seconds - increased from 3 to account for travel time)
 	var activeShells []ShellState
+	var expiredCount int
 	for _, shell := range m.state.Shells {
-		if now-shell.Timestamp < 3000 {
+		if now-shell.Timestamp < 5000 {
 			activeShells = append(activeShells, shell)
 		} else {
-			log.Printf("Removing expired shell: %s", shell.ID)
+			expiredCount++
 		}
+	}
+
+	if expiredCount > 0 {
+		log.Printf("Removed %d expired shells during cleanup", expiredCount)
 	}
 
 	// Limit total number of shells to avoid excessive processing
 	if len(activeShells) > 50 {
 		// Keep only the most recent 50 shells
 		activeShells = activeShells[len(activeShells)-50:]
+		log.Printf("Limited shell count to 50 (was %d)", len(activeShells))
 	}
 
 	// Update shells in game state
