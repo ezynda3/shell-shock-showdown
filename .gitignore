@@ -4,4 +4,4 @@ bin/
 .aider*
 **/*.txt
 tmp/
-.gitigore
+node_modules/
