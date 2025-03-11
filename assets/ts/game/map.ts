@@ -1,23 +1,57 @@
 import * as THREE from 'three';
 import { ICollidable } from './collision';
-import { TreeGenerator } from './trees';
-import { RockGenerator } from './rocks';
+import { TreeGenerator, ServerGameMap } from './trees';
+import { RockGenerator, ServerRockMap } from './rocks';
 import { MountainGenerator } from './mountains';
+
+// Complete map interfaces
+interface CompleteServerGameMap {
+  trees: {
+    trees: any[];
+  };
+  rocks: {
+    rocks: any[];
+  };
+}
 
 export class MapGenerator {
   private scene: THREE.Scene;
   private treeGenerator: TreeGenerator;
   private rockGenerator: RockGenerator;
   private mountainGenerator: MountainGenerator;
+  private serverMapData: CompleteServerGameMap | null = null;
   
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, serverMapData?: string) {
     this.scene = scene;
     this.treeGenerator = new TreeGenerator(scene);
     this.rockGenerator = new RockGenerator(scene);
     this.mountainGenerator = new MountainGenerator(scene);
     
+    // Parse server map data if provided
+    if (serverMapData) {
+      try {
+        this.serverMapData = JSON.parse(serverMapData);
+        console.log("Server map data loaded", this.serverMapData);
+        
+        // Set server map data in the tree generator
+        if (this.serverMapData.trees) {
+          this.treeGenerator.setServerMapData(this.serverMapData.trees);
+        }
+        
+        // Set server map data in the rock generator
+        if (this.serverMapData.rocks) {
+          this.rockGenerator.setServerMapData(this.serverMapData.rocks);
+        }
+      } catch (e) {
+        console.error("Error parsing server map data:", e);
+      }
+    }
+    
     // Generate trees after initialization
     this.treeGenerator.generateTrees();
+    
+    // Generate rocks after initialization
+    this.rockGenerator.createRocks();
   }
   
   // TreeGenerator will handle all tree creation methods

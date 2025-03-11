@@ -7,6 +7,7 @@ import (
 
 	"github.com/delaneyj/toolbelt/embeddednats"
 	"github.com/mark3labs/pro-saaskit/game"
+	"github.com/mark3labs/pro-saaskit/game/physics"
 	"github.com/mark3labs/pro-saaskit/middleware"
 	"github.com/mark3labs/pro-saaskit/routes"
 	"github.com/nats-io/nats-server/v2/server"
@@ -77,6 +78,24 @@ func main() {
 		log.Fatalf("Failed to initialize game manager: %v", err)
 	}
 	log.Println("Game manager initialized")
+	
+	// Initialize physics system
+	log.Println("\n\n==================================================")
+	log.Println("⚙️ INITIALIZING PHYSICS COLLISION DETECTION SYSTEM")
+	log.Println("==================================================\n")
+	
+	physics.Initialize()
+	physicsIntegration := physics.NewPhysicsIntegration(gameManager)
+	physicsIntegration.Start()
+	
+	log.Println("\n==================================================")
+	log.Println("📊 SYSTEM STATUS:")
+	log.Println("  - NATS Server: Running ✅")
+	log.Println("  - JetStream: Ready ✅")
+	log.Println("  - KV Store: Connected ✅")
+	log.Println("  - Game Manager: Initialized ✅")
+	log.Println("  - Physics System: Running ✅")
+	log.Println("==================================================\n")
 
 	middleware.AddCookieSessionMiddleware(*app)
 

@@ -166,6 +166,10 @@ export class GameComponent extends LitElement {
       playerId: { 
         type: String, 
         attribute: 'player-id' 
+      },
+      mapData: {
+        type: String,
+        attribute: 'map-data'
       }
     };
   }
@@ -173,6 +177,10 @@ export class GameComponent extends LitElement {
   // Player ID from server-side attribute
   @property({ type: String, attribute: 'player-id' })
   public playerId: string = '';
+  
+  // Map data from server
+  @property({ type: String, attribute: 'map-data' })
+  public mapData: string = '';
   
   // Flag to track if we've processed initial game state
   private gameStateInitialized: boolean = false;
@@ -2052,8 +2060,8 @@ export class GameComponent extends LitElement {
     // Update shader time uniform in animation loop
     this.groundMaterial = grassMaterial;
     
-    // Create map generator
-    this.mapGenerator = new MapGenerator(this.scene);
+    // Create map generator with server map data if available
+    this.mapGenerator = new MapGenerator(this.scene, this.mapData);
     
     // Create environment objects
     this.createTrees();

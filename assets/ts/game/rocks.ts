@@ -1,6 +1,34 @@
 import * as THREE from 'three';
 import { ICollidable, StaticCollider } from './collision';
 
+// Define interface for rocks from the server
+export interface ServerRock {
+  position: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  type: string;
+  size: number;
+  rotation: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  scale: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  radius: number;
+  formation?: string;
+}
+
+// Define interface for rock map from the server
+export interface ServerRockMap {
+  rocks: ServerRock[];
+}
+
 export class RockGenerator {
   private scene: THREE.Scene;
   
@@ -10,6 +38,9 @@ export class RockGenerator {
   // Materials
   private rockMaterial: THREE.MeshStandardMaterial;
   private darkRockMaterial: THREE.MeshStandardMaterial;
+  
+  // Store the map data from the server
+  private serverMapData: ServerRockMap | null = null;
   
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -28,77 +59,12 @@ export class RockGenerator {
     });
   }
   
-  // Share the noise functions
-  noise2D(x: number, y: number, seed: number = 12345): number {
-    // Deterministic pseudo-random number generator based on position and seed
-    const permute = (i: number): number => {
-      return ((i * 34) + seed * 6547 + 12345) % 289;
-    };
-    
-    // Grid cell coordinates
-    const ix = Math.floor(x);
-    const iy = Math.floor(y);
-    
-    // Fractional parts
-    const fx = x - ix;
-    const fy = y - iy;
-    
-    // Smoothing function
-    const fade = (t: number): number => t * t * t * (t * (t * 6 - 15) + 10);
-    
-    // Grid cell indices
-    const a = permute(ix) + permute(iy);
-    const b = permute(ix + 1) + permute(iy);
-    const c = permute(ix) + permute(iy + 1);
-    const d = permute(ix + 1) + permute(iy + 1);
-    
-    // Gradient selection
-    const getGrad = (h: number, x: number, y: number): number => {
-      const h1 = h % 4;
-      let u = h1 < 2 ? x : y;
-      let v = h1 < 2 ? y : x;
-      return ((h1 & 1) ? -u : u) + ((h1 & 2) ? -v * 2 : v * 2);
-    };
-    
-    // Gradient values
-    const ga = getGrad(a, fx, fy);
-    const gb = getGrad(b, fx - 1, fy);
-    const gc = getGrad(c, fx, fy - 1);
-    const gd = getGrad(d, fx - 1, fy - 1);
-    
-    // Interpolation
-    const u = fade(fx);
-    const v = fade(fy);
-    
-    // Blend gradients
-    const result = 
-      (1 - u) * ((1 - v) * ga + v * gc) + 
-      u * ((1 - v) * gb + v * gd);
-    
-    // Normalize to [0, 1] range
-    return (result + 1) * 0.5;
+  // Set server map data
+  setServerMapData(mapData: ServerRockMap) {
+    this.serverMapData = mapData;
   }
   
-  // Fractal Brownian Motion (fBm) to create multiple octaves of noise
-  fbm(x: number, y: number, octaves: number = 6, lacunarity: number = 2.0, persistence: number = 0.5, seed: number = 12345): number {
-    let total = 0;
-    let frequency = 0.005; // Base frequency - controls pattern scale
-    let amplitude = 1.0;
-    let maxValue = 0;
-    
-    for (let i = 0; i < octaves; i++) {
-      // Add noise at current frequency and amplitude
-      total += this.noise2D(x * frequency, y * frequency, seed + i * 1000) * amplitude;
-      maxValue += amplitude;
-      
-      // Increase frequency and decrease amplitude for next octave
-      frequency *= lacunarity;
-      amplitude *= persistence;
-    }
-    
-    // Normalize to [0, 1]
-    return total / maxValue;
-  }
+  // Noise generation functions removed - server now provides all location data
   
   // ===== ROCK METHODS =====
   
@@ -590,257 +556,67 @@ export class RockGenerator {
   }
   
   
-  // Calculate rock formation density at a given position
-  private rockNoiseValue(x: number, y: number, biomeScale: number = 1.0, heightScale: number = 1.0): {
-    value: number,
-    size: number,
-    height: number,
-    type: 'standard' | 'dark'
-  } {
-    // Use different seeds from tree noise to create distinct patterns
-    // Large-scale mountain ranges and geological features
-    const mountainRangeNoise = this.fbm(x, y, 2, 2.0, 0.5, 234);
-    
-    // Medium-scale rock formations
-    const formationNoise = this.fbm(x, y, 3, 2.2, 0.5, 567);
-    
-    // Small-scale rock clusters and details
-    const clusterNoise = this.fbm(x, y, 4, 2.5, 0.6, 789);
-    
-    // Combine noise layers with different weights
-    const combinedNoise = 
-      mountainRangeNoise * 0.5 + 
-      formationNoise * 0.3 + 
-      clusterNoise * 0.2;
-    
-    // Scale by biome factor
-    const scaledNoise = combinedNoise * biomeScale;
-    
-    // Determine rock size based on noise
-    const sizeNoise = this.fbm(x, y, 2, 2.0, 0.5, 987);
-    const size = (0.7 + sizeNoise * 1.3) * biomeScale;
-    
-    // Determine rock height based on separate noise
-    const heightNoise = this.fbm(x, y, 3, 1.8, 0.6, 654);
-    const height = (0.5 + heightNoise * 0.8) * heightScale;
-    
-    // Determine rock type based on position
-    const typeNoise = this.fbm(x, y, 2, 2.5, 0.5, 321);
-    const type = typeNoise > 0.5 ? 'standard' : 'dark';
-    
-    return {
-      value: scaledNoise,
-      size,
-      height,
-      type
-    };
-  }
-  
-  // Create a rock cluster based on noise patterns
-  private createRockFormationFromNoise(x: number, z: number, densityThreshold: number, 
-                                      biomeScale: number = 1.0, heightScale: number = 1.0,
-                                      formationType: 'cluster' | 'mountain' | 'spire' = 'cluster'): void {
-    // Get noise value at this position
-    const noise = this.rockNoiseValue(x, z, biomeScale, heightScale);
-    
-    // Only place rocks where noise value exceeds threshold
-    if (noise.value > densityThreshold) {
-      // Use noise to determine formation characteristics
-      const seed = Math.floor((x * 1000 + z) * noise.value);
-      
-      if (formationType === 'cluster') {
-        this.createRockCluster(x, z, seed);
-      } else if (formationType === 'spire' && noise.value > densityThreshold + 0.1) {
-        // For spires, use a higher threshold to make them more rare
-        const spireHeight = 5 + noise.height * 15; 
-        this.createRockSpire(x, z, spireHeight, seed);
-      } else if (formationType === 'mountain' && noise.value > densityThreshold + 0.2) {
-        // For mountains, use an even higher threshold to make them very rare
-        if (this.fbm(x, z, 2, 2.0, 0.5, 111) > 0.75) {
-          this.createMountainPeak(x, z, 80 + noise.height * 150, 40 + noise.size * 60, seed);
-        } else if (this.fbm(x, z, 2, 2.0, 0.5, 222) > 0.85) {
-          this.createBalancedRocks(x, z, 10 + noise.height * 10, seed);
-        } else {
-          this.createRockArch(
-            x, z, 
-            10 + noise.size * 20, // width
-            5 + noise.height * 10, // height
-            5 + noise.size * 10, // depth
-            this.fbm(x, z, 1, 1.0, 0.5, 333) * Math.PI * 2, // rotation
-            seed
-          );
-        }
-      }
-    }
-  }
-  
-  // Create smaller individual rock based on noise
-  private createSmallRockFromNoise(x: number, z: number, densityThreshold: number, biomeScale: number = 1.0): void {
-    // Get noise value at this position
-    const noise = this.rockNoiseValue(x, z, biomeScale, 1.0);
-    
-    // Only place rocks where noise value exceeds threshold
-    if (noise.value > densityThreshold) {
-      // Size based on noise
-      const size = 0.3 + noise.size * 0.7;
-      
-      // Position with slight y-variation for more natural look
-      const y = 0.2 + noise.height * 0.6;
-      
-      // Rotation based on position
-      const seed = Math.floor((x * 1000 + z) * noise.value);
-      const rotX = Math.sin(seed * 0.1) * Math.PI;
-      const rotY = Math.cos(seed * 0.2) * Math.PI;
-      const rotZ = Math.sin(seed * 0.3) * Math.PI;
-      
-      // Scale variation
-      const scaleX = 0.8 + this.fbm(x, z, 2, 2.0, 0.5, 444) * 0.4;
-      const scaleY = 0.8 + this.fbm(x, z, 2, 2.0, 0.5, 555) * 0.4;
-      const scaleZ = 0.8 + this.fbm(x, z, 2, 2.0, 0.5, 666) * 0.4;
-      
-      // Use appropriate material based on noise type
-      const material = noise.type === 'standard' ? this.rockMaterial : this.darkRockMaterial;
-      
-      // Create the rock
-      this.createRock(
-        size,
-        seed,
-        x, y, z,
-        new THREE.Vector3(rotX, rotY, rotZ),
-        new THREE.Vector3(scaleX, scaleY, scaleZ),
-        material
-      );
-    }
-  }
+  // All noise-based generation code removed as we now use server-provided location data
 
   createRocks() {
-    // 1. Rocks near the tank starting area
-    // Keep the deterministic circle of rocks for gameplay consistency
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2;
-      const x = Math.cos(angle) * 20; // Closer to center than trees
-      const z = Math.sin(angle) * 20;
-      this.createRockCluster(x, z, i);
-    }
-    
-    // 2. Rock formations in geometric patterns
-    // Keep important gameplay landmarks
-    
-    // Square formation at corners
-    for (let i = 0; i < 4; i++) {
-      const x = (i < 2 ? -100 : 100);
-      const z = (i % 2 === 0 ? -100 : 100);
-      this.createRockCluster(x, z, i + 10);
-    }
-    
-    // 3. Mountain Ranges and Rock Formations - using fractal noise patterns
-    
-    // Northern mountain region
-    for (let x = -400; x <= 400; x += 30) {
-      for (let z = 280; z <= 400; z += 30) {
-        this.createRockFormationFromNoise(x, z, 0.65, 1.2, 1.1, 'cluster');
-      }
-    }
-    
-    // Northern mountain peaks (more sparse)
-    for (let x = -350; x <= 350; x += 60) {
-      for (let z = 420; z <= 550; z += 60) {
-        this.createRockFormationFromNoise(x, z, 0.7, 1.0, 1.2, 'mountain');
-      }
-    }
-    
-    // Eastern mountain region
-    for (let x = 280; x <= 400; x += 30) {
-      for (let z = -400; z <= 400; z += 30) {
-        this.createRockFormationFromNoise(x, z, 0.65, 1.2, 1.1, 'cluster');
-      }
-    }
-    
-    // Eastern mountain peaks (more sparse) 
-    for (let x = 420; x <= 550; x += 60) {
-      for (let z = -350; z <= 350; z += 60) {
-        this.createRockFormationFromNoise(x, z, 0.7, 1.0, 1.2, 'mountain');
-      }
-    }
-    
-    // Southern rock region
-    for (let x = -400; x <= 400; x += 30) {
-      for (let z = -400; z >= -550; z -= 30) {
-        this.createRockFormationFromNoise(x, z, 0.68, 0.9, 0.9, 'cluster');
-      }
-    }
-    
-    // Western rock region
-    for (let x = -400; x >= -550; x -= 30) {
-      for (let z = -400; z <= 400; z += 30) {
-        this.createRockFormationFromNoise(x, z, 0.68, 0.9, 0.9, 'cluster');
-      }
-    }
-    
-    // Scattered rock spires in all regions
-    for (let x = -600; x <= 600; x += 150) {
-      for (let z = -600; z <= 600; z += 150) {
-        // Use a higher threshold to make them more rare
-        this.createRockFormationFromNoise(
-          x + this.fbm(x, z, 2, 2.0, 0.5, 777) * 50 - 25,
-          z + this.fbm(z, x, 2, 2.0, 0.5, 888) * 50 - 25,
-          0.75, 0.8, 1.3, 'spire'
+    // Use server-side rock data only
+    if (this.serverMapData && this.serverMapData.rocks && this.serverMapData.rocks.length > 0) {
+      console.log("Using server-provided rock data");
+      const rocks = this.serverMapData.rocks;
+      
+      // Create rocks from the server data
+      for (const rock of rocks) {
+        const { position, type, size, rotation, scale } = rock;
+        
+        // Create rock geometry
+        const rockGeometry = new THREE.DodecahedronGeometry(size, 0);
+        
+        // Deterministically deform vertices based on position
+        const positions = rockGeometry.attributes.position;
+        const deformSeed = Math.random() * 100; // Simple random seed for deformation
+        
+        for (let j = 0; j < positions.count; j++) {
+          const vx = positions.getX(j);
+          const vy = positions.getY(j);
+          const vz = positions.getZ(j);
+          
+          // Use trigonometric functions with the seed for deterministic deformation
+          const xFactor = 0.8 + Math.sin(vx * deformSeed) * 0.2;
+          const yFactor = 0.8 + Math.cos(vy * deformSeed) * 0.2;
+          const zFactor = 0.8 + Math.sin(vz * deformSeed) * 0.2;
+          
+          positions.setX(j, vx * xFactor);
+          positions.setY(j, vy * yFactor);
+          positions.setZ(j, vz * zFactor);
+        }
+        
+        // Determine material based on rock type
+        const material = type === 'standard' ? this.rockMaterial : this.darkRockMaterial;
+        
+        // Create the rock mesh
+        const rockMesh = new THREE.Mesh(rockGeometry, material);
+        
+        // Set position, rotation and scale
+        rockMesh.position.set(position.x, position.y, position.z);
+        rockMesh.rotation.set(rotation.x, rotation.y, rotation.z);
+        rockMesh.scale.set(scale.x, scale.y, scale.z);
+        
+        rockMesh.castShadow = true;
+        rockMesh.receiveShadow = true;
+        
+        // Add to scene
+        this.scene.add(rockMesh);
+        
+        // Create a collider for the rock
+        const rockCollider = new StaticCollider(
+          new THREE.Vector3(position.x, position.y, position.z),
+          'rock',
+          rock.radius
         );
+        this.rockColliders.push(rockCollider);
       }
-    }
-    
-    // 4. Stone Circles - ceremonial-looking formations at key locations (preserved for gameplay)
-    this.createStoneCircle(500, 500, 50, 12, 400);
-    this.createStoneCircle(-500, 500, 50, 12, 500);
-    this.createStoneCircle(500, -500, 50, 12, 600);
-    this.createStoneCircle(-500, -500, 50, 12, 700);
-    
-    // 5. Scattered small rocks throughout the map using noise pattern
-    const gridSize = 100; // Size of the grid for small rock distribution
-    for (let x = -800; x <= 800; x += gridSize) {
-      for (let z = -800; z <= 800; z += gridSize) {
-        // For each grid cell, place several potential rocks
-        for (let i = 0; i < 5; i++) {
-          // Use noise to offset position within grid cell
-          const offsetX = this.fbm(x + i, z, 2, 2.0, 0.5, 999 + i) * gridSize;
-          const offsetZ = this.fbm(x, z + i, 2, 2.0, 0.5, 1000 + i) * gridSize;
-          
-          // Create small rock if noise value high enough
-          this.createSmallRockFromNoise(
-            x + offsetX,
-            z + offsetZ,
-            0.72, // High threshold for sparse distribution
-            0.9
-          );
-        }
-      }
-    }
-    
-    
-    // 9. Rock ridge lines for more interesting topography
-    // Create ridge lines using noise to determine location and properties
-    for (let x = -600; x <= 600; x += 200) {
-      for (let z = -600; z <= 600; z += 200) {
-        // Only place ridge if noise value high enough
-        const ridgeNoise = this.fbm(x, z, 3, 2.0, 0.5, 123);
-        if (ridgeNoise > 0.6) {
-          // Use noise to determine ridge direction and length
-          const angle = this.fbm(x, z, 2, 2.0, 0.5, 456) * Math.PI * 2;
-          const length = 50 + this.fbm(x, z, 2, 2.0, 0.5, 789) * 100;
-          
-          // Calculate start and end points
-          const startX = x - Math.cos(angle) * length/2;
-          const startZ = z - Math.sin(angle) * length/2;
-          const endX = x + Math.cos(angle) * length/2;
-          const endZ = z + Math.sin(angle) * length/2;
-          
-          // Height based on noise
-          const height = 5 + this.fbm(x, z, 2, 2.0, 0.5, 321) * 10;
-          
-          // Create the rock wall
-          this.createRockWall(startX, startZ, endX, endZ, height, Math.floor(x * z));
-        }
-      }
+    } else {
+      console.log("No server rock data available");
     }
   }
   

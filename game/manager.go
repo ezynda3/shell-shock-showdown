@@ -133,6 +133,9 @@ func (m *Manager) UpdatePlayer(update PlayerState, playerID string, playerName s
 	m.state.Players[playerID] = update
 	m.mutex.Unlock()
 
+	// NOTE: Physics collision detection will occur in a separate goroutine 
+	// via the PhysicsIntegration component initiated in main.go
+
 	// Save to KV store
 	if err := m.saveState(); err != nil {
 		log.Printf("Error saving game state after player update: %v", err)

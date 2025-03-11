@@ -1,9 +1,18 @@
 package views
 
 import (
+	"encoding/json"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase"
 )
+
+// GetMapData returns the game map data as a JSON string
+func GetMapData() string {
+	// Use the correct import path based on your module name
+	gameMap := InitGameMap()
+	mapJSON, _ := json.Marshal(gameMap)
+	return string(mapJSON)
+}
 
 templ Index() {
 	if app, ok := ctx.Value("app").(*pocketbase.PocketBase); ok {
@@ -16,6 +25,7 @@ templ Index() {
 			<game-component
 				data-on-game-event__case.kebab="$gameEvent = JSON.stringify(evt.detail); @post('/update')"
 				data-attr-game-state__case.kebab="$gameState"
+				map-data={ GetMapData() }
 				if user := ctx.Value("user"); user != nil {
 					if auth, ok := user.(*core.Record); ok {
 						player-id={ auth.Id }

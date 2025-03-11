@@ -28055,6 +28055,7 @@ class TreeGenerator {
   treeColliders = [];
   trunkMaterial;
   leafMaterial;
+  serverMapData = null;
   constructor(scene) {
     this.scene = scene;
     this.trunkMaterial = new MeshStandardMaterial({
@@ -28067,6 +28068,9 @@ class TreeGenerator {
       roughness: 0.8,
       metalness: 0.1
     });
+  }
+  setServerMapData(mapData) {
+    this.serverMapData = mapData;
   }
   createPineTree(scale, x, z) {
     const tree = new Group;
@@ -28120,159 +28124,21 @@ class TreeGenerator {
     this.treeColliders.push(treeCollider);
     return treeCollider;
   }
-  createCircleOfTrees(radius, count, treeType) {
-    for (let i = 0;i < count; i++) {
-      const angle = i / count * Math.PI * 2;
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
-      const scale = 1 + (Math.sin(angle * 3) + 1) * 0.3;
-      if (treeType === "pine") {
-        this.createPineTree(scale, x, z);
-      } else {
-        this.createRoundTree(scale, x, z);
-      }
-    }
-  }
-  createSacredGrove(centerX, centerZ, radius, count) {
-    for (let i = 0;i < count; i++) {
-      const angle = i / count * Math.PI * 2;
-      const x = centerX + Math.cos(angle) * radius;
-      const z = centerZ + Math.sin(angle) * radius;
-      const scale = 1.5;
-      if (i % 2 === 0) {
-        this.createPineTree(scale, x, z);
-      } else {
-        this.createRoundTree(scale, x, z);
-      }
-    }
-  }
-  noise2D(x, y, seed = 12345) {
-    const permute = (i) => {
-      return (i * 34 + seed * 6547 + 12345) % 289;
-    };
-    const ix = Math.floor(x);
-    const iy = Math.floor(y);
-    const fx = x - ix;
-    const fy = y - iy;
-    const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
-    const a = permute(ix) + permute(iy);
-    const b = permute(ix + 1) + permute(iy);
-    const c = permute(ix) + permute(iy + 1);
-    const d2 = permute(ix + 1) + permute(iy + 1);
-    const getGrad = (h, x2, y2) => {
-      const h1 = h % 4;
-      let u2 = h1 < 2 ? x2 : y2;
-      let v2 = h1 < 2 ? y2 : x2;
-      return (h1 & 1 ? -u2 : u2) + (h1 & 2 ? -v2 * 2 : v2 * 2);
-    };
-    const ga = getGrad(a, fx, fy);
-    const gb = getGrad(b, fx - 1, fy);
-    const gc = getGrad(c, fx, fy - 1);
-    const gd = getGrad(d2, fx - 1, fy - 1);
-    const u = fade(fx);
-    const v = fade(fy);
-    const result = (1 - u) * ((1 - v) * ga + v * gc) + u * ((1 - v) * gb + v * gd);
-    return (result + 1) * 0.5;
-  }
-  fbm(x, y, octaves = 6, lacunarity = 2, persistence = 0.5, seed = 12345) {
-    let total = 0;
-    let frequency = 0.005;
-    let amplitude = 1;
-    let maxValue = 0;
-    for (let i = 0;i < octaves; i++) {
-      total += this.noise2D(x * frequency, y * frequency, seed + i * 1000) * amplitude;
-      maxValue += amplitude;
-      frequency *= lacunarity;
-      amplitude *= persistence;
-    }
-    return total / maxValue;
-  }
-  treeNoiseValue(x, y, biomeScale = 1, foliageType = "mixed") {
-    const biomeNoise = this.fbm(x, y, 3, 2, 0.5, 42);
-    const terrainNoise = this.fbm(x, y, 4, 2, 0.5, 123);
-    const detailNoise = this.fbm(x, y, 6, 2.2, 0.6, 987);
-    const combinedNoise = biomeNoise * 0.4 + terrainNoise * 0.4 + detailNoise * 0.2;
-    const scaledNoise = combinedNoise * biomeScale;
-    let treeType;
-    if (foliageType === "pine") {
-      treeType = "pine";
-    } else if (foliageType === "round") {
-      treeType = "round";
-    } else {
-      const typeNoise = this.fbm(x, y, 2, 2.5, 0.5, 789);
-      treeType = typeNoise > 0.5 ? "pine" : "round";
-    }
-    return {
-      value: scaledNoise,
-      type: treeType
-    };
-  }
-  createTreeFromNoise(x, z, densityThreshold, scaleBase, biomeScale, foliageType) {
-    const noise = this.treeNoiseValue(x, z, biomeScale, foliageType);
-    if (noise.value > densityThreshold) {
-      const scale = scaleBase + this.fbm(x, z, 3, 2, 0.5, 555) * 0.5;
-      if (noise.type === "pine") {
-        this.createPineTree(scale, x, z);
-      } else {
-        this.createRoundTree(scale, x, z);
-      }
-    }
-  }
   generateTrees() {
-    this.createCircleOfTrees(30, 10, "pine");
-    this.createCircleOfTrees(45, 12, "round");
-    this.createCircleOfTrees(60, 16, "pine");
-    this.createSacredGrove(200, 200, 40, 12);
-    this.createSacredGrove(-200, -200, 40, 12);
-    this.createSacredGrove(200, -200, 40, 12);
-    this.createSacredGrove(-200, 200, 40, 12);
-    for (let x = -400;x <= 400; x += 20) {
-      for (let z = 400;z <= 800; z += 20) {
-        this.createTreeFromNoise(x, z, 0.55, 1.2, 1.2, "pine");
+    if (this.serverMapData && this.serverMapData.trees) {
+      console.log("Using server-provided tree data");
+      const trees = Array.isArray(this.serverMapData.trees) ? this.serverMapData.trees : this.serverMapData.trees.trees || [];
+      console.log("Trees to render:", trees.length);
+      for (const tree of trees) {
+        const { position, type, scale } = tree;
+        if (type === "pine") {
+          this.createPineTree(scale, position.x, position.z);
+        } else if (type === "round") {
+          this.createRoundTree(scale, position.x, position.z);
+        }
       }
-    }
-    for (let x = -400;x <= 400; x += 20) {
-      for (let z = -800;z <= -400; z += 20) {
-        this.createTreeFromNoise(x, z, 0.6, 1, 1.1, "round");
-      }
-    }
-    for (let x = 400;x <= 800; x += 25) {
-      for (let z = -400;z <= 400; z += 25) {
-        this.createTreeFromNoise(x, z, 0.65, 1.1, 0.9, "mixed");
-      }
-    }
-    for (let x = -800;x <= -400; x += 25) {
-      for (let z = -400;z <= 400; z += 25) {
-        this.createTreeFromNoise(x, z, 0.65, 1.1, 0.9, "mixed");
-      }
-    }
-    for (let z = -1000;z <= 1000; z += 30) {
-      this.createPineTree(1.5, -15, z);
-      this.createPineTree(1.5, 15, z);
-    }
-    for (let x = -1000;x <= 1000; x += 30) {
-      this.createRoundTree(1.3, x, -15);
-      this.createRoundTree(1.3, x, 15);
-    }
-    this.createPineTree(4, 0, 100);
-    for (let i = 0;i < 8; i++) {
-      const angle = i / 8 * Math.PI * 2;
-      this.createRoundTree(2.5, Math.cos(angle) * 120, Math.sin(angle) * 120);
-    }
-    for (let i = 0;i < 40; i++) {
-      const angle = i * 0.5;
-      const radius = 100 + i * 5;
-      this.createPineTree(1 + i * 0.05, Math.cos(angle) * radius, Math.sin(angle) * radius);
-    }
-    for (let x = -600;x <= -300; x += 30) {
-      for (let z = 300;z <= 600; z += 30) {
-        this.createTreeFromNoise(x, z, 0.75, 1.3, 0.8, "mixed");
-      }
-    }
-    for (let x = 300;x <= 600; x += 30) {
-      for (let z = -600;z <= -300; z += 30) {
-        this.createTreeFromNoise(x, z, 0.75, 1.3, 0.8, "mixed");
-      }
+    } else {
+      console.log("No server tree data available");
     }
   }
   getTreeColliders() {
@@ -28286,6 +28152,7 @@ class RockGenerator {
   rockColliders = [];
   rockMaterial;
   darkRockMaterial;
+  serverMapData = null;
   constructor(scene) {
     this.scene = scene;
     this.rockMaterial = new MeshStandardMaterial({
@@ -28299,46 +28166,8 @@ class RockGenerator {
       metalness: 0.3
     });
   }
-  noise2D(x, y, seed = 12345) {
-    const permute = (i) => {
-      return (i * 34 + seed * 6547 + 12345) % 289;
-    };
-    const ix = Math.floor(x);
-    const iy = Math.floor(y);
-    const fx = x - ix;
-    const fy = y - iy;
-    const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
-    const a = permute(ix) + permute(iy);
-    const b = permute(ix + 1) + permute(iy);
-    const c = permute(ix) + permute(iy + 1);
-    const d2 = permute(ix + 1) + permute(iy + 1);
-    const getGrad = (h, x2, y2) => {
-      const h1 = h % 4;
-      let u2 = h1 < 2 ? x2 : y2;
-      let v2 = h1 < 2 ? y2 : x2;
-      return (h1 & 1 ? -u2 : u2) + (h1 & 2 ? -v2 * 2 : v2 * 2);
-    };
-    const ga = getGrad(a, fx, fy);
-    const gb = getGrad(b, fx - 1, fy);
-    const gc = getGrad(c, fx, fy - 1);
-    const gd = getGrad(d2, fx - 1, fy - 1);
-    const u = fade(fx);
-    const v = fade(fy);
-    const result = (1 - u) * ((1 - v) * ga + v * gc) + u * ((1 - v) * gb + v * gd);
-    return (result + 1) * 0.5;
-  }
-  fbm(x, y, octaves = 6, lacunarity = 2, persistence = 0.5, seed = 12345) {
-    let total = 0;
-    let frequency = 0.005;
-    let amplitude = 1;
-    let maxValue = 0;
-    for (let i = 0;i < octaves; i++) {
-      total += this.noise2D(x * frequency, y * frequency, seed + i * 1000) * amplitude;
-      maxValue += amplitude;
-      frequency *= lacunarity;
-      amplitude *= persistence;
-    }
-    return total / maxValue;
+  setServerMapData(mapData) {
+    this.serverMapData = mapData;
   }
   createRock(size, deformSeed, x, y, z, rotation, scale, material, colliderPosition) {
     const rockGeometry = new DodecahedronGeometry(size, 0);
@@ -28563,136 +28392,39 @@ class RockGenerator {
     const rockCollider = new StaticCollider2(colliderPosition, "rock", radius * 0.8);
     this.rockColliders.push(rockCollider);
   }
-  rockNoiseValue(x, y, biomeScale = 1, heightScale = 1) {
-    const mountainRangeNoise = this.fbm(x, y, 2, 2, 0.5, 234);
-    const formationNoise = this.fbm(x, y, 3, 2.2, 0.5, 567);
-    const clusterNoise = this.fbm(x, y, 4, 2.5, 0.6, 789);
-    const combinedNoise = mountainRangeNoise * 0.5 + formationNoise * 0.3 + clusterNoise * 0.2;
-    const scaledNoise = combinedNoise * biomeScale;
-    const sizeNoise = this.fbm(x, y, 2, 2, 0.5, 987);
-    const size = (0.7 + sizeNoise * 1.3) * biomeScale;
-    const heightNoise = this.fbm(x, y, 3, 1.8, 0.6, 654);
-    const height = (0.5 + heightNoise * 0.8) * heightScale;
-    const typeNoise = this.fbm(x, y, 2, 2.5, 0.5, 321);
-    const type = typeNoise > 0.5 ? "standard" : "dark";
-    return {
-      value: scaledNoise,
-      size,
-      height,
-      type
-    };
-  }
-  createRockFormationFromNoise(x, z, densityThreshold, biomeScale = 1, heightScale = 1, formationType = "cluster") {
-    const noise = this.rockNoiseValue(x, z, biomeScale, heightScale);
-    if (noise.value > densityThreshold) {
-      const seed = Math.floor((x * 1000 + z) * noise.value);
-      if (formationType === "cluster") {
-        this.createRockCluster(x, z, seed);
-      } else if (formationType === "spire" && noise.value > densityThreshold + 0.1) {
-        const spireHeight = 5 + noise.height * 15;
-        this.createRockSpire(x, z, spireHeight, seed);
-      } else if (formationType === "mountain" && noise.value > densityThreshold + 0.2) {
-        if (this.fbm(x, z, 2, 2, 0.5, 111) > 0.75) {
-          this.createMountainPeak(x, z, 80 + noise.height * 150, 40 + noise.size * 60, seed);
-        } else if (this.fbm(x, z, 2, 2, 0.5, 222) > 0.85) {
-          this.createBalancedRocks(x, z, 10 + noise.height * 10, seed);
-        } else {
-          this.createRockArch(x, z, 10 + noise.size * 20, 5 + noise.height * 10, 5 + noise.size * 10, this.fbm(x, z, 1, 1, 0.5, 333) * Math.PI * 2, seed);
-        }
-      }
-    }
-  }
-  createSmallRockFromNoise(x, z, densityThreshold, biomeScale = 1) {
-    const noise = this.rockNoiseValue(x, z, biomeScale, 1);
-    if (noise.value > densityThreshold) {
-      const size = 0.3 + noise.size * 0.7;
-      const y = 0.2 + noise.height * 0.6;
-      const seed = Math.floor((x * 1000 + z) * noise.value);
-      const rotX = Math.sin(seed * 0.1) * Math.PI;
-      const rotY = Math.cos(seed * 0.2) * Math.PI;
-      const rotZ = Math.sin(seed * 0.3) * Math.PI;
-      const scaleX = 0.8 + this.fbm(x, z, 2, 2, 0.5, 444) * 0.4;
-      const scaleY = 0.8 + this.fbm(x, z, 2, 2, 0.5, 555) * 0.4;
-      const scaleZ = 0.8 + this.fbm(x, z, 2, 2, 0.5, 666) * 0.4;
-      const material = noise.type === "standard" ? this.rockMaterial : this.darkRockMaterial;
-      this.createRock(size, seed, x, y, z, new Vector3(rotX, rotY, rotZ), new Vector3(scaleX, scaleY, scaleZ), material);
-    }
-  }
   createRocks() {
-    for (let i = 0;i < 8; i++) {
-      const angle = i / 8 * Math.PI * 2;
-      const x = Math.cos(angle) * 20;
-      const z = Math.sin(angle) * 20;
-      this.createRockCluster(x, z, i);
-    }
-    for (let i = 0;i < 4; i++) {
-      const x = i < 2 ? -100 : 100;
-      const z = i % 2 === 0 ? -100 : 100;
-      this.createRockCluster(x, z, i + 10);
-    }
-    for (let x = -400;x <= 400; x += 30) {
-      for (let z = 280;z <= 400; z += 30) {
-        this.createRockFormationFromNoise(x, z, 0.65, 1.2, 1.1, "cluster");
-      }
-    }
-    for (let x = -350;x <= 350; x += 60) {
-      for (let z = 420;z <= 550; z += 60) {
-        this.createRockFormationFromNoise(x, z, 0.7, 1, 1.2, "mountain");
-      }
-    }
-    for (let x = 280;x <= 400; x += 30) {
-      for (let z = -400;z <= 400; z += 30) {
-        this.createRockFormationFromNoise(x, z, 0.65, 1.2, 1.1, "cluster");
-      }
-    }
-    for (let x = 420;x <= 550; x += 60) {
-      for (let z = -350;z <= 350; z += 60) {
-        this.createRockFormationFromNoise(x, z, 0.7, 1, 1.2, "mountain");
-      }
-    }
-    for (let x = -400;x <= 400; x += 30) {
-      for (let z = -400;z >= -550; z -= 30) {
-        this.createRockFormationFromNoise(x, z, 0.68, 0.9, 0.9, "cluster");
-      }
-    }
-    for (let x = -400;x >= -550; x -= 30) {
-      for (let z = -400;z <= 400; z += 30) {
-        this.createRockFormationFromNoise(x, z, 0.68, 0.9, 0.9, "cluster");
-      }
-    }
-    for (let x = -600;x <= 600; x += 150) {
-      for (let z = -600;z <= 600; z += 150) {
-        this.createRockFormationFromNoise(x + this.fbm(x, z, 2, 2, 0.5, 777) * 50 - 25, z + this.fbm(z, x, 2, 2, 0.5, 888) * 50 - 25, 0.75, 0.8, 1.3, "spire");
-      }
-    }
-    this.createStoneCircle(500, 500, 50, 12, 400);
-    this.createStoneCircle(-500, 500, 50, 12, 500);
-    this.createStoneCircle(500, -500, 50, 12, 600);
-    this.createStoneCircle(-500, -500, 50, 12, 700);
-    const gridSize = 100;
-    for (let x = -800;x <= 800; x += gridSize) {
-      for (let z = -800;z <= 800; z += gridSize) {
-        for (let i = 0;i < 5; i++) {
-          const offsetX = this.fbm(x + i, z, 2, 2, 0.5, 999 + i) * gridSize;
-          const offsetZ = this.fbm(x, z + i, 2, 2, 0.5, 1000 + i) * gridSize;
-          this.createSmallRockFromNoise(x + offsetX, z + offsetZ, 0.72, 0.9);
+    if (this.serverMapData && this.serverMapData.rocks && this.serverMapData.rocks.length > 0) {
+      console.log("Using server-provided rock data");
+      const rocks = this.serverMapData.rocks;
+      for (const rock of rocks) {
+        const { position, type, size, rotation, scale } = rock;
+        const rockGeometry = new DodecahedronGeometry(size, 0);
+        const positions = rockGeometry.attributes.position;
+        const deformSeed = Math.random() * 100;
+        for (let j = 0;j < positions.count; j++) {
+          const vx = positions.getX(j);
+          const vy = positions.getY(j);
+          const vz = positions.getZ(j);
+          const xFactor = 0.8 + Math.sin(vx * deformSeed) * 0.2;
+          const yFactor = 0.8 + Math.cos(vy * deformSeed) * 0.2;
+          const zFactor = 0.8 + Math.sin(vz * deformSeed) * 0.2;
+          positions.setX(j, vx * xFactor);
+          positions.setY(j, vy * yFactor);
+          positions.setZ(j, vz * zFactor);
         }
+        const material = type === "standard" ? this.rockMaterial : this.darkRockMaterial;
+        const rockMesh = new Mesh(rockGeometry, material);
+        rockMesh.position.set(position.x, position.y, position.z);
+        rockMesh.rotation.set(rotation.x, rotation.y, rotation.z);
+        rockMesh.scale.set(scale.x, scale.y, scale.z);
+        rockMesh.castShadow = true;
+        rockMesh.receiveShadow = true;
+        this.scene.add(rockMesh);
+        const rockCollider = new StaticCollider2(new Vector3(position.x, position.y, position.z), "rock", rock.radius);
+        this.rockColliders.push(rockCollider);
       }
-    }
-    for (let x = -600;x <= 600; x += 200) {
-      for (let z = -600;z <= 600; z += 200) {
-        const ridgeNoise = this.fbm(x, z, 3, 2, 0.5, 123);
-        if (ridgeNoise > 0.6) {
-          const angle = this.fbm(x, z, 2, 2, 0.5, 456) * Math.PI * 2;
-          const length = 50 + this.fbm(x, z, 2, 2, 0.5, 789) * 100;
-          const startX = x - Math.cos(angle) * length / 2;
-          const startZ = z - Math.sin(angle) * length / 2;
-          const endX = x + Math.cos(angle) * length / 2;
-          const endZ = z + Math.sin(angle) * length / 2;
-          const height = 5 + this.fbm(x, z, 2, 2, 0.5, 321) * 10;
-          this.createRockWall(startX, startZ, endX, endZ, height, Math.floor(x * z));
-        }
-      }
+    } else {
+      console.log("No server rock data available");
     }
   }
   createRockFormation() {
@@ -29134,12 +28866,28 @@ class MapGenerator {
   treeGenerator;
   rockGenerator;
   mountainGenerator;
-  constructor(scene) {
+  serverMapData = null;
+  constructor(scene, serverMapData) {
     this.scene = scene;
     this.treeGenerator = new TreeGenerator(scene);
     this.rockGenerator = new RockGenerator(scene);
     this.mountainGenerator = new MountainGenerator(scene);
+    if (serverMapData) {
+      try {
+        this.serverMapData = JSON.parse(serverMapData);
+        console.log("Server map data loaded", this.serverMapData);
+        if (this.serverMapData.trees) {
+          this.treeGenerator.setServerMapData(this.serverMapData.trees);
+        }
+        if (this.serverMapData.rocks) {
+          this.rockGenerator.setServerMapData(this.serverMapData.rocks);
+        }
+      } catch (e) {
+        console.error("Error parsing server map data:", e);
+      }
+    }
     this.treeGenerator.generateTrees();
+    this.rockGenerator.createRocks();
   }
   noise2D(x, y, seed = 12345) {
     const permute = (i) => {
@@ -33363,6 +33111,7 @@ class GameComponent extends LitElement {
   constructor() {
     super(...arguments);
     this.playerId = "";
+    this.mapData = "";
   }
   _gameState = "";
   get gameState() {
@@ -33434,6 +33183,10 @@ class GameComponent extends LitElement {
       playerId: {
         type: String,
         attribute: "player-id"
+      },
+      mapData: {
+        type: String,
+        attribute: "map-data"
       }
     };
   }
@@ -34785,7 +34538,7 @@ class GameComponent extends LitElement {
     ground.name = "ground";
     this.scene.add(ground);
     this.groundMaterial = grassMaterial;
-    this.mapGenerator = new MapGenerator(this.scene);
+    this.mapGenerator = new MapGenerator(this.scene, this.mapData);
     this.createTrees();
     this.createRocks();
     const spawnPoint = this.findRandomSpawnPoint();
@@ -35455,6 +35208,9 @@ __legacyDecorateClassTS([
 __legacyDecorateClassTS([
   property({ type: String, attribute: "player-id" })
 ], GameComponent.prototype, "playerId", undefined);
+__legacyDecorateClassTS([
+  property({ type: String, attribute: "map-data" })
+], GameComponent.prototype, "mapData", undefined);
 __legacyDecorateClassTS([
   property({ attribute: false })
 ], GameComponent.prototype, "scene", undefined);
