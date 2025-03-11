@@ -296,27 +296,85 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 				Z: offsetZ,
 			}
 		}
+		
+		// Update timestamp to ensure state propagation
+		player.Timestamp = m.getTime()
 
 		// Save updated player back to game state
 		m.state.Players[respawnData.PlayerID] = player
+
+		log.Printf("✅ RESPAWN: Tank %s respawned with health=%d, destroyed=%v at position (%f, %f, %f)",
+			respawnData.PlayerID,
+			player.Health, 
+			player.IsDestroyed,
+			player.Position.X,
+			player.Position.Y,
+			player.Position.Z)
 
 		m.mutex.Unlock()
 
 		// Save to KV store
 		if err := m.saveState(); err != nil {
 			log.Printf("Error saving game state after tank respawn: %v", err)
+			return err
 		}
-
-		log.Printf("Tank %s respawned at position (%f, %f, %f)",
-			respawnData.PlayerID,
-			player.Position.X,
-			player.Position.Y,
-			player.Position.Z)
 
 		return nil
 	} else {
+		// Player not found, create a new one
+		log.Printf("Player %s not found for respawn, creating new entry", respawnData.PlayerID)
+		
+		// Random offset for respawn position or use provided position
+		var position Position
+		if (respawnData.Position != Position{}) {
+			position = respawnData.Position
+		} else {
+			// Random offset for respawn position
+			offsetX := -20.0 + rand.Float64()*40.0
+			offsetZ := -20.0 + rand.Float64()*40.0
+
+			position = Position{
+				X: offsetX,
+				Y: 0,
+				Z: offsetZ,
+			}
+		}
+		
+		// Create new player state
+		playerName := "Player"
+		if respawnData.PlayerID != "" {
+			playerName = "Player: " + respawnData.PlayerID[:6]
+		}
+		
+		// Create new player
+		newPlayer := PlayerState{
+			ID:          respawnData.PlayerID,
+			Name:        playerName,
+			Position:    position,
+			Health:      100,
+			IsDestroyed: false,
+			Timestamp:   m.getTime(),
+			Color:       m.getPlayerColor(respawnData.PlayerID),
+		}
+		
+		// Add to game state
+		m.state.Players[respawnData.PlayerID] = newPlayer
+		
+		log.Printf("✅ RESPAWN: Created new tank for %s with health=100 at position (%f, %f, %f)",
+			respawnData.PlayerID,
+			position.X,
+			position.Y,
+			position.Z)
+		
 		m.mutex.Unlock()
-		return fmt.Errorf("player %s not found for respawn", respawnData.PlayerID)
+		
+		// Save to KV store
+		if err := m.saveState(); err != nil {
+			log.Printf("Error saving game state after new player creation: %v", err)
+			return err
+		}
+		
+		return nil
 	}
 }
 

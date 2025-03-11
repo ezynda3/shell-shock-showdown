@@ -23,19 +23,19 @@ type ShellPhysics struct {
 
 // NewShellPhysics creates a new shell physics calculator
 func NewShellPhysics() *ShellPhysics {
-	// Create new physics object with extremely large collision radius to match game scale
+	// Create new physics object with appropriate collision radius for game scale (5000x5000 world)
 	physics := &ShellPhysics{
 		GRAVITY:          0.005,  // Gravity effect per update
 		AIR_RESISTANCE:   0.001,  // Air resistance coefficient
 		MAX_LIFETIME:     20000,  // 20 seconds
-		COLLISION_RADIUS: 50.0,   // Extremely large radius based on observed world distances
+		COLLISION_RADIUS: 20.0,   // Shell collision radius adjusted to game scale - increased for larger world
 		WIND_X:           0.0005,
 		WIND_Z:           0.0005,
 	}
 
 	// Log the collision parameters
-	log.Printf("🔧 PHYSICS: Initialized shell physics with: Shell radius=%.2f, Tank radius=1.5, Combined=%.2f",
-		physics.COLLISION_RADIUS, physics.COLLISION_RADIUS+1.5)
+	log.Printf("🔧 PHYSICS: Initialized shell physics with: Shell radius=%.2f, Tank radius=20.0, Combined=%.2f",
+		physics.COLLISION_RADIUS, physics.COLLISION_RADIUS+20.0)
 
 	return physics
 }
@@ -143,8 +143,8 @@ func (sp *ShellPhysics) DetailedCollisionCheck(shell game.ShellState, tank game.
 	// Use squared distance for efficiency in collision check
 	distanceSquared := dx*dx + dy*dy + dz*dz
 
-	// Increased tank collision radius to match game scale
-	tankRadius := 50.0
+	// Tank collision radius based on actual tank size in game (increased for better hit detection)
+	tankRadius := 20.0
 
 	// Calculate the squared sum of radii
 	sumRadiiSquared := (sp.COLLISION_RADIUS + tankRadius) * (sp.COLLISION_RADIUS + tankRadius)

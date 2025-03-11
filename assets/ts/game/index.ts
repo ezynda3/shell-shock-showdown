@@ -1210,6 +1210,8 @@ export class GameComponent extends LitElement {
       respawnData.playerId = this.playerId;
     }
     
+    console.log(`Tank respawn event for player ${respawnData.playerId} at position:`, respawnData.position);
+    
     // Create a custom event using the new consolidated format
     const gameEvent = new CustomEvent('game-event', { 
       detail: {
@@ -1224,6 +1226,17 @@ export class GameComponent extends LitElement {
     
     // Dispatch the event to be sent to the server
     this.dispatchEvent(gameEvent);
+    
+    // Force the player update to ensure server knows the player is respawned
+    if (this.playerTank && respawnData.playerId === this.playerId) {
+      // Set player health to max
+      this.playerTank.setHealth(100);
+      
+      // Update player state on server immediately with full health
+      this.broadcastPlayerState();
+      
+      console.log('Forced player state update after respawn to ensure health is restored');
+    }
   }
   
   // Handle shell fired events from player tank

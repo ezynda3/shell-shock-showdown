@@ -110,8 +110,8 @@ func (c *NPCController) SpawnNPC(name string, movementPattern MovementPattern) *
 		TankRotation:   rand.Float64() * 2 * math.Pi,
 		TurretRotation: rand.Float64() * 2 * math.Pi,
 		Health:         100,
-		IsMoving:       false,
-		Velocity:       0,
+		IsMoving:       true,     // Start moving immediately
+		Velocity:       1.5,      // Higher initial velocity
 		Timestamp:      time.Now().UnixMilli(),
 		Color:          c.manager.getPlayerColor(npcID),
 		IsDestroyed:    false,
@@ -139,8 +139,8 @@ func (c *NPCController) SpawnNPC(name string, movementPattern MovementPattern) *
 		CurrentPoint:    0,
 		LastUpdate:      time.Now(),
 		LastFire:        time.Now(),
-		FireCooldown:    time.Duration(2+rand.Float64()*3) * time.Second, // 2-5 second cooldown
-		ScanRadius:      150.0,                                           // How far the NPC can see other tanks
+		FireCooldown:    time.Duration(1+rand.Float64()*2) * time.Second, // 1-3 second cooldown (more aggressive)
+		ScanRadius:      250.0,                                           // Larger detection radius
 		IsActive:        true,
 	}
 
@@ -332,11 +332,8 @@ func (c *NPCController) updateMovement(npc *NPCTank, state *PlayerState) {
 
 // moveInCircle makes the NPC move in a circular pattern
 func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
-	// SIMPLIFIED MOVEMENT - Just move forward and turn slightly
-	// This ensures NPCs will definitely move instead of getting stuck in complex logic
-
 	// Fixed speed that's guaranteed to move
-	speed := 1.0
+	speed := 2.0 // Faster movement
 
 	// Gradually turn (simple circle approximation)
 	turnAmount := 0.01 * speed
@@ -349,23 +346,28 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 	state.IsMoving = true
 	state.Velocity = speed
 
+	// IMPORTANT: Actually update the position based on rotation and velocity
+	// Calculate movement vector based on tank rotation
+	moveX := math.Cos(state.TankRotation) * speed
+	moveZ := math.Sin(state.TankRotation) * speed
+	
+	// Update position by applying movement vector
+	state.Position.X += moveX
+	state.Position.Z += moveZ
+	
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Printf("NPC tank moving in circle: rotation=%f, velocity=%f",
-			state.TankRotation, state.Velocity)
+		log.Printf("NPC tank %s moving in circle: pos=(%.2f,%.2f), rotation=%.2f, velocity=%.2f", 
+			npc.ID, state.Position.X, state.Position.Z, state.TankRotation, state.Velocity)
 	}
 }
 
 // moveInZigzag makes the NPC move in a zigzag pattern
 func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
-	// SIMPLIFIED ZIGZAG MOVEMENT
-	// Make the tank change direction occasionally rather than complex oscillation
-
 	// Get current time for basic oscillation
 	now := float64(time.Now().UnixNano()) / 1e9
 
-	// Just use the sine of time to change direction
-	// This creates a simple zigzag without complex calculations
+	// Use sine of time to change direction for zigzag motion
 	oscillation := math.Sin(now*2.0) * 0.1
 
 	// Apply the oscillation to the tank's rotation
@@ -373,12 +375,22 @@ func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
 
 	// Always be moving
 	state.IsMoving = true
-	state.Velocity = 1.0
+	state.Velocity = 2.0 // Faster movement
+	speed := state.Velocity
 
+	// IMPORTANT: Actually update the position based on rotation and velocity
+	// Calculate movement vector based on tank rotation
+	moveX := math.Cos(state.TankRotation) * speed
+	moveZ := math.Sin(state.TankRotation) * speed
+	
+	// Update position by applying movement vector
+	state.Position.X += moveX
+	state.Position.Z += moveZ
+	
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Printf("NPC tank moving in zigzag: rotation=%f, velocity=%f, oscillation=%f",
-			state.TankRotation, state.Velocity, oscillation)
+		log.Printf("NPC tank %s moving in zigzag: pos=(%.2f,%.2f), rotation=%.2f, oscillation=%.2f", 
+			npc.ID, state.Position.X, state.Position.Z, state.TankRotation, oscillation)
 	}
 }
 
@@ -388,6 +400,14 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 		// If no patrol points, just move forward
 		state.IsMoving = true
 		state.Velocity = 1.0
+		speed := state.Velocity
+		
+		// IMPORTANT: Actually update the position based on rotation and velocity
+		moveX := math.Cos(state.TankRotation) * speed
+		moveZ := math.Sin(state.TankRotation) * speed
+		
+		state.Position.X += moveX
+		state.Position.Z += moveZ
 		return
 	}
 
@@ -403,51 +423,101 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 	if dist < 5.0 {
 		// Move to next patrol point
 		npc.CurrentPoint = (npc.CurrentPoint + 1) % len(npc.PatrolPoints)
-		log.Printf("NPC tank reached patrol point, moving to next point")
+		log.Printf("NPC tank %s reached patrol point, moving to next point %d", 
+			npc.ID, npc.CurrentPoint)
 	}
 
 	// Calculate angle to target
 	targetAngle := math.Atan2(dz, dx)
 
-	// Simple direct turning - no gradual turns
-	state.TankRotation = targetAngle
-
+	// Turn gradually toward target angle
+	currentAngle := state.TankRotation
+	angleDiff := normalizeAngle(targetAngle - currentAngle)
+	
+	// Turn at most 0.05 radians per update
+	if math.Abs(angleDiff) > 0.05 {
+		if angleDiff > 0 {
+			state.TankRotation += 0.05
+		} else {
+			state.TankRotation -= 0.05
+		}
+	} else {
+		state.TankRotation = targetAngle
+	}
+	
 	// Always be moving
 	state.IsMoving = true
-	state.Velocity = 1.0
+	state.Velocity = 2.0 // Faster movement
+	speed := state.Velocity
 
+	// IMPORTANT: Actually update the position based on rotation and velocity
+	moveX := math.Cos(state.TankRotation) * speed
+	moveZ := math.Sin(state.TankRotation) * speed
+	
+	// Update position by applying movement vector
+	state.Position.X += moveX
+	state.Position.Z += moveZ
+	
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Printf("NPC tank patrolling: rotation=%f, velocity=%f, distance to target=%f",
-			state.TankRotation, state.Velocity, dist)
+		log.Printf("NPC tank %s patrolling: pos=(%.2f,%.2f), rotation=%.2f, target=(%.2f,%.2f), dist=%.2f", 
+			npc.ID, state.Position.X, state.Position.Z, state.TankRotation, 
+			target.X, target.Z, dist)
 	}
 }
 
 // moveRandomly makes the NPC move randomly
 func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
-	// SIMPLIFIED RANDOM MOVEMENT
-
 	// Occasionally change direction (20% chance per update)
 	if rand.Float64() < 0.2 {
 		// Random rotation change between -PI/4 and PI/4 (45 degrees)
 		rotationChange := (rand.Float64() - 0.5) * math.Pi / 2
 		state.TankRotation += rotationChange
 
+		// Normalize angle
+		state.TankRotation = normalizeAngle(state.TankRotation)
+
 		// Log direction changes occasionally
 		if rand.Float64() < 0.1 {
-			log.Printf("NPC %s randomly changing direction: rotation=%f, change=%f",
+			log.Printf("NPC %s randomly changing direction: rotation=%.2f, change=%.2f",
 				npc.ID, state.TankRotation, rotationChange)
 		}
 	}
 
 	// Always be moving
 	state.IsMoving = true
-	state.Velocity = 1.0
+	state.Velocity = 2.0 // Faster movement
+	speed := state.Velocity
+
+	// IMPORTANT: Actually update the position based on rotation and velocity
+	moveX := math.Cos(state.TankRotation) * speed
+	moveZ := math.Sin(state.TankRotation) * speed
+	
+	// Update position by applying movement vector
+	state.Position.X += moveX
+	state.Position.Z += moveZ
+	
+	// Boundary checking - keep NPCs within reasonable game area
+	const MAP_BOUND = 250.0  // 250 unit radius around center
+	
+	// If we're getting too far from center, turn back
+	distFromCenter := math.Sqrt(state.Position.X*state.Position.X + state.Position.Z*state.Position.Z)
+	if distFromCenter > MAP_BOUND {
+		// Calculate angle toward center
+		centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
+		
+		// Turn toward center
+		state.TankRotation = centerAngle
+		
+		// Log boundary correction
+		log.Printf("NPC %s reached map boundary (dist=%.2f), turning back toward center", 
+			npc.ID, distFromCenter)
+	}
 
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Printf("NPC %s moving randomly: rotation=%f, velocity=%f",
-			npc.ID, state.TankRotation, state.Velocity)
+		log.Printf("NPC %s moving randomly: pos=(%.2f,%.2f), rotation=%.2f, velocity=%.2f",
+			npc.ID, state.Position.X, state.Position.Z, state.TankRotation, state.Velocity)
 	}
 }
 
@@ -457,7 +527,7 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 
 	// Find any potential target, even without formal targeting
 	var nearestTarget *PlayerState
-	var nearestDistance float64 = 150.0 // Maximum target range
+	var nearestDistance float64 = 250.0 // Increased maximum target range
 
 	for playerID, player := range gameState.Players {
 		// Skip self, other NPCs, and destroyed tanks
@@ -494,11 +564,11 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 		state.BarrelElevation = 0.2
 
 		// FIRE MORE AGGRESSIVELY - More frequent shots
-		// Use a fixed short cooldown rather than variable
-		cooledDown := time.Since(npc.LastFire) > 3*time.Second
+		// Use the NPC's individual fire cooldown
+		cooledDown := time.Since(npc.LastFire) > npc.FireCooldown
 
-		// Fire if cooldown has expired
-		if cooledDown && nearestDistance < 100 {
+		// Fire if cooldown has expired - increased firing range
+		if cooledDown && nearestDistance < 200 {
 			// Prepare shell data
 			shellData := ShellData{
 				Position: state.Position,
@@ -507,7 +577,7 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 					Y: math.Sin(state.BarrelElevation),
 					Z: math.Sin(state.TurretRotation),
 				},
-				Speed: 3.0,
+				Speed: 5.0, // Faster shells
 			}
 
 			// Log firing attempt

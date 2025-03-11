@@ -33947,6 +33947,7 @@ class GameComponent extends LitElement {
     if (respawnData.playerId === "player") {
       respawnData.playerId = this.playerId;
     }
+    console.log(`Tank respawn event for player ${respawnData.playerId} at position:`, respawnData.position);
     const gameEvent = new CustomEvent("game-event", {
       detail: {
         type: "TANK_RESPAWN",
@@ -33958,6 +33959,11 @@ class GameComponent extends LitElement {
       composed: true
     });
     this.dispatchEvent(gameEvent);
+    if (this.playerTank && respawnData.playerId === this.playerId) {
+      this.playerTank.setHealth(100);
+      this.broadcastPlayerState();
+      console.log("Forced player state update after respawn to ensure health is restored");
+    }
   }
   handleShellFired(event) {
     if (event.detail.isNetworkEvent) {

@@ -50,7 +50,7 @@ func (pm *PhysicsManager) UpdateTank(tank *game.PlayerState) {
 	// Check for collisions with other tanks
 	for id, otherTank := range pm.tanks {
 		if id != tank.ID && !otherTank.IsDestroyed {
-			if pm.checkCollision(tank.Position, 1.5, otherTank.Position, 1.5) {
+			if pm.checkCollision(tank.Position, 5.0, otherTank.Position, 5.0) {
 				log.Printf("COLLISION: Tank %s (%s) collided with tank %s (%s)",
 					tank.ID, tank.Name, id, otherTank.Name)
 			}
@@ -122,7 +122,7 @@ func (pm *PhysicsManager) UpdateShells(shells []game.ShellState) {
 func (pm *PhysicsManager) checkShellCollisions() {
 	// Base damage amount
 	const baseDamage = 25 // Base damage per hit
-	const tankRadius = 50.0 // Significantly increased for game world scale
+	const tankRadius = 20.0 // Tank radius increased for better hit detection
 
 	// Clear previous hits
 	pm.hits = pm.hits[:0]
