@@ -4,3 +4,4 @@ bin/
 .aider*
 **/*.txt
 tmp/
+.gitigore
