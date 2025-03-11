@@ -97,7 +97,8 @@ func main() {
 	log.Println("==================================================\n")
 
 	// Reuse the gameMap variable from above
-	npcController := game.NewNPCController(gameManager, gameMap)
+	// Pass the physics manager to provide NPC tanks with targeting capabilities
+	npcController := game.NewNPCController(gameManager, gameMap, physics.PhysicsManagerInstance)
 	npcController.Start()
 
 	// Spawn 5 NPC tanks with different movement patterns

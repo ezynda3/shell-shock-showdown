@@ -3,10 +3,14 @@ package physics
 import (
 	"fmt"
 	"log"
+	"math"
 	"time"
 
 	"github.com/mark3labs/pro-saaskit/game"
+	"github.com/mark3labs/pro-saaskit/game/shared"
 )
+
+// We now use the shared.PhysicsManagerInterface defined in game/shared
 
 // PhysicsManager handles collision detection and physics calculations
 type PhysicsManager struct {
@@ -242,4 +246,56 @@ func (pm *PhysicsManager) Update() {
 // GetHits returns the detected hits since the last update
 func (pm *PhysicsManager) GetHits() []game.HitData {
 	return pm.hits
+}
+
+// CheckLineOfSight determines if there is a clear line of sight between two positions
+// Used by NPCs to determine if they can see and shoot at a target
+func (pm *PhysicsManager) CheckLineOfSight(fromPos, toPos shared.Position) bool {
+	// Calculate direction vector
+	dx := toPos.X - fromPos.X
+	dy := toPos.Y - fromPos.Y
+	dz := toPos.Z - fromPos.Z
+	
+	// Calculate distance
+	distance := math.Sqrt(dx*dx + dy*dy + dz*dz)
+	
+	// Normalize direction vector
+	if distance > 0 {
+		dx /= distance
+		dy /= distance
+		dz /= distance
+	}
+	
+	// Check for obstacles along the line of sight
+	// This is a simplified ray-casting approach
+	stepSize := 5.0 // Step size for checks along the ray
+	maxSteps := int(distance / stepSize) + 1
+	
+	// We'll sample at several points along the line
+	for step := 1; step < maxSteps; step++ {
+		// Calculate the point to check
+		checkDist := float64(step) * stepSize
+		if checkDist > distance {
+			checkDist = distance
+		}
+		
+		// Create check position (currently unused, but will be used in future enhancements)
+		// We're calculating this but not using it yet since we don't have obstacle data
+		_ = shared.Position{
+			X: fromPos.X + dx*checkDist,
+			Y: fromPos.Y + dy*checkDist,
+			Z: fromPos.Z + dz*checkDist,
+		}
+		
+		// Check for collisions with environment objects
+		// For simplicity, only check for terrain height or fixed obstacles
+		
+		// TODO: Add more sophisticated obstacle checks if needed
+		
+		// For now, return true as a basic implementation
+		// In a full implementation, we would check for terrain and obstacles
+	}
+	
+	// No obstacles found, there is line of sight
+	return true
 }

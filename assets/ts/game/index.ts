@@ -125,6 +125,9 @@ export class GameComponent extends LitElement {
         // Update local player health from server state if available
         this.updateLocalPlayerHealth();
         
+        // Update game stats with server data (kills, deaths, etc.)
+        this.updateStats();
+        
         // Use the player ID from the attribute, or generate one if not set
         if (!this.gameStateInitialized && this.playerTank) {
           if (!this.playerId) {
@@ -1318,6 +1321,21 @@ export class GameComponent extends LitElement {
       if (playerData.health <= 0 && !this.playerTank.isDestroyed) {
         console.log('Server reported player death, updating local state');
         // Tank's setHealth method will handle the destruction effects
+        
+        // Update client-side death state
+        this.playerDestroyed = true;
+        this.respawnTimer = 0;
+        this.showPlayerDeathEffects();
+      }
+      
+      // Check if the player was destroyed but is now alive (respawned by server)
+      if (playerData.health > 0 && !playerData.isDestroyed && this.playerDestroyed) {
+        console.log('Server reported player respawn, updating local state');
+        const spawnPoint = new THREE.Vector3(playerData.position.x, playerData.position.y, playerData.position.z);
+        this.playerTank.respawn(spawnPoint);
+        this.playerDestroyed = false;
+        this.respawnTimer = 0;
+        this.requestUpdate();
       }
       
       // Update UI stats if available
@@ -2804,9 +2822,12 @@ export class GameComponent extends LitElement {
       // It's an NPC tank or a remote player
       console.log('Tank destroyed!', { victimName, killerName });
       
-      // If destroyed by player, increment kill count and send event to server
+      // If destroyed by player, send event to server (server will update kill count)
       if (source === this.playerTank) {
-        this.playerKills++;
+        // Note: Kill count is now tracked on the server, not locally
+        // Local kill count will be updated from the server state later
+        console.log(`Player killed ${victimName}! Kill event sent to server.`);
+        // Still update the stats to show the visual notification
         this.updateStats();
         
         // Create death data
@@ -2993,9 +3014,30 @@ export class GameComponent extends LitElement {
     // Find stats component and update it
     const statsComponent = this.shadowRoot?.querySelector('game-stats');
     if (statsComponent) {
+      // Get player health
       const health = this.playerTank ? this.playerTank.getHealth() : 0;
+      
+      // Get player count
       const playerCount = this.multiplayerState?.players ? Object.keys(this.multiplayerState.players).length : 0;
-      (statsComponent as any).updateGameStats(health, this.playerKills, this.playerDeaths, playerCount);
+      
+      // Get kills and deaths from server game state if available
+      let kills = this.playerKills;
+      let deaths = this.playerDeaths;
+      
+      // If we have multiplayer state and our player exists in it, use server values
+      if (this.multiplayerState?.players && this.playerId && this.multiplayerState.players[this.playerId]) {
+        const playerState = this.multiplayerState.players[this.playerId];
+        kills = playerState.kills || 0;
+        deaths = playerState.deaths || 0;
+        
+        // Update local tracking variables to match server state
+        this.playerKills = kills;
+        this.playerDeaths = deaths;
+        
+        console.log(`Updated stats from server: Kills=${kills}, Deaths=${deaths}`);
+      }
+      
+      (statsComponent as any).updateGameStats(health, kills, deaths, playerCount);
     }
   }
   

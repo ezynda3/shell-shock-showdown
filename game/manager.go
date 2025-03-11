@@ -47,16 +47,15 @@ func NewManager(ctx context.Context, kv jetstream.KeyValue) (*Manager, error) {
 		getTime:        DefaultTimeStamper,
 	}
 
-	// Load initial state from KV
-	if err := manager.loadState(); err != nil {
-		// Only log the error, but don't fail initialization
-		log.Printf("Error loading initial game state: %v, starting with fresh state", err)
-
-		// Save initial state to KV
-		if err := manager.saveState(); err != nil {
-			return nil, fmt.Errorf("failed to save initial game state: %v", err)
-		}
+	// Always ensure we start with an empty players map
+	manager.state.Players = make(map[string]PlayerState)
+	
+	// Save initial empty state to KV
+	if err := manager.saveState(); err != nil {
+		return nil, fmt.Errorf("failed to save initial game state: %v", err)
 	}
+	
+	log.Printf("Game manager initialized with empty players map")
 
 	// Start background processes
 	go manager.runStateCleanup()
@@ -114,9 +113,11 @@ func (m *Manager) UpdatePlayer(update PlayerState, playerID string, playerName s
 			Z: offsetZ,
 		}
 
-		// Initialize health for new player
+		// Initialize health, kills and deaths for new player
 		update.Health = 100
 		update.IsDestroyed = false
+		update.Kills = 0
+		update.Deaths = 0
 	} else {
 		// If player exists, preserve their current health if not included in update
 		if update.Health == 0 {
@@ -127,6 +128,10 @@ func (m *Manager) UpdatePlayer(update PlayerState, playerID string, playerName s
 		if currentPlayer.IsDestroyed {
 			update.IsDestroyed = true
 		}
+		
+		// Preserve existing kills and deaths counts from current player state
+		update.Kills = currentPlayer.Kills
+		update.Deaths = currentPlayer.Deaths
 	}
 
 	// Update player state in game state
@@ -198,6 +203,16 @@ func (m *Manager) ProcessTankHit(hitData HitData) error {
 			if targetPlayer.Health <= 0 {
 				targetPlayer.Health = 0
 				targetPlayer.IsDestroyed = true
+				
+				// Increment target player's death count
+				targetPlayer.Deaths++
+
+				// Increment the source player's kill count if they exist
+				if sourcePlayer, sourceExists := m.state.Players[hitData.SourceID]; sourceExists {
+					sourcePlayer.Kills++
+					m.state.Players[hitData.SourceID] = sourcePlayer
+					log.Printf("Incremented kill count for player %s to %d", hitData.SourceID, sourcePlayer.Kills)
+				}
 
 				log.Printf("Tank %s destroyed by %s", hitData.TargetID, hitData.SourceID)
 			}
@@ -267,6 +282,34 @@ func (m *Manager) ProcessTankHit(hitData HitData) error {
 		return err
 	}
 	
+	// Check if this was a killing hit
+	m.mutex.RLock()
+	targetPlayer, exists := m.state.Players[hitData.TargetID]
+	isDestroyed := exists && targetPlayer.IsDestroyed
+	m.mutex.RUnlock()
+	
+	// If tank was destroyed, schedule an auto-respawn
+	if isDestroyed {
+		// Start a goroutine to respawn the tank after 5 seconds
+		go func(playerID string) {
+			time.Sleep(5 * time.Second)
+			respawnData := RespawnData{
+				PlayerID: playerID,
+				// Random offset for respawn position
+				Position: Position{
+					X: -20.0 + rand.Float64()*40.0,
+					Y: 0,
+					Z: -20.0 + rand.Float64()*40.0,
+				},
+			}
+			if err := m.RespawnTank(respawnData); err != nil {
+				log.Printf("Error auto-respawning tank %s: %v", playerID, err)
+			} else {
+				log.Printf("Auto-respawned tank %s after death", playerID)
+			}
+		}(hitData.TargetID)
+	}
+	
 	log.Printf("✅ Tank hit processed successfully: Target=%s, Source=%s, Damage=%d", 
 		hitData.TargetID, hitData.SourceID, hitData.DamageAmount)
 	
@@ -281,6 +324,12 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 		// Reset health and destroyed status
 		player.Health = 100
 		player.IsDestroyed = false
+		
+		// Keep existing kills and deaths (don't reset them on respawn)
+		// Increment death count only happens in ProcessTankHit
+		
+		// Update timestamp to ensure state propagation
+		player.Timestamp = m.getTime()
 
 		// Update position if provided
 		if (respawnData.Position != Position{}) {

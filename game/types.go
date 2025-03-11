@@ -23,6 +23,8 @@ type PlayerState struct {
 	Timestamp       int64    `json:"timestamp"`
 	Color           string   `json:"color,omitempty"`
 	IsDestroyed     bool     `json:"isDestroyed"`
+	Kills           int      `json:"kills"`     // Number of kills
+	Deaths          int      `json:"deaths"`    // Number of deaths
 }
 
 // ShellState represents the state of a shell

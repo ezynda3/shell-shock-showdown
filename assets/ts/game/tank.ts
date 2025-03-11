@@ -369,6 +369,7 @@ export abstract class BaseTank implements ITank {
   protected readonly MAX_HEALTH: number = 100;
   protected isDestroyed: boolean = false;
   protected destroyedEffects: THREE.Object3D[] = [];
+  protected lastSourceOfDamage: any = null; // Track who last damaged this tank for kill attribution
   
   // Movement tracking
   protected isCurrentlyMoving: boolean = false;
@@ -1033,6 +1034,20 @@ export abstract class BaseTank implements ITank {
       this.moveSound.stop();
       this.lastMoveSoundState = false;
     }
+    
+    // Dispatch tank-destroyed event
+    // This will notify the game when any tank (including NPCs) is destroyed
+    const destroyedEvent = new CustomEvent('tank-destroyed', {
+      bubbles: true,
+      composed: true,
+      detail: { 
+        tank: this,
+        source: this.lastSourceOfDamage
+      }
+    });
+    document.dispatchEvent(destroyedEvent);
+    
+    console.log(`Tank destroyed event dispatched for ${this.tankName || 'Unknown'} tank`);
   }
   
   // Interface implementations

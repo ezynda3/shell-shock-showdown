@@ -29325,6 +29325,10 @@ class Shell {
     this.createExplosion(this.mesh.position.clone());
     if (other.getType() === "tank") {
       const tank = other;
+      if (tank && typeof tank === "object" && "lastSourceOfDamage" in tank) {
+        tank.lastSourceOfDamage = this.source;
+        console.log(`Setting lastSourceOfDamage on tank ${tank.tankName || "unknown"} to ${this.source?.constructor?.name || "unknown source"}`);
+      }
       const isPlayerTank = !(tank instanceof RemoteTank);
       let hitLocation = "body";
       if (tank.getDetailedColliders && tank.getDetailedColliders().length > 0) {
@@ -29776,6 +29780,7 @@ class BaseTank {
   MAX_HEALTH = 100;
   isDestroyed = false;
   destroyedEffects = [];
+  lastSourceOfDamage = null;
   isCurrentlyMoving = false;
   velocity = 0;
   healthBarSprite;
@@ -30180,6 +30185,16 @@ class BaseTank {
       this.moveSound.stop();
       this.lastMoveSoundState = false;
     }
+    const destroyedEvent = new CustomEvent("tank-destroyed", {
+      bubbles: true,
+      composed: true,
+      detail: {
+        tank: this,
+        source: this.lastSourceOfDamage
+      }
+    });
+    document.dispatchEvent(destroyedEvent);
+    console.log(`Tank destroyed event dispatched for ${this.tankName || "Unknown"} tank`);
   }
   dispose() {
     this.scene.remove(this.tank);
@@ -33122,6 +33137,7 @@ class GameComponent extends LitElement {
         const playerCount = this.multiplayerState && this.multiplayerState.players ? Object.keys(this.multiplayerState.players).length : 0;
         this.updateRemotePlayers();
         this.updateLocalPlayerHealth();
+        this.updateStats();
         if (!this.gameStateInitialized && this.playerTank) {
           if (!this.playerId) {
             this.playerId = "player_" + Math.random().toString(36).substring(2, 9);
@@ -34016,6 +34032,17 @@ class GameComponent extends LitElement {
       this.playerTank.setHealth(playerData.health);
       if (playerData.health <= 0 && !this.playerTank.isDestroyed) {
         console.log("Server reported player death, updating local state");
+        this.playerDestroyed = true;
+        this.respawnTimer = 0;
+        this.showPlayerDeathEffects();
+      }
+      if (playerData.health > 0 && !playerData.isDestroyed && this.playerDestroyed) {
+        console.log("Server reported player respawn, updating local state");
+        const spawnPoint = new Vector3(playerData.position.x, playerData.position.y, playerData.position.z);
+        this.playerTank.respawn(spawnPoint);
+        this.playerDestroyed = false;
+        this.respawnTimer = 0;
+        this.requestUpdate();
       }
       if (this.statsComponent) {
         this.statsComponent.updateGameStats(playerData.health, playerData.kills || 0, playerData.deaths || 0);
@@ -34949,7 +34976,7 @@ class GameComponent extends LitElement {
     } else {
       console.log("Tank destroyed!", { victimName, killerName });
       if (source === this.playerTank) {
-        this.playerKills++;
+        console.log(`Player killed ${victimName}! Kill event sent to server.`);
         this.updateStats();
         const deathData = {
           targetId: victimId,
@@ -35068,7 +35095,17 @@ class GameComponent extends LitElement {
     if (statsComponent) {
       const health = this.playerTank ? this.playerTank.getHealth() : 0;
       const playerCount = this.multiplayerState?.players ? Object.keys(this.multiplayerState.players).length : 0;
-      statsComponent.updateGameStats(health, this.playerKills, this.playerDeaths, playerCount);
+      let kills = this.playerKills;
+      let deaths = this.playerDeaths;
+      if (this.multiplayerState?.players && this.playerId && this.multiplayerState.players[this.playerId]) {
+        const playerState = this.multiplayerState.players[this.playerId];
+        kills = playerState.kills || 0;
+        deaths = playerState.deaths || 0;
+        this.playerKills = kills;
+        this.playerDeaths = deaths;
+        console.log(`Updated stats from server: Kills=${kills}, Deaths=${deaths}`);
+      }
+      statsComponent.updateGameStats(health, kills, deaths, playerCount);
     }
   }
   emitPlayerPositionEvent() {

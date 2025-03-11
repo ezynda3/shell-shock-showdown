@@ -321,6 +321,12 @@ export class Shell implements ICollidable {
     if (other.getType() === 'tank') {
       const tank = other as ITank;
       
+      // IMPORTANT: Set the tank's lastSourceOfDamage to track who hit it (for kill attribution)
+      if (tank && typeof tank === 'object' && 'lastSourceOfDamage' in tank) {
+        (tank as any).lastSourceOfDamage = this.source;
+        console.log(`Setting lastSourceOfDamage on tank ${(tank as any).tankName || 'unknown'} to ${this.source?.constructor?.name || 'unknown source'}`);
+      }
+      
       // Check if this is a player-tank hit or a remote/NPC tank hit
       const isPlayerTank = !(tank instanceof RemoteTank);
       

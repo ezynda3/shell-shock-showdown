@@ -8,17 +8,20 @@ import (
 	"strings"
 	"sync"
 	"time"
+	
+	"github.com/mark3labs/pro-saaskit/game/shared"
 )
 
 // NPCController manages NPC tanks
 type NPCController struct {
-	manager      *Manager
-	npcs         map[string]*NPCTank
-	mutex        sync.RWMutex
-	gameMap      *GameMap
-	physicsDelay time.Duration
-	isRunning    bool
-	quit         chan struct{} // Channel to signal shutdown
+	manager        *Manager
+	npcs           map[string]*NPCTank
+	mutex          sync.RWMutex
+	gameMap        *GameMap
+	physicsDelay   time.Duration
+	isRunning      bool
+	quit           chan struct{} // Channel to signal shutdown
+	physicsManager shared.PhysicsManagerInterface // Reference to physics manager for targeting
 }
 
 // Movement patterns
@@ -45,18 +48,23 @@ type NPCTank struct {
 	FireCooldown    time.Duration
 	ScanRadius      float64
 	IsActive        bool
+	AimingAt        *shared.Position // Current position the NPC is aiming at (using shared.Position)
+	CanSeeTarget    bool             // Whether NPC has line of sight to target
+	FiringAccuracy  float64          // 0-1 value indicating accuracy (higher is more accurate)
+	MoveSpeed       float64          // Movement speed multiplier
 }
 
 // NewNPCController creates a new NPC controller
-func NewNPCController(manager *Manager, gameMap *GameMap) *NPCController {
+func NewNPCController(manager *Manager, gameMap *GameMap, physicsManager shared.PhysicsManagerInterface) *NPCController {
 	return &NPCController{
-		manager:      manager,
-		npcs:         make(map[string]*NPCTank),
-		mutex:        sync.RWMutex{},
-		gameMap:      gameMap,
-		physicsDelay: 100 * time.Millisecond, // Delay between physics updates
-		isRunning:    false,
-		quit:         make(chan struct{}),
+		manager:        manager,
+		npcs:           make(map[string]*NPCTank),
+		mutex:          sync.RWMutex{},
+		gameMap:        gameMap,
+		physicsDelay:   100 * time.Millisecond, // Delay between physics updates
+		isRunning:      false,
+		quit:           make(chan struct{}),
+		physicsManager: physicsManager,
 	}
 }
 
@@ -130,6 +138,40 @@ func (c *NPCController) SpawnNPC(name string, movementPattern MovementPattern) *
 		}
 	}
 
+	// Determine NPC characteristics based on name/type
+	var moveSpeed float64 = 0.7 // Slower than before (previously 1.0)
+	var accuracy float64 = 0.5  // Medium accuracy by default
+	var fireCooldown time.Duration = time.Duration(2+rand.Float64()*3) * time.Second // 2-5 second cooldown
+	
+	// Customize NPCs based on their name
+	switch name {
+	case "Alpha":
+		// Alpha is precise but slow
+		moveSpeed = 0.5
+		accuracy = 0.8
+		fireCooldown = 4 * time.Second // Longer cooldown
+	case "Bravo":
+		// Bravo is moderately fast with medium accuracy
+		moveSpeed = 0.7
+		accuracy = 0.6
+		fireCooldown = 3 * time.Second
+	case "Charlie":
+		// Charlie is fast but less accurate
+		moveSpeed = 0.9
+		accuracy = 0.4
+		fireCooldown = 2 * time.Second
+	case "Delta":
+		// Delta is balanced
+		moveSpeed = 0.6
+		accuracy = 0.7
+		fireCooldown = 3 * time.Second
+	case "Echo":
+		// Echo is very fast but least accurate
+		moveSpeed = 1.0
+		accuracy = 0.3
+		fireCooldown = 1 * time.Second // Fast firing
+	}
+	
 	npc := &NPCTank{
 		ID:              npcID,
 		Name:            "NPC-" + name,
@@ -139,9 +181,13 @@ func (c *NPCController) SpawnNPC(name string, movementPattern MovementPattern) *
 		CurrentPoint:    0,
 		LastUpdate:      time.Now(),
 		LastFire:        time.Now(),
-		FireCooldown:    time.Duration(1+rand.Float64()*2) * time.Second, // 1-3 second cooldown (more aggressive)
-		ScanRadius:      250.0,                                           // Larger detection radius
+		FireCooldown:    fireCooldown,
+		ScanRadius:      250.0,            // Larger detection radius
 		IsActive:        true,
+		AimingAt:        nil,              // No target initially
+		CanSeeTarget:    false,
+		FiringAccuracy:  accuracy,
+		MoveSpeed:       moveSpeed,
 	}
 
 	// Add to NPC map
@@ -332,8 +378,9 @@ func (c *NPCController) updateMovement(npc *NPCTank, state *PlayerState) {
 
 // moveInCircle makes the NPC move in a circular pattern
 func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
-	// Fixed speed that's guaranteed to move
-	speed := 2.0 // Faster movement
+	// Apply NPC's specific movement speed
+	baseSpeed := 1.5 // Base speed value
+	speed := baseSpeed * npc.MoveSpeed // Apply NPC-specific multiplier
 
 	// Gradually turn (simple circle approximation)
 	turnAmount := 0.01 * speed
@@ -375,7 +422,8 @@ func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
 
 	// Always be moving
 	state.IsMoving = true
-	state.Velocity = 2.0 // Faster movement
+	baseSpeed := 1.5 // Base speed value
+	state.Velocity = baseSpeed * npc.MoveSpeed // Apply NPC-specific multiplier
 	speed := state.Velocity
 
 	// IMPORTANT: Actually update the position based on rotation and velocity
@@ -447,7 +495,8 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 	
 	// Always be moving
 	state.IsMoving = true
-	state.Velocity = 2.0 // Faster movement
+	baseSpeed := 1.5 // Base speed value
+	state.Velocity = baseSpeed * npc.MoveSpeed // Apply NPC-specific multiplier
 	speed := state.Velocity
 
 	// IMPORTANT: Actually update the position based on rotation and velocity
@@ -486,7 +535,8 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 
 	// Always be moving
 	state.IsMoving = true
-	state.Velocity = 2.0 // Faster movement
+	baseSpeed := 1.5 // Base speed value
+	state.Velocity = baseSpeed * npc.MoveSpeed // Apply NPC-specific multiplier
 	speed := state.Velocity
 
 	// IMPORTANT: Actually update the position based on rotation and velocity
@@ -523,15 +573,15 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 
 // updateAimingAndFiring handles NPC aiming and firing logic
 func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, gameState GameState) {
-	// SIMPLIFIED FIRING BEHAVIOR
-
-	// Find any potential target, even without formal targeting
-	var nearestTarget *PlayerState
-	var nearestDistance float64 = 250.0 // Increased maximum target range
-
+	// Find potential targets and track the best one
+	var bestTarget *PlayerState
+	var bestDistance float64 = 300.0 // Maximum target acquisition range
+	var playerTargets []PlayerState  // Track all potential targets
+	
+	// First, find all valid player and NPC targets
 	for playerID, player := range gameState.Players {
-		// Skip self, other NPCs, and destroyed tanks
-		if playerID == npc.ID || player.IsDestroyed || strings.HasPrefix(playerID, "npc_") {
+		// Skip self and destroyed tanks
+		if playerID == npc.ID || player.IsDestroyed {
 			continue
 		}
 
@@ -540,49 +590,105 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 		dz := player.Position.Z - state.Position.Z
 		dist := math.Sqrt(dx*dx + dz*dz)
 
-		// Track closest player
-		if dist < nearestDistance {
-			nearestTarget = &player
-			nearestDistance = dist
-			npc.TargetID = playerID
+		// If within range, consider as target
+		if dist < bestDistance {
+			// For NPCs, prefer to target real players over other NPCs
+			isNPC := strings.HasPrefix(playerID, "npc_")
+			
+			// Add to potential targets
+			playerTargets = append(playerTargets, player)
+			
+			// Prioritize players over NPCs, or closer targets when both are NPCs or both are players
+			if bestTarget == nil || 
+			   (!isNPC && strings.HasPrefix(npc.TargetID, "npc_")) || // Prefer players over NPCs
+			   ((isNPC == strings.HasPrefix(npc.TargetID, "npc_")) && dist < bestDistance) { // Or closest of same type
+				bestTarget = &player
+				bestDistance = dist
+				npc.TargetID = playerID
+			}
 		}
 	}
 
-	// If we have a target, aim and fire
-	if nearestTarget != nil {
-		// Calculate direction to target
-		dx := nearestTarget.Position.X - state.Position.X
-		dz := nearestTarget.Position.Z - state.Position.Z
+	// If we have a target, aim and potentially fire
+	if bestTarget != nil {
+		targetPos := bestTarget.Position
+		
+		// Calculate line of sight if we have physics manager
+		npc.CanSeeTarget = true // Default to true
+		if c.physicsManager != nil {
+			// Convert Position to shared.Position for line of sight check
+			fromPos := shared.Position{X: state.Position.X, Y: state.Position.Y, Z: state.Position.Z}
+			toPos := shared.Position{X: targetPos.X, Y: targetPos.Y, Z: targetPos.Z}
+			
+			// Check line of sight
+			npc.CanSeeTarget = c.physicsManager.CheckLineOfSight(fromPos, toPos)
+		}
+		
+		// Store aiming position (convert to shared.Position)
+		sharedTargetPos := shared.Position{X: targetPos.X, Y: targetPos.Y, Z: targetPos.Z}
+		npc.AimingAt = &sharedTargetPos
+		
+		// Calculate angle to target for turret aiming
+		dx := targetPos.X - state.Position.X
+		dz := targetPos.Z - state.Position.Z
 		targetAngle := math.Atan2(dz, dx)
-
-		// Update turret rotation to aim at target
-		// Add randomness to make it less precise
-		randomOffset := (rand.Float64() - 0.5) * 0.3
+		
+		// Add inaccuracy based on NPC's skill level
+		// Less accurate NPCs have more random aim
+		// Accuracy is 0-1, with 1 being perfect aim
+		inaccuracy := (1.0 - npc.FiringAccuracy) * 0.5
+		randomOffset := (rand.Float64() - 0.5) * inaccuracy
+		
+		// Update turret rotation with randomness based on accuracy
 		state.TurretRotation = targetAngle + randomOffset
-
-		// Set fixed barrel elevation
-		state.BarrelElevation = 0.2
-
-		// FIRE MORE AGGRESSIVELY - More frequent shots
-		// Use the NPC's individual fire cooldown
+		
+		// Determine barrel elevation based on distance
+		// Further targets need higher elevation
+		baseElevation := 0.1
+		distanceAdjustment := math.Min(bestDistance / 500.0, 0.3) // Max of 0.3 additional elevation
+		
+		// Add randomness to elevation based on accuracy
+		elevationRandomness := (rand.Float64() - 0.5) * inaccuracy * 0.2
+		state.BarrelElevation = baseElevation + distanceAdjustment + elevationRandomness
+		
+		// Check if we can fire (cooldown expired and have line of sight)
 		cooledDown := time.Since(npc.LastFire) > npc.FireCooldown
-
-		// Fire if cooldown has expired - increased firing range
-		if cooledDown && nearestDistance < 200 {
-			// Prepare shell data
+		firingRange := 250.0 // Maximum firing range
+		
+		// Only fire if:
+		// 1. Cooldown has expired
+		// 2. Target is in range
+		// 3. NPC has line of sight to target
+		if cooledDown && bestDistance < firingRange && npc.CanSeeTarget {
+			// Prepare shell data with a bit of randomness
+			shellSpeed := 5.0 // Base shell speed
+			
+			// Calculate firing direction with accuracy-based randomness
+			firingDirX := math.Cos(state.TurretRotation + randomOffset)
+			firingDirY := math.Sin(state.BarrelElevation + elevationRandomness)
+			firingDirZ := math.Sin(state.TurretRotation + randomOffset)
+			
+			// Normalize direction vector
+			dirMagnitude := math.Sqrt(firingDirX*firingDirX + firingDirY*firingDirY + firingDirZ*firingDirZ)
+			if dirMagnitude > 0 {
+				firingDirX /= dirMagnitude
+				firingDirY /= dirMagnitude
+				firingDirZ /= dirMagnitude
+			}
+			
 			shellData := ShellData{
 				Position: state.Position,
 				Direction: Position{
-					X: math.Cos(state.TurretRotation),
-					Y: math.Sin(state.BarrelElevation),
-					Z: math.Sin(state.TurretRotation),
+					X: firingDirX,
+					Y: firingDirY,
+					Z: firingDirZ,
 				},
-				Speed: 5.0, // Faster shells
+				Speed: shellSpeed,
 			}
 
 			// Log firing attempt
-			log.Printf("NPC %s firing at target %s at distance %.2f",
-				npc.ID, npc.TargetID, nearestDistance)
+			log.Printf("NPC %s firing at target %s at distance %.2f with accuracy %.2f",
+				npc.ID, npc.TargetID, bestDistance, npc.FiringAccuracy)
 
 			// Fire the shell
 			c.mutex.Unlock() // Unlock before calling manager
@@ -595,8 +701,14 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 			npc.LastFire = time.Now()
 		}
 	} else {
-		// If no target, just rotate turret to match tank direction
-		state.TurretRotation = state.TankRotation
+		// If no target, rotate turret to match movement direction or scan
+		// Slowly rotate turret while searching for targets
+		scanSpeed := 0.01
+		state.TurretRotation += scanSpeed
+		
+		// Reset aiming target
+		npc.AimingAt = nil
+		npc.CanSeeTarget = false
 	}
 }
 
