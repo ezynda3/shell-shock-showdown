@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"time"
 
 	"github.com/delaneyj/toolbelt/embeddednats"
 	"github.com/mark3labs/pro-saaskit/game"
@@ -88,6 +89,32 @@ func main() {
 	physicsIntegration := physics.NewPhysicsIntegration(gameManager)
 	physicsIntegration.Start()
 	
+	// Initialize NPC controller
+	log.Println("\n==================================================")
+	log.Println("🤖 INITIALIZING NPC CONTROLLER")
+	log.Println("==================================================\n")
+	
+	gameMap := game.GetGameMap()
+	npcController := game.NewNPCController(gameManager, gameMap)
+	npcController.Start()
+	
+	// Spawn 5 NPC tanks with different movement patterns
+	movementPatterns := []game.MovementPattern{
+		game.CircleMovement,
+		game.ZigzagMovement,
+		game.PatrolMovement,
+		game.RandomMovement,
+		game.CircleMovement,
+	}
+	
+	npcNames := []string{"Alpha", "Bravo", "Charlie", "Delta", "Echo"}
+	
+	for i := 0; i < 5; i++ {
+		npcController.SpawnNPC(npcNames[i], movementPatterns[i])
+		// Small delay between spawns to avoid physics conflicts
+		time.Sleep(100 * time.Millisecond)
+	}
+	
 	log.Println("\n==================================================")
 	log.Println("📊 SYSTEM STATUS:")
 	log.Println("  - NATS Server: Running ✅")
@@ -95,6 +122,7 @@ func main() {
 	log.Println("  - KV Store: Connected ✅")
 	log.Println("  - Game Manager: Initialized ✅")
 	log.Println("  - Physics System: Running ✅")
+	log.Println("  - NPC Controller: Running ✅")
 	log.Println("==================================================\n")
 
 	middleware.AddCookieSessionMiddleware(*app)
