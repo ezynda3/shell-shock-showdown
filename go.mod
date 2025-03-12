@@ -5,6 +5,7 @@ go 1.23.4
 require (
 	github.com/a-h/templ v0.3.819
 	github.com/delaneyj/toolbelt v0.4.2
+	github.com/gazed/vu v0.25.0
 	github.com/nats-io/nats-server/v2 v2.10.25
 	github.com/nats-io/nats.go v1.39.1
 	github.com/pocketbase/pocketbase v0.24.4
@@ -42,7 +43,6 @@ require (
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
 	github.com/ganigeorgiev/fexpr v0.4.1 // indirect
-	github.com/gazed/vu v0.25.0 // indirect
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
