@@ -25,6 +25,7 @@ type PlayerState struct {
 	IsDestroyed     bool     `json:"isDestroyed"`
 	Kills           int      `json:"kills"`  // Number of kills
 	Deaths          int      `json:"deaths"` // Number of deaths
+	TrackRotation   float64  `json:"trackRotation"` // Track animation speed for client visualization
 }
 
 // ShellState represents the state of a shell
