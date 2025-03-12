@@ -30234,19 +30234,6 @@ class BaseTank {
     }
     this.destroyedEffects = [];
     this.updateHealthBar();
-    const respawnEvent = new CustomEvent("tank-respawn", {
-      bubbles: true,
-      composed: true,
-      detail: {
-        playerId: this.ownerId || "player",
-        position: {
-          x: this.tank.position.x,
-          y: this.tank.position.y,
-          z: this.tank.position.z
-        }
-      }
-    });
-    document.dispatchEvent(respawnEvent);
   }
   getCollider() {
     return this.collider;
@@ -31319,12 +31306,6 @@ class Tank extends BaseTank {
       }
     });
     document.dispatchEvent(respawnEvent);
-  }
-  createDestroyedEffect() {
-    this.tank.visible = false;
-    if (this.healthBarSprite) {
-      this.healthBarSprite.visible = false;
-    }
     this.createExplosionFlash();
     this.createDebrisParticles();
     this.createSmokeEffect();
@@ -32361,11 +32342,6 @@ class RemoteTank extends BaseTank {
     if (this.healthBarSprite) {
       this.healthBarSprite.visible = false;
     }
-    this.createExplosionFlash();
-    this.createDebrisParticles();
-    this.createSmokeEffect();
-    this.createFireEffect();
-    this.createShockwaveEffect();
     this.createSparksEffect();
   }
   createExplosionFlash() {
@@ -33666,8 +33642,6 @@ class GameComponent extends LitElement {
     document.addEventListener("tank-hit", this.handleTankHit);
     this.handleShellFired = this.handleShellFired.bind(this);
     document.addEventListener("shell-fired", this.handleShellFired);
-    this.handleTankRespawn = this.handleTankRespawn.bind(this);
-    document.addEventListener("tank-respawn", this.handleTankRespawn);
     this.updateStats();
     this.detectMobileDevice();
   }
@@ -33984,30 +33958,6 @@ class GameComponent extends LitElement {
     this.turretJoystickThumb.style.transform = "translate(-50%, -50%)";
     this.turretJoystickPosition = { x: 0, y: 0 };
   }
-  handleTankRespawn(event) {
-    const respawnData = event.detail;
-    if (respawnData.playerId === "player") {
-      respawnData.playerId = this.playerId;
-    }
-    console.log(`Tank respawn event for player ${respawnData.playerId} at position:`, respawnData.position);
-    const gameEvent = new CustomEvent("game-event", {
-      detail: {
-        type: "TANK_RESPAWN",
-        data: respawnData,
-        playerId: this.playerId,
-        timestamp: Date.now()
-      },
-      bubbles: true,
-      composed: true
-    });
-    this.dispatchEvent(gameEvent);
-    if (this.playerTank && respawnData.playerId === this.playerId) {
-      this.playerTank.setHealth(100);
-      this.playerDestroyed = false;
-      this.emitPlayerPositionEvent();
-      console.log("Forced player state update after respawn to ensure health is restored");
-    }
-  }
   handleShellFired(event) {
     if (event.detail.isNetworkEvent) {
       return;
@@ -34063,12 +34013,17 @@ class GameComponent extends LitElement {
         this.respawnTimer = 0;
         this.showPlayerDeathEffects();
       }
-      if (playerData.health > 0 && playerData.status === "ACTIVE" && this.playerDestroyed) {
+      if (playerData.health > 0 && !playerData.isDestroyed && this.playerDestroyed) {
         console.log("Server reported player respawn, updating local state");
+        console.log("Player data:", JSON.stringify(playerData));
         const spawnPoint = new Vector3(playerData.position.x, playerData.position.y, playerData.position.z);
         this.playerTank.respawn(spawnPoint);
         this.playerDestroyed = false;
         this.respawnTimer = 0;
+        const gameOverElement = this.shadowRoot?.querySelector(".game-over");
+        if (gameOverElement) {
+          gameOverElement.style.display = "none";
+        }
         this.requestUpdate();
       }
       if (this.statsComponent) {

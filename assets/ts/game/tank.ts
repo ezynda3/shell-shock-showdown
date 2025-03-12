@@ -1123,20 +1123,7 @@ export abstract class BaseTank implements ITank {
     // Update health bar
     this.updateHealthBar();
     
-    // Dispatch tank respawn event
-    const respawnEvent = new CustomEvent('tank-respawn', {
-      bubbles: true,
-      composed: true,
-      detail: { 
-        playerId: this.ownerId || 'player',
-        position: {
-          x: this.tank.position.x,
-          y: this.tank.position.y,
-          z: this.tank.position.z
-        }
-      }
-    });
-    document.dispatchEvent(respawnEvent);
+    // Server now handles respawning, so we don't need to dispatch events
   }
   
   // ICollidable implementation
@@ -2848,19 +2835,7 @@ export class Tank extends BaseTank {
       }
     });
     document.dispatchEvent(respawnEvent);
-  }
-  
-  private createDestroyedEffect(): void {
-    // Hide the tank
-    this.tank.visible = false;
-    
-    // Hide health bar sprite
-    if (this.healthBarSprite) {
-      this.healthBarSprite.visible = false;
-    }
-    
-    
-    // 1. Add initial explosion flash
+    // Server now handles respawning, so we do not need to dispatch events
     this.createExplosionFlash();
     
     // 2. Create debris particles (tank parts flying off)
@@ -4425,20 +4400,7 @@ export class RemoteTank extends BaseTank {
       this.healthBarSprite.visible = false;
     }
     
-    // 1. Add initial explosion flash
-    this.createExplosionFlash();
-    
-    // 2. Create debris particles (tank parts flying off)
-    this.createDebrisParticles();
-    
-    // 3. Create enhanced smoke system
-    this.createSmokeEffect();
-    
-    // 4. Create enhanced fire effect
-    this.createFireEffect();
-    
-    // 5. Create shockwave effect
-    this.createShockwaveEffect();
+      // Server now handles respawning, so we do not need to dispatch events
     
     // 6. Create sparks effect
     this.createSparksEffect();

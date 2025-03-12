@@ -251,7 +251,7 @@ func (pi *PhysicsIntegration) watchLoop() {
 		if len(gameState.Players) > 0 {
 			log.Println("\n📍 PHYSICS: Current player positions:")
 			for id, player := range gameState.Players {
-				log.Printf("  - Tank %s (%s): (%.2f, %.2f, %.2f) Health: %d Destroyed: %v",
+				log.Printf("  - Tank %s (%s): (%.2f, %.2f, %.2f) Health: %d Destroyed: %v, Status: %s",
 					id, player.Name,
 					player.Position.X, player.Position.Y, player.Position.Z,
 					player.Health, player.IsDestroyed)

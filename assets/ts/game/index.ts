@@ -731,8 +731,7 @@ export class GameComponent extends LitElement {
     document.addEventListener('shell-fired', this.handleShellFired);
     
     // Listen for tank respawn events
-    this.handleTankRespawn = this.handleTankRespawn.bind(this);
-    document.addEventListener('tank-respawn', this.handleTankRespawn);
+    // Server now handles respawning, so we don't need client-side respawn handlers
     
     // Initialize game stats
     this.updateStats();
@@ -1233,46 +1232,7 @@ export class GameComponent extends LitElement {
   }
   
   // Handle tank respawn events
-  private handleTankRespawn(event: CustomEvent) {
-    // Get respawn data
-    const respawnData = event.detail;
-    
-    // Update playerId if it's the local player
-    if (respawnData.playerId === 'player') {
-      respawnData.playerId = this.playerId;
-    }
-    
-    console.log(`Tank respawn event for player ${respawnData.playerId} at position:`, respawnData.position);
-    
-    // Create a custom event using the new consolidated format
-    const gameEvent = new CustomEvent('game-event', { 
-      detail: {
-        type: "TANK_RESPAWN",
-        data: respawnData,
-        playerId: this.playerId,
-        timestamp: Date.now()
-      },
-      bubbles: true,
-      composed: true
-    });
-    
-    // Dispatch the event to be sent to the server
-    this.dispatchEvent(gameEvent);
-    
-    // Force the player update to ensure server knows the player is respawned
-    if (this.playerTank && respawnData.playerId === this.playerId) {
-      // Set player health to max
-      this.playerTank.setHealth(100);
-      
-      // Reset playerDestroyed flag to allow position updates again
-      this.playerDestroyed = false;
-      
-      // Update player state on server immediately with full health
-      this.emitPlayerPositionEvent(); // Using the proper method name
-      
-      console.log('Forced player state update after respawn to ensure health is restored');
-    }
-  }
+  // handleTankRespawn removed - server now handles respawning
   
   // Handle shell fired events from player tank
   private handleShellFired(event: CustomEvent) {
@@ -1361,12 +1321,22 @@ export class GameComponent extends LitElement {
       }
       
       // Check if the player was destroyed but is now alive (respawned by server)
-      if (playerData.health > 0 && playerData.status === 'ACTIVE' && this.playerDestroyed) {
+      // Also handle case where player is not marked as destroyed on the server (isDestroyed=false)
+    if ((playerData.health > 0 && !playerData.isDestroyed) && this.playerDestroyed) {
         console.log('Server reported player respawn, updating local state');
+        console.log('Player data:', JSON.stringify(playerData));
         const spawnPoint = new THREE.Vector3(playerData.position.x, playerData.position.y, playerData.position.z);
         this.playerTank.respawn(spawnPoint);
         this.playerDestroyed = false;
         this.respawnTimer = 0;
+        
+        // Hide any WASTED screens or death effects
+        const gameOverElement = this.shadowRoot?.querySelector('.game-over') as HTMLElement;
+        if (gameOverElement) {
+          gameOverElement.style.display = 'none';
+        }
+        
+        // Force update the scene
         this.requestUpdate();
       }
       
