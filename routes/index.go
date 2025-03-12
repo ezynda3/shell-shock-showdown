@@ -18,8 +18,9 @@ import (
 
 // Signals struct for handling DataStar signals
 type Signals struct {
-	GameEvent string `json:"gameEvent"` // Consolidated game event
-	GameState string `json:"gameState"` // Game state for the client
+	GameEvent    string `json:"gameEvent"`    // Consolidated game event
+	GameState    string `json:"gameState"`    // Game state for the client
+	Notification string `json:"notification"` // Kill notifications
 }
 
 func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *game.Manager) error {
@@ -242,6 +243,16 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 					len(state.Shells),
 					entry.Revision())
 
+				// Check for notifications in player states
+				var notification string
+				for _, player := range state.Players {
+					if player.Notification != "" {
+						notification = player.Notification
+						// Only take the first notification found
+						break
+					}
+				}
+
 				// Send the game state to the client
 				stateJSON, err := json.Marshal(state)
 				if err != nil {
@@ -249,7 +260,16 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 					continue
 				}
 
-				err = sse.MergeSignals([]byte(fmt.Sprintf(`{"gameState": %q}`, string(stateJSON))))
+				// Build signals JSON string
+				var signalsJSON string
+				if notification != "" {
+					signalsJSON = fmt.Sprintf(`{"gameState": %q, "notification": %q}`, string(stateJSON), notification)
+					log.Printf("📢 Sending notification: %s", notification)
+				} else {
+					signalsJSON = fmt.Sprintf(`{"gameState": %q}`, string(stateJSON))
+				}
+
+				err = sse.MergeSignals([]byte(signalsJSON))
 				if err != nil {
 					log.Printf("Error sending game state: %v", err)
 				}

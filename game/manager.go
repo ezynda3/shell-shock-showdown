@@ -267,7 +267,23 @@ func (m *Manager) ProcessTankHit(hitData HitData) error {
 				targetPlayer.LastKilledBy = hitData.SourceID
 				targetPlayer.LastDeathTime = m.getTime()
 
-				log.Printf("💥 DESTRUCTION: Tank %s destroyed by %s", hitData.TargetID, hitData.SourceID)
+				// Get killer and victim names for notification
+				killerName := "Unknown"
+				victimName := "Unknown"
+
+				if sourcePlayer, exists := m.state.Players[hitData.SourceID]; exists {
+					killerName = sourcePlayer.Name
+				}
+
+				victimName = targetPlayer.Name
+
+				// Create notification message for client display
+				notification := fmt.Sprintf("%s destroyed %s", killerName, victimName)
+
+				// This will be handled by signals in the frontend
+				targetPlayer.Notification = notification
+
+				log.Printf("💥 DESTRUCTION: %s", notification)
 			}
 
 			// Save updated player back to game state

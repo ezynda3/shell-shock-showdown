@@ -19,12 +19,14 @@ templ Index() {
 		@Layout(true, app.Settings().Meta.AppURL) {
 		<div
 			style="width: 100%; height: calc(100vh - 64px);"
-			data-signals="{gameEvent: '', gameState: ''}"
+			data-signals="{gameEvent: '', gameState: '', notification: ''}"
 			data-on-load="@get('/gamestate', { openWhenHidden: true })"
 		>
 			<game-component
 				data-on-game-event__case.kebab="$gameEvent = JSON.stringify(evt.detail); @post('/update')"
 				data-attr-game-state__case.kebab="$gameState"
+				data-attr-notification__case.kebab="$notification"
+				data-on-signals-change__delay.3s="$notification = ''"
 				map-data={ GetMapData() }
 				if user := ctx.Value("user"); user != nil {
 					if auth, ok := user.(*core.Record); ok {

@@ -33094,6 +33094,7 @@ class GameComponent extends LitElement {
     super(...arguments);
     this.playerId = "";
     this.mapData = "";
+    this.notification = "";
   }
   _gameState = "";
   get gameState() {
@@ -33200,6 +33201,28 @@ class GameComponent extends LitElement {
   skyColor = new Color(8900331);
   groundMaterial;
   static styles = css`
+    .kill-notification-banner {
+      position: fixed;
+      top: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-size: 18px;
+      font-weight: bold;
+      z-index: 1000;
+      text-align: center;
+      animation: fadeInOut 3s ease-in-out;
+    }
+    
+    @keyframes fadeInOut {
+      0% { opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { opacity: 0; }
+    }
     :host {
       display: block;
       width: 100%;
@@ -33562,6 +33585,7 @@ class GameComponent extends LitElement {
   render() {
     return html`
       <div>
+        ${this.notification ? html`<div class="kill-notification-banner">${this.notification}</div>` : ""}
         <div class="${this.cameraShaking ? "camera-shake" : ""}">
           <canvas id="canvas"></canvas>
           <div class="damage-overlay ${this.showDamageOverlay ? "active" : ""}"></div>
@@ -35211,6 +35235,9 @@ __legacyDecorateClassTS([
 __legacyDecorateClassTS([
   property({ type: String, attribute: "map-data" })
 ], GameComponent.prototype, "mapData", undefined);
+__legacyDecorateClassTS([
+  property({ type: String, attribute: "notification" })
+], GameComponent.prototype, "notification", undefined);
 __legacyDecorateClassTS([
   property({ attribute: false })
 ], GameComponent.prototype, "scene", undefined);

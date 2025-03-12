@@ -188,6 +188,9 @@ export class GameComponent extends LitElement {
   @property({ type: String, attribute: 'map-data' })
   public mapData: string = '';
   
+  @property({ type: String, attribute: 'notification' })
+  public notification: string = '';
+  
   // Flag to track if we've processed initial game state
   private gameStateInitialized: boolean = false;
   
@@ -251,6 +254,28 @@ export class GameComponent extends LitElement {
   private groundMaterial?: THREE.ShaderMaterial;
 
   static styles = css`
+    .kill-notification-banner {
+      position: fixed;
+      top: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-size: 18px;
+      font-weight: bold;
+      z-index: 1000;
+      text-align: center;
+      animation: fadeInOut 3s ease-in-out;
+    }
+    
+    @keyframes fadeInOut {
+      0% { opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { opacity: 0; }
+    }
     :host {
       display: block;
       width: 100%;
@@ -614,6 +639,7 @@ export class GameComponent extends LitElement {
   render() {
     return html`
       <div>
+        ${this.notification ? html`<div class="kill-notification-banner">${this.notification}</div>` : ''}
         <div class="${this.cameraShaking ? 'camera-shake' : ''}">
           <canvas id="canvas"></canvas>
           <div class="damage-overlay ${this.showDamageOverlay ? 'active' : ''}"></div>

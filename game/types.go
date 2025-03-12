@@ -28,6 +28,7 @@ type PlayerState struct {
 	TrackRotation   float64  `json:"trackRotation"`           // Track animation speed for client visualization
 	LastKilledBy    string   `json:"lastKilledBy,omitempty"`  // ID of player who last killed this player
 	LastDeathTime   int64    `json:"lastDeathTime,omitempty"` // Timestamp when player was last killed
+	Notification    string   `json:"notification,omitempty"`  // Kill notification message for client
 }
 
 // ShellState represents the state of a shell
