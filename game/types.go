@@ -23,9 +23,11 @@ type PlayerState struct {
 	Timestamp       int64    `json:"timestamp"`
 	Color           string   `json:"color,omitempty"`
 	IsDestroyed     bool     `json:"isDestroyed"`
-	Kills           int      `json:"kills"`         // Number of kills
-	Deaths          int      `json:"deaths"`        // Number of deaths
-	TrackRotation   float64  `json:"trackRotation"` // Track animation speed for client visualization
+	Kills           int      `json:"kills"`                   // Number of kills
+	Deaths          int      `json:"deaths"`                  // Number of deaths
+	TrackRotation   float64  `json:"trackRotation"`           // Track animation speed for client visualization
+	LastKilledBy    string   `json:"lastKilledBy,omitempty"`  // ID of player who last killed this player
+	LastDeathTime   int64    `json:"lastDeathTime,omitempty"` // Timestamp when player was last killed
 }
 
 // ShellState represents the state of a shell

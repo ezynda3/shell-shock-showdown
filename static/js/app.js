@@ -33194,6 +33194,7 @@ class GameComponent extends LitElement {
   killNotifications = [];
   MAX_NOTIFICATIONS = 5;
   NOTIFICATION_DURATION = 5000;
+  processedDeathEvents = new Set;
   keys = {};
   isFullscreen = false;
   skyColor = new Color(8900331);
@@ -34109,6 +34110,32 @@ class GameComponent extends LitElement {
       }
     }
   }
+  checkForDeathNotifications() {
+    if (!this.multiplayerState || !this.multiplayerState.players) {
+      return;
+    }
+    for (const [playerId, playerData] of Object.entries(this.multiplayerState.players)) {
+      if (playerData.lastKilledBy && playerData.lastDeathTime) {
+        const deathEventId = `${playerId}_${playerData.lastKilledBy}_${playerData.lastDeathTime}`;
+        if (this.processedDeathEvents.has(deathEventId)) {
+          continue;
+        }
+        this.processedDeathEvents.add(deathEventId);
+        let killerName = "Unknown";
+        if (this.multiplayerState.players[playerData.lastKilledBy]) {
+          killerName = this.multiplayerState.players[playerData.lastKilledBy].name || `Player ${playerData.lastKilledBy.substring(0, 6)}`;
+        } else if (playerData.lastKilledBy === this.playerId) {
+          killerName = "You";
+        }
+        let victimName = playerData.name || `Player ${playerId.substring(0, 6)}`;
+        if (playerId === this.playerId) {
+          victimName = "You";
+        }
+        this.addKillNotification(killerName, victimName);
+        console.log(`Kill notification: ${killerName} destroyed ${victimName}`);
+      }
+    }
+  }
   updateRemotePlayerListeners() {
     if (!window.SpatialAudio || !this.multiplayerState || !this.multiplayerState.players) {
       return;
@@ -34807,6 +34834,7 @@ class GameComponent extends LitElement {
     this.updateCrosshairPosition();
     if (this.frameCounter % 5 === 0) {
       this.updateKillNotifications();
+      this.checkForDeathNotifications();
     }
     this.collisionSystem.checkCollisions();
     const allColliders = this.collisionSystem.getColliders();

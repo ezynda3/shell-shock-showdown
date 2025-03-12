@@ -236,6 +236,7 @@ export class GameComponent extends LitElement {
   private killNotifications: { text: string, time: number }[] = [];
   private readonly MAX_NOTIFICATIONS = 5; // Maximum number of visible notifications
   private readonly NOTIFICATION_DURATION = 5000; // How long notifications stay visible (ms)
+  private processedDeathEvents = new Set<string>(); // Track processed death events
   
   // Control state
   private keys: { [key: string]: boolean } = {};
@@ -1449,6 +1450,53 @@ export class GameComponent extends LitElement {
   }
   
   /**
+   * Check for any death notifications from the server
+   * This looks for LastKilledBy fields that would indicate a player was killed
+   */
+  private checkForDeathNotifications(): void {
+    if (!this.multiplayerState || !this.multiplayerState.players) {
+      return;
+    }
+    
+    // Loop through all players
+    for (const [playerId, playerData] of Object.entries(this.multiplayerState.players)) {
+      // Check if this player has the lastKilledBy field set
+      if (playerData.lastKilledBy && playerData.lastDeathTime) {
+        // Create a unique death event ID
+        const deathEventId = `${playerId}_${playerData.lastKilledBy}_${playerData.lastDeathTime}`;
+        
+        // Skip if we've already processed this death event
+        if (this.processedDeathEvents.has(deathEventId)) {
+          continue;
+        }
+        
+        // Mark as processed
+        this.processedDeathEvents.add(deathEventId);
+        
+        // Get killer's name (the one who killed this player)
+        let killerName = "Unknown";
+        if (this.multiplayerState.players[playerData.lastKilledBy]) {
+          killerName = this.multiplayerState.players[playerData.lastKilledBy].name || 
+                       `Player ${playerData.lastKilledBy.substring(0, 6)}`;
+        } else if (playerData.lastKilledBy === this.playerId) {
+          killerName = "You"; // If the current player is the killer
+        }
+        
+        // Get victim's name (this player)
+        let victimName = playerData.name || `Player ${playerId.substring(0, 6)}`;
+        if (playerId === this.playerId) {
+          victimName = "You"; // If the current player is the victim
+        }
+        
+        // Add kill notification
+        this.addKillNotification(killerName, victimName);
+        
+        console.log(`Kill notification: ${killerName} destroyed ${victimName}`);
+      }
+    }
+  }
+
+  /**
    * Updates audio listeners for all remote players based on their positions
    * This ensures spatial audio works correctly for all players
    */
@@ -2563,6 +2611,8 @@ export class GameComponent extends LitElement {
     // Update kill notifications every 5 frames
     if (this.frameCounter % 5 === 0) {
       this.updateKillNotifications();
+      // Check for any server-reported death events
+      this.checkForDeathNotifications();
     }
     
     // Run the collision system check

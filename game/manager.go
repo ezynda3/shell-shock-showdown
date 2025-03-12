@@ -263,6 +263,10 @@ func (m *Manager) ProcessTankHit(hitData HitData) error {
 					log.Printf("Incremented kill count for player %s to %d", hitData.SourceID, sourcePlayer.Kills)
 				}
 
+				// Track kill information for client notifications
+				targetPlayer.LastKilledBy = hitData.SourceID
+				targetPlayer.LastDeathTime = m.getTime()
+
 				log.Printf("💥 DESTRUCTION: Tank %s destroyed by %s", hitData.TargetID, hitData.SourceID)
 			}
 
