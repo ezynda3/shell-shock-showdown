@@ -120,6 +120,7 @@ func (m *Manager) UpdatePlayer(update PlayerState, playerID string, playerName s
 		// Initialize health, kills and deaths for new player
 		update.Health = 100
 		update.IsDestroyed = false
+		update.Status = StatusReady // New player starts in READY state
 		update.Kills = 0
 		update.Deaths = 0
 	} else {
@@ -131,6 +132,11 @@ func (m *Manager) UpdatePlayer(update PlayerState, playerID string, playerName s
 		// Maintain destroyed state if already destroyed
 		if currentPlayer.IsDestroyed {
 			update.IsDestroyed = true
+		}
+
+		// Keep current player status unless explicitly changed
+		if update.Status == "" {
+			update.Status = currentPlayer.Status
 		}
 
 		// Preserve existing kills and deaths counts from current player state
@@ -252,6 +258,7 @@ func (m *Manager) ProcessTankHit(hitData HitData) error {
 			if targetPlayer.Health <= 0 {
 				targetPlayer.Health = 0
 				targetPlayer.IsDestroyed = true
+				targetPlayer.Status = StatusDestroyed // Update player status to DESTROYED
 
 				// Increment target player's death count
 				targetPlayer.Deaths++
@@ -312,12 +319,14 @@ func (m *Manager) ProcessTankHit(hitData HitData) error {
 				Position:    Position{X: 0, Y: 0, Z: 0}, // Default position
 				Timestamp:   m.getTime(),
 				IsDestroyed: false,
+				Status:      StatusActive, // Default to active status
 			}
 
 			// Check if health is zero
 			if newPlayer.Health <= 0 {
 				newPlayer.Health = 0
 				newPlayer.IsDestroyed = true
+				newPlayer.Status = StatusDestroyed // Update player status to DESTROYED
 				log.Printf("Newly registered tank %s destroyed by %s", hitData.TargetID, hitData.SourceID)
 			}
 
@@ -352,21 +361,9 @@ func (m *Manager) ProcessTankHit(hitData HitData) error {
 	isDestroyed := exists && targetPlayer.IsDestroyed
 	m.mutex.RUnlock()
 
-	// If tank was destroyed, schedule an auto-respawn
+	// If tank was destroyed, log that it is now waiting for manual respawn
 	if isDestroyed {
-		// Start a goroutine to respawn the tank after 5 seconds
-		go func(playerID string) {
-			time.Sleep(5 * time.Second)
-			respawnData := RespawnData{
-				PlayerID: playerID,
-				// Empty Position will trigger full map respawn in RespawnTank
-			}
-			if err := m.RespawnTank(respawnData); err != nil {
-				log.Printf("Error auto-respawning tank %s: %v", playerID, err)
-			} else {
-				log.Printf("Auto-respawned tank %s after death", playerID)
-			}
-		}(hitData.TargetID)
+		log.Printf("🚨 AWAITING RESPAWN: Tank %s was destroyed and is waiting for explicit respawn request", hitData.TargetID)
 	}
 
 	log.Printf("✅ Tank hit processed successfully: Target=%s, Source=%s, Damage=%d",
@@ -383,6 +380,7 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 		// Reset health and destroyed status
 		player.Health = 100
 		player.IsDestroyed = false
+		player.Status = StatusActive // Set player status to ACTIVE
 
 		// Keep existing kills and deaths (don't reset them on respawn)
 		// Increment death count only happens in ProcessTankHit
@@ -451,6 +449,7 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 			IsDestroyed: false,
 			Kills:       0,
 			Deaths:      0,
+			Status:      StatusActive, // Player is active
 			Timestamp:   m.getTime(),
 			Color:       m.getPlayerColor(playerID),
 			IsMoving:    false,

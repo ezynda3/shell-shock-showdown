@@ -29777,6 +29777,9 @@ class BaseTank {
   health = 100;
   MAX_HEALTH = 100;
   isDestroyed = false;
+  getIsDestroyed() {
+    return this.isDestroyed;
+  }
   destroyedEffects = [];
   lastSourceOfDamage = null;
   isCurrentlyMoving = false;
@@ -33600,8 +33603,8 @@ class GameComponent extends LitElement {
             <div>F11: Toggle fullscreen</div>
             <div>Click canvas to lock pointer</div>
           </div>
-          <div class="game-over ${this.playerDestroyed ? "visible" : ""}">
-            <div class="wasted-text">Wasted</div>
+          <div class="game-over ${this.playerTank && this.playerTank.getIsDestroyed() || this.playerDestroyed ? "visible" : ""}">
+            <div class="wasted-text">WASTED</div>
           </div>
           
           <!-- Touch controls for mobile devices -->
@@ -34053,13 +34056,13 @@ class GameComponent extends LitElement {
     const playerData = this.multiplayerState.players[this.playerId];
     if (playerData && typeof playerData.health === "number") {
       this.playerTank.setHealth(playerData.health);
-      if (playerData.health <= 0 && !this.playerTank.isDestroyed) {
+      if (playerData.health <= 0 && !this.playerTank.getIsDestroyed()) {
         console.log("Server reported player death, updating local state");
         this.playerDestroyed = true;
         this.respawnTimer = 0;
         this.showPlayerDeathEffects();
       }
-      if (playerData.health > 0 && !playerData.isDestroyed && this.playerDestroyed) {
+      if (playerData.health > 0 && playerData.status === "ACTIVE" && this.playerDestroyed) {
         console.log("Server reported player respawn, updating local state");
         const spawnPoint = new Vector3(playerData.position.x, playerData.position.y, playerData.position.z);
         this.playerTank.respawn(spawnPoint);

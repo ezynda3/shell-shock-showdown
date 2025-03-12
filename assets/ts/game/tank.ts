@@ -368,6 +368,13 @@ export abstract class BaseTank implements ITank {
   protected health: number = 100;
   protected readonly MAX_HEALTH: number = 100;
   protected isDestroyed: boolean = false;
+
+  /**
+   * Returns whether the tank is destroyed
+   */
+  public getIsDestroyed(): boolean {
+    return this.isDestroyed;
+  }
   protected destroyedEffects: THREE.Object3D[] = [];
   protected lastSourceOfDamage: any = null; // Track who last damaged this tank for kill attribution
   

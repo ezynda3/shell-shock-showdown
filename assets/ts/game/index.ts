@@ -27,6 +27,8 @@ interface PlayerState {
   velocity: number;
   timestamp: number;
   color?: string;
+  isDestroyed?: boolean;
+  status?: string; // READY, ACTIVE, DESTROYED, DISCONNECT
 }
 
 // Interface for game state
@@ -654,8 +656,8 @@ export class GameComponent extends LitElement {
             <div>F11: Toggle fullscreen</div>
             <div>Click canvas to lock pointer</div>
           </div>
-          <div class="game-over ${this.playerDestroyed ? 'visible' : ''}">
-            <div class="wasted-text">Wasted</div>
+          <div class="game-over ${(this.playerTank && this.playerTank.getIsDestroyed()) || this.playerDestroyed ? 'visible' : ''}">
+            <div class="wasted-text">WASTED</div>
           </div>
           
           <!-- Touch controls for mobile devices -->
@@ -1345,7 +1347,7 @@ export class GameComponent extends LitElement {
       this.playerTank.setHealth(playerData.health);
       
       // If server says player is dead but client doesn't know yet
-      if (playerData.health <= 0 && !this.playerTank.isDestroyed) {
+      if (playerData.health <= 0 && !this.playerTank.getIsDestroyed()) {
         console.log('Server reported player death, updating local state');
         // Tank's setHealth method will handle the destruction effects
         
@@ -1356,7 +1358,7 @@ export class GameComponent extends LitElement {
       }
       
       // Check if the player was destroyed but is now alive (respawned by server)
-      if (playerData.health > 0 && !playerData.isDestroyed && this.playerDestroyed) {
+      if (playerData.health > 0 && playerData.status === 'ACTIVE' && this.playerDestroyed) {
         console.log('Server reported player respawn, updating local state');
         const spawnPoint = new THREE.Vector3(playerData.position.x, playerData.position.y, playerData.position.z);
         this.playerTank.respawn(spawnPoint);
