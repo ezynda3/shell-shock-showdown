@@ -2667,18 +2667,54 @@ export class GameComponent extends LitElement {
   
   // Handle damage events for all tanks
   private handleTankHit(event: CustomEvent) {
-    const { tank, source, hitLocation, visualOnly } = event.detail;
+    const { tank, source, hitLocation, visualOnly, clientSideHit } = event.detail;
     
-    // Check if this is the player tank
+    // Check if this is the player tank being hit
     if (tank === this.playerTank) {
       console.log(`Player tank hit detected on ${hitLocation || 'body'} (visual effects only)`);
       
       // Show visual/audio hit effects
       this.showPlayerHitEffects();
+    }
+    
+    // Always forward the hit event to server
+    // This is important to ensure hits register at all distances
+    if (source && source !== tank) {
+      // Skip if this is a network event to prevent loops
+      if (event.detail.isNetworkEvent) {
+        return;
+      }
       
-      // Send tank hit event to server for damage calculation and processing
-      // Health and damage are only managed by the server
-      if (source && source !== this.playerTank) {
+      // Get target ID - could be player, remote player, or NPC
+      let targetId = '';
+      let sourceId = source.getOwnerId ? source.getOwnerId() : 'unknown';
+      
+      // Check if it's the player tank
+      if (tank === this.playerTank) {
+        targetId = this.playerId;
+      } else {
+        // Check if it's a remote tank
+        for (const [id, remoteTank] of this.remoteTanks.entries()) {
+          if (remoteTank === tank) {
+            targetId = id;
+            break;
+          }
+        }
+        
+        // If still not found, check if it's an NPC
+        if (!targetId) {
+          const npcIndex = this.npcTanks.findIndex(npc => npc === tank);
+          if (npcIndex !== -1) {
+            // Use the NPC's owner ID if available
+            targetId = this.npcTanks[npcIndex].getOwnerId?.() || `npc_${npcIndex}`;
+          }
+        }
+      }
+      
+      // Only proceed if we have a valid target ID
+      if (targetId) {
+        console.log(`Sending tank hit for ${sourceId} -> ${targetId} (${hitLocation || 'body'}) to server`);
+        
         // Estimate damage amount (server will recalculate this)
         // Different hit locations have different damage multipliers
         let estimatedDamage = 20; // Base damage
@@ -2687,10 +2723,11 @@ export class GameComponent extends LitElement {
         
         // Create tank hit data
         const hitData = {
-          targetId: this.playerId,
-          sourceId: source.getOwnerId ? source.getOwnerId() : 'unknown',
+          targetId: targetId,
+          sourceId: sourceId,
           damageAmount: estimatedDamage,
-          hitLocation: hitLocation || 'body'
+          hitLocation: hitLocation || 'body',
+          isNetworkEvent: true // Mark as a network event to prevent loops
         };
         
         // Create a custom event using the consolidated format

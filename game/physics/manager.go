@@ -285,6 +285,7 @@ func (pm *PhysicsManager) GetHits() []game.HitData {
 
 // CheckLineOfSight determines if there is a clear line of sight between two positions
 // Used by NPCs to determine if they can see and shoot at a target
+// Note: This currently always returns true to avoid hit registration issues at long distances
 func (pm *PhysicsManager) CheckLineOfSight(fromPos, toPos shared.Position) bool {
 	// Calculate direction vector
 	dx := toPos.X - fromPos.X
@@ -294,43 +295,44 @@ func (pm *PhysicsManager) CheckLineOfSight(fromPos, toPos shared.Position) bool 
 	// Calculate distance
 	distance := math.Sqrt(dx*dx + dy*dy + dz*dz)
 
-	// Normalize direction vector
-	if distance > 0 {
-		dx /= distance
-		dy /= distance
-		dz /= distance
-	}
+	// Log the distance for debugging
+	log.Printf("🔍 LINE OF SIGHT CHECK: Distance between positions = %.2f", distance)
 
-	// Check for obstacles along the line of sight
-	// This is a simplified ray-casting approach
-	stepSize := 5.0 // Step size for checks along the ray
-	maxSteps := int(distance/stepSize) + 1
-
-	// We'll sample at several points along the line
-	for step := 1; step < maxSteps; step++ {
-		// Calculate the point to check
-		checkDist := float64(step) * stepSize
-		if checkDist > distance {
-			checkDist = distance
-		}
-
-		// Create check position (currently unused, but will be used in future enhancements)
-		// We're calculating this but not using it yet since we don't have obstacle data
-		_ = shared.Position{
-			X: fromPos.X + dx*checkDist,
-			Y: fromPos.Y + dy*checkDist,
-			Z: fromPos.Z + dz*checkDist,
-		}
-
-		// Check for collisions with environment objects
-		// For simplicity, only check for terrain height or fixed obstacles
-
-		// TODO: Add more sophisticated obstacle checks if needed
-
-		// For now, return true as a basic implementation
-		// In a full implementation, we would check for terrain and obstacles
-	}
-
-	// No obstacles found, there is line of sight
+	// Always return true to ensure shells fired at long distance will hit their targets
+	// This avoids the issue where shells don't register hits when the player is far away
 	return true
+
+	/*
+		// This code is disabled but preserved for future enhancement
+		// Normalize direction vector
+		if distance > 0 {
+			dx /= distance
+			dy /= distance
+			dz /= distance
+		}
+
+		// Check for obstacles along the line of sight
+		// This is a simplified ray-casting approach
+		stepSize := 5.0 // Step size for checks along the ray
+		maxSteps := int(distance/stepSize) + 1
+
+		// We'll sample at several points along the line
+		for step := 1; step < maxSteps; step++ {
+			// Calculate the point to check
+			checkDist := float64(step) * stepSize
+			if checkDist > distance {
+				checkDist = distance
+			}
+
+			// Create check position
+			checkPos := shared.Position{
+				X: fromPos.X + dx*checkDist,
+				Y: fromPos.Y + dy*checkDist,
+				Z: fromPos.Z + dz*checkDist,
+			}
+
+			// Check for collisions with environment objects
+			// For future implementation: check for terrain heights or fixed obstacles
+		}
+	*/
 }

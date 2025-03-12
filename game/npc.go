@@ -1167,10 +1167,9 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 		// Only fire if:
 		// 1. Cooldown has expired
 		// 2. Target is in range
-		// 3. NPC has line of sight to target
-		// 4. NPC is ready to fire (aim is good enough)
-		// 5. NEW: Only fire if we have detected a tank (CanSeeTarget)
-		if cooledDown && bestDistance < firingRange && npc.CanSeeTarget && readyToFire {
+		// 3. NPC is ready to fire (aim is good enough)
+		// No longer checking CanSeeTarget which was causing hit registration problems at long distances
+		if cooledDown && bestDistance < firingRange && readyToFire {
 			// Prepare shell data with a bit of randomness
 			// More aggressive NPCs fire faster shells
 			shellSpeed := 5.0 + (npc.Aggressiveness * 0.5)

@@ -29348,8 +29348,7 @@ class Shell {
           tank,
           source: this.source,
           hitLocation,
-          clientSideHit: true,
-          visualOnly: true
+          clientSideHit: true
         }
       });
       document.dispatchEvent(hitEvent);
@@ -34869,21 +34868,46 @@ class GameComponent extends LitElement {
     }
   }
   handleTankHit(event) {
-    const { tank, source, hitLocation, visualOnly } = event.detail;
+    const { tank, source, hitLocation, visualOnly, clientSideHit } = event.detail;
     if (tank === this.playerTank) {
       console.log(`Player tank hit detected on ${hitLocation || "body"} (visual effects only)`);
       this.showPlayerHitEffects();
-      if (source && source !== this.playerTank) {
+    }
+    if (source && source !== tank) {
+      if (event.detail.isNetworkEvent) {
+        return;
+      }
+      let targetId = "";
+      let sourceId = source.getOwnerId ? source.getOwnerId() : "unknown";
+      if (tank === this.playerTank) {
+        targetId = this.playerId;
+      } else {
+        for (const [id, remoteTank] of this.remoteTanks.entries()) {
+          if (remoteTank === tank) {
+            targetId = id;
+            break;
+          }
+        }
+        if (!targetId) {
+          const npcIndex = this.npcTanks.findIndex((npc) => npc === tank);
+          if (npcIndex !== -1) {
+            targetId = this.npcTanks[npcIndex].getOwnerId?.() || `npc_${npcIndex}`;
+          }
+        }
+      }
+      if (targetId) {
+        console.log(`Sending tank hit for ${sourceId} -> ${targetId} (${hitLocation || "body"}) to server`);
         let estimatedDamage = 20;
         if (hitLocation === "turret")
           estimatedDamage = 25;
         if (hitLocation === "tracks")
           estimatedDamage = 15;
         const hitData = {
-          targetId: this.playerId,
-          sourceId: source.getOwnerId ? source.getOwnerId() : "unknown",
+          targetId,
+          sourceId,
           damageAmount: estimatedDamage,
-          hitLocation: hitLocation || "body"
+          hitLocation: hitLocation || "body",
+          isNetworkEvent: true
         };
         const gameEvent = new CustomEvent("game-event", {
           detail: {

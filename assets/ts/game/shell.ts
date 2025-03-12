@@ -348,8 +348,8 @@ export class Shell implements ICollidable {
         console.log(`Client-side hit detection: Hit on ${hitLocation} (visual only)`);
       }
       
-      // Dispatch event for visual/sound effects only - NO HEALTH CHANGES CLIENT-SIDE
-      // Health changes will come from server state updates
+      // Dispatch event for server-side damage application
+      // Client shows effects but server calculates actual damage
       const hitEvent = new CustomEvent('tank-hit', {
         bubbles: true,
         composed: true,
@@ -357,8 +357,9 @@ export class Shell implements ICollidable {
           tank: tank,
           source: this.source,
           hitLocation: hitLocation,
-          clientSideHit: true, // Flag indicating this is a client-side detection only
-          visualOnly: true     // Explicitly mark that this is for visual effects only
+          clientSideHit: true, // Flag indicating this is a client-side detection
+          // No longer marked as visualOnly so it will be sent to the server
+          // for proper damage calculation regardless of distance
         }
       });
       document.dispatchEvent(hitEvent);
