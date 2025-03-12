@@ -25,7 +25,7 @@ func main() {
 	// Initialize a new random source for better randomness
 	// This is the proper way to initialize random in older Go versions
 	rand.Seed(time.Now().UnixNano())
-	
+
 	app := pocketbase.New()
 
 	// Setup embedded NATS server
@@ -119,7 +119,7 @@ func main() {
 			// Cap the number of NPCs to prevent performance issues
 			const MAX_NPCS = 10
 			if numNPCs > MAX_NPCS {
-				log.Printf("WARNING: Requested %d NPCs exceeds maximum of %d. Limiting to %d NPCs", 
+				log.Printf("WARNING: Requested %d NPCs exceeds maximum of %d. Limiting to %d NPCs",
 					numNPCs, MAX_NPCS, MAX_NPCS)
 				numNPCs = MAX_NPCS
 			}
@@ -136,7 +136,7 @@ func main() {
 			game.RandomMovement,
 		}
 		movementPattern := movementPatterns[rand.Intn(len(movementPatterns))]
-		
+
 		// Spawn the NPC with a random pattern
 		npcController.SpawnNPC("Bot", movementPattern)
 		log.Printf("Spawned NPC %d/%d with movement pattern: %s", i+1, numNPCs, movementPattern)
