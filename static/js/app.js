@@ -30218,6 +30218,19 @@ class BaseTank {
   getHealth() {
     return this.health;
   }
+  initialize(position) {
+    this.health = this.MAX_HEALTH;
+    this.isDestroyed = false;
+    if (position) {
+      this.tank.position.copy(position);
+    }
+    this.tank.visible = true;
+    if (this.healthBarSprite) {
+      this.healthBarSprite.visible = true;
+    }
+    this.collider.center.copy(this.tank.position);
+    this.updateHealthBar();
+  }
   respawn(position) {
     this.health = this.MAX_HEALTH;
     this.isDestroyed = false;
@@ -34023,6 +34036,7 @@ class GameComponent extends LitElement {
         const gameOverElement = this.shadowRoot?.querySelector(".game-over");
         if (gameOverElement) {
           gameOverElement.style.display = "none";
+          gameOverElement.classList.remove("visible");
         }
         this.requestUpdate();
       }
@@ -34556,7 +34570,7 @@ class GameComponent extends LitElement {
     this.createRocks();
     const spawnPoint = this.findRandomSpawnPoint();
     this.playerTank = new Tank(this.scene, this.camera);
-    this.playerTank.respawn(spawnPoint);
+    this.playerTank.initialize(spawnPoint);
     this.collisionSystem.addCollider(this.playerTank);
     this.positionCamera();
     window.addEventListener("resize", this.handleResize.bind(this));
@@ -35122,6 +35136,11 @@ class GameComponent extends LitElement {
         canvasContainer.classList.remove("camera-shake-death");
         this.requestUpdate();
       }, 1000);
+    }
+    const gameOverElement = this.shadowRoot?.querySelector(".game-over");
+    if (gameOverElement) {
+      gameOverElement.style.display = "flex";
+      gameOverElement.classList.add("visible");
     }
     this.requestUpdate();
   }

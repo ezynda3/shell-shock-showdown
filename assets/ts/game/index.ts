@@ -1322,7 +1322,7 @@ export class GameComponent extends LitElement {
       
       // Check if the player was destroyed but is now alive (respawned by server)
       // Also handle case where player is not marked as destroyed on the server (isDestroyed=false)
-    if ((playerData.health > 0 && !playerData.isDestroyed) && this.playerDestroyed) {
+      if ((playerData.health > 0 && !playerData.isDestroyed) && this.playerDestroyed) {
         console.log('Server reported player respawn, updating local state');
         console.log('Player data:', JSON.stringify(playerData));
         const spawnPoint = new THREE.Vector3(playerData.position.x, playerData.position.y, playerData.position.z);
@@ -1330,10 +1330,11 @@ export class GameComponent extends LitElement {
         this.playerDestroyed = false;
         this.respawnTimer = 0;
         
-        // Hide any WASTED screens or death effects
+        // Hide any WASTED screens or death effects - setting display to none ensures it's fully hidden
         const gameOverElement = this.shadowRoot?.querySelector('.game-over') as HTMLElement;
         if (gameOverElement) {
           gameOverElement.style.display = 'none';
+          gameOverElement.classList.remove('visible');
         }
         
         // Force update the scene
@@ -2166,7 +2167,7 @@ export class GameComponent extends LitElement {
     // Create player tank at a random valid position
     const spawnPoint = this.findRandomSpawnPoint();
     this.playerTank = new Tank(this.scene, this.camera);
-    this.playerTank.respawn(spawnPoint); // Set initial position
+    this.playerTank.initialize(spawnPoint); // Set initial position without explosion effects
     this.collisionSystem.addCollider(this.playerTank);
     
     // Position camera
@@ -3096,6 +3097,13 @@ export class GameComponent extends LitElement {
         canvasContainer.classList.remove('camera-shake-death');
         this.requestUpdate();
       }, 1000);
+    }
+    
+    // Make sure the game-over element is visible
+    const gameOverElement = this.shadowRoot?.querySelector('.game-over') as HTMLElement;
+    if (gameOverElement) {
+      gameOverElement.style.display = 'flex';
+      gameOverElement.classList.add('visible');
     }
     
     // Force UI refresh to show WASTED screen

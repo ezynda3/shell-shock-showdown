@@ -1093,6 +1093,32 @@ export abstract class BaseTank implements ITank {
     return this.health;
   }
   
+  // Initialize tank's position without explosion effects (for first spawn)
+  initialize(position?: THREE.Vector3): void {
+    // Reset health
+    this.health = this.MAX_HEALTH;
+    this.isDestroyed = false;
+    
+    // Reset position if provided
+    if (position) {
+      this.tank.position.copy(position);
+    }
+    
+    // Make tank visible
+    this.tank.visible = true;
+    
+    // Make health bar sprite visible
+    if (this.healthBarSprite) {
+      this.healthBarSprite.visible = true;
+    }
+    
+    // Reset collider
+    this.collider.center.copy(this.tank.position);
+    
+    // Update health bar
+    this.updateHealthBar();
+  }
+  
   respawn(position?: THREE.Vector3): void {
     // Reset health
     this.health = this.MAX_HEALTH;
