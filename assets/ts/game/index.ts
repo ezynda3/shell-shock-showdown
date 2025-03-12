@@ -1264,8 +1264,11 @@ export class GameComponent extends LitElement {
       // Set player health to max
       this.playerTank.setHealth(100);
       
+      // Reset playerDestroyed flag to allow position updates again
+      this.playerDestroyed = false;
+      
       // Update player state on server immediately with full health
-      this.broadcastPlayerState();
+      this.emitPlayerPositionEvent(); // Using the proper method name
       
       console.log('Forced player state update after respawn to ensure health is restored');
     }
@@ -2652,16 +2655,15 @@ export class GameComponent extends LitElement {
     // Update player tank with current key states
     if (this.playerTank) {
       if (this.playerDestroyed) {
-        // If player is destroyed, handle respawn timer
+        // When player is destroyed, we no longer handle respawn locally
+        // Instead, we wait for the server to tell us when the player is respawned
+        // This is handled in updateLocalPlayerHealth() when server sends playerData with health > 0
+        
+        // We still increment the timer for UI purposes (like showing respawn countdown)
         this.respawnTimer++;
-        if (this.respawnTimer >= this.RESPAWN_TIME) {
-          // Time to respawn at a random valid position
-          const spawnPoint = this.findRandomSpawnPoint();
-          this.playerTank.respawn(spawnPoint);
-          this.playerDestroyed = false;
-          this.respawnTimer = 0;
-          
-          // Force UI refresh
+        
+        // Force UI refresh periodically to show respawn progress
+        if (this.respawnTimer % 30 === 0) {
           this.requestUpdate();
         }
       } else {
@@ -3167,6 +3169,12 @@ export class GameComponent extends LitElement {
    */
   private emitPlayerPositionEvent(): void {
     if (!this.playerTank) return;
+    
+    // Don't send position updates if the player is destroyed
+    // This prevents client from overriding server respawn behavior
+    if (this.playerDestroyed) {
+      return;
+    }
     
     // Only emit if we have a playerId assigned (important for multiplayer)
     if (!this.playerId) {

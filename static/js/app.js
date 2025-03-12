@@ -34003,7 +34003,8 @@ class GameComponent extends LitElement {
     this.dispatchEvent(gameEvent);
     if (this.playerTank && respawnData.playerId === this.playerId) {
       this.playerTank.setHealth(100);
-      this.broadcastPlayerState();
+      this.playerDestroyed = false;
+      this.emitPlayerPositionEvent();
       console.log("Forced player state update after respawn to ensure health is restored");
     }
   }
@@ -34868,11 +34869,7 @@ class GameComponent extends LitElement {
     if (this.playerTank) {
       if (this.playerDestroyed) {
         this.respawnTimer++;
-        if (this.respawnTimer >= this.RESPAWN_TIME) {
-          const spawnPoint = this.findRandomSpawnPoint();
-          this.playerTank.respawn(spawnPoint);
-          this.playerDestroyed = false;
-          this.respawnTimer = 0;
+        if (this.respawnTimer % 30 === 0) {
           this.requestUpdate();
         }
       } else {
@@ -35194,6 +35191,9 @@ class GameComponent extends LitElement {
   emitPlayerPositionEvent() {
     if (!this.playerTank)
       return;
+    if (this.playerDestroyed) {
+      return;
+    }
     if (!this.playerId) {
       console.log("Cannot emit position: No player ID assigned yet");
       return;

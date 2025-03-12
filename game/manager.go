@@ -649,6 +649,54 @@ func (m *Manager) cleanupGameState() {
 			// Also clean up the lastPlayerFireTime entry for this player
 			delete(m.lastPlayerFireTime, id)
 		}
+
+		// Check if player has inconsistent state (destroyed but positive health)
+		if player.IsDestroyed && player.Health > 0 {
+			log.Printf("🔄 FIXING INCONSISTENT STATE: Player %s has health=%d but is marked destroyed, correcting state", id, player.Health)
+			player.IsDestroyed = false
+			player.Status = StatusActive
+			m.state.Players[id] = player
+			continue
+		}
+
+		// Auto-respawn destroyed players after 5 seconds
+		if player.IsDestroyed && player.Status == StatusDestroyed {
+			// Check if 5 seconds have passed since death
+			if player.LastDeathTime > 0 && now-player.LastDeathTime >= 5000 {
+				log.Printf("Auto-respawning player %s after 5 seconds", id)
+
+				// Reset health and destroyed status
+				player.Health = 100
+				player.IsDestroyed = false
+				player.Status = StatusActive // Set player status to ACTIVE immediately
+
+				// Random position anywhere on the 5000x5000 map
+				player.Position = Position{
+					X: -2500.0 + rand.Float64()*5000.0,
+					Y: 0,
+					Z: -2500.0 + rand.Float64()*5000.0,
+				}
+
+				// Reset movement state
+				player.IsMoving = false
+				player.Velocity = 0.0
+
+				// Set timestamp for this update
+				player.Timestamp = now
+
+				// Save back to player map
+				m.state.Players[id] = player
+
+				log.Printf("✅ AUTO-RESPAWN: Tank %s respawned with health=%d, destroyed=%v, status=%s at position (%f, %f, %f)",
+					id,
+					player.Health,
+					player.IsDestroyed,
+					player.Status,
+					player.Position.X,
+					player.Position.Y,
+					player.Position.Z)
+			}
+		}
 	}
 
 	// Clean up expired shells (older than 5 seconds - increased from 3 to account for travel time)

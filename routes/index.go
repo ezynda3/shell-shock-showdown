@@ -75,6 +75,14 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid player update data"})
 				}
 
+				// Check if player is destroyed in current game state
+				currentState := gameManager.GetState()
+				if currentPlayer, exists := currentState.Players[playerID]; exists && currentPlayer.IsDestroyed {
+					// Player is dead, ignore position updates from client
+					log.Printf("⚠️ Ignoring position update from destroyed player: %s", playerID)
+					break
+				}
+
 				// Update player with game manager
 				if err := gameManager.UpdatePlayer(playerUpdate, playerID, playerName); err != nil {
 					log.Println("Error updating player:", err)
