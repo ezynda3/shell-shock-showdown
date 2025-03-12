@@ -99,6 +99,8 @@ github.com/gabriel-vasile/mimetype v1.4.8 h1:FfZ3gj38NjllZIeJAmMhr+qKL8Wu+nOoI3G
 github.com/gabriel-vasile/mimetype v1.4.8/go.mod h1:ByKUIKGjh1ODkGM1asKUbQZOLGrPjydw3hYPU2YU9t8=
 github.com/ganigeorgiev/fexpr v0.4.1 h1:hpUgbUEEWIZhSDBtf4M9aUNfQQ0BZkGRaMePy7Gcx5k=
 github.com/ganigeorgiev/fexpr v0.4.1/go.mod h1:RyGiGqmeXhEQ6+mlGdnUleLHgtzzu/VGO2WtJkF5drE=
+github.com/gazed/vu v0.25.0 h1:cf++INWVfls2p0FUK0SvUMKL6Jht02zwMelu+P6kDSo=
+github.com/gazed/vu v0.25.0/go.mod h1:PD4aUxLGrYwF8AXRs7FdEORhHSVA4Ndnq+TW3yqWtik=
 github.com/go-logr/logr v1.4.2 h1:6pFjapn8bFcIbiKo3XT4j/BhANplGihG6tvd+8rYgrY=
 github.com/go-logr/logr v1.4.2/go.mod h1:9T104GzyrTigFIr8wt5mBrctHMim0Nb2HLGrmQ40KvY=
 github.com/go-logr/stdr v1.2.2 h1:hSWxHoqTgW2S2qGc0LTAI563KZ5YKYRhT3MFKZMbjag=

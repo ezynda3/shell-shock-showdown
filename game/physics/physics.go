@@ -4,10 +4,22 @@ import (
 	"log"
 
 	"github.com/mark3labs/pro-saaskit/game"
+	"github.com/mark3labs/pro-saaskit/game/shared"
 )
 
+// PhysicsEngine is an interface that all physics managers must implement
+type PhysicsEngine interface {
+	RegisterTank(tank *game.PlayerState)
+	UnregisterTank(tankID string)
+	UpdateTank(tank *game.PlayerState)
+	UpdateShells(shells []game.ShellState)
+	Update()
+	GetHits() []game.HitData
+	CheckLineOfSight(fromPos, toPos shared.Position) bool
+}
+
 // PhysicsManagerInstance is the singleton instance of the physics manager
-var PhysicsManagerInstance *PhysicsManager
+var PhysicsManagerInstance PhysicsEngine
 
 // Initialize initializes the physics package
 // DEPRECATED: Use NewPhysicsManager and NewPhysicsIntegration directly instead
@@ -40,7 +52,7 @@ func Initialize() {
 }
 
 // GetPhysicsManager returns the physics manager instance
-func GetPhysicsManager() *PhysicsManager {
+func GetPhysicsManager() PhysicsEngine {
 	if PhysicsManagerInstance == nil {
 		// Just log a warning but don't initialize - this should be done in main.go
 		log.Println("⚠️ WARNING: Physics manager not initialized. Call Initialize() first or create it directly.")

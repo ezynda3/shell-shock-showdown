@@ -15,7 +15,7 @@ import (
 
 // PhysicsIntegration connects the physics manager with the game manager
 type PhysicsIntegration struct {
-	physicsManager *PhysicsManager
+	physicsManager PhysicsEngine // Can be either PhysicsManager or VuPhysicsManager
 	gameManager    *game.Manager
 	gameMap        *game.GameMap
 	mutex          sync.RWMutex
@@ -34,13 +34,14 @@ func NewPhysicsIntegration(gameManager *game.Manager) *PhysicsIntegration {
 	gameMap := game.GetGameMap()
 
 	// Create physics manager with reference to game manager for callbacks
-	physicsManager := NewPhysicsManager(gameMap, gameManager)
+	// Note: We don't create a physics manager here anymore
+	// It should be set to PhysicsManagerInstance which is created in main.go
 
 	// Create context with cancel function
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &PhysicsIntegration{
-		physicsManager:    physicsManager,
+		physicsManager:    PhysicsManagerInstance, // Use the global physics manager instance
 		gameManager:       gameManager,
 		gameMap:           gameMap,
 		mutex:             sync.RWMutex{},
@@ -373,9 +374,29 @@ func (pi *PhysicsIntegration) checkTankCollisions(tank *game.PlayerState) {
 
 	collisionsFound := 0
 
+	// Function to check collision based on physics manager type
+	checkCollision := func(pos1 game.Position, radius1 float64, pos2 game.Position, radius2 float64) bool {
+		// Create colliders for the spheres
+		a := &Collider{
+			Position: pos1,
+			Radius:   radius1,
+			Type:     ColliderTank,
+			ID:       tank.ID,
+		}
+		
+		b := &Collider{
+			Position: pos2,
+			Radius:   radius2,
+			Type:     ColliderTree,
+			ID:       "environment",
+		}
+		
+		return CheckCollision(a, b)
+	}
+
 	// Check for collisions with trees (using a larger radius of 2.5)
 	for _, tree := range pi.gameMap.Trees.Trees {
-		if pi.physicsManager.checkCollision(tank.Position, 2.5, tree.Position, tree.Radius) {
+		if checkCollision(tank.Position, 2.5, tree.Position, tree.Radius) {
 			collisionsFound++
 
 			// Calculate collision point (average of positions)
@@ -395,7 +416,7 @@ func (pi *PhysicsIntegration) checkTankCollisions(tank *game.PlayerState) {
 
 	// Check for collisions with rocks (using a larger radius of 2.5)
 	for _, rock := range pi.gameMap.Rocks.Rocks {
-		if pi.physicsManager.checkCollision(tank.Position, 2.5, rock.Position, rock.Radius) {
+		if checkCollision(tank.Position, 2.5, rock.Position, rock.Radius) {
 			collisionsFound++
 
 			// Calculate collision point (average of positions)
@@ -428,6 +449,26 @@ func (pi *PhysicsIntegration) checkCollisionsForced(tank *game.PlayerState) {
 	log.Printf("🔎 PHYSICS: Checking tank %s at (%.2f, %.2f, %.2f) with radius 1.5",
 		tank.Name, tank.Position.X, tank.Position.Y, tank.Position.Z)
 
+	// Function to check collision based on physics manager type
+	checkCollision := func(pos1 game.Position, radius1 float64, pos2 game.Position, radius2 float64) bool {
+		// Create colliders for the spheres
+		a := &Collider{
+			Position: pos1,
+			Radius:   radius1,
+			Type:     ColliderTank,
+			ID:       tank.ID,
+		}
+		
+		b := &Collider{
+			Position: pos2,
+			Radius:   radius2,
+			Type:     ColliderTree,
+			ID:       "environment",
+		}
+		
+		return CheckCollision(a, b)
+	}
+
 	closestTreeDist := 1000.0
 	closestTreeIndex := -1
 
@@ -445,7 +486,7 @@ func (pi *PhysicsIntegration) checkCollisionsForced(tank *game.PlayerState) {
 		}
 
 		// Check for collision with a larger detection radius (2.5 instead of 1.5)
-		if pi.physicsManager.checkCollision(tank.Position, 2.5, tree.Position, tree.Radius) {
+		if checkCollision(tank.Position, 2.5, tree.Position, tree.Radius) {
 			// Calculate collision point
 			collisionX := (tank.Position.X + tree.Position.X) / 2
 			collisionZ := (tank.Position.Z + tree.Position.Z) / 2
@@ -503,7 +544,7 @@ func (pi *PhysicsIntegration) checkCollisionsForced(tank *game.PlayerState) {
 		}
 
 		// Check for collision with a larger detection radius (2.5 instead of 1.5)
-		if pi.physicsManager.checkCollision(tank.Position, 2.5, rock.Position, rock.Radius) {
+		if checkCollision(tank.Position, 2.5, rock.Position, rock.Radius) {
 			// Calculate collision point
 			collisionX := (tank.Position.X + rock.Position.X) / 2
 			collisionZ := (tank.Position.Z + rock.Position.Z) / 2
@@ -688,6 +729,8 @@ func (pi *PhysicsIntegration) updatePhysics() {
 		if !player.IsDestroyed {
 			// Make a copy of the player to pass to physics manager
 			playerCopy := player
+			
+			// Use the interface directly
 			pi.physicsManager.RegisterTank(&playerCopy)
 		}
 	}
@@ -701,28 +744,28 @@ func (pi *PhysicsIntegration) updatePhysics() {
 
 		// Make a copy of shells to avoid modifying the original state
 		shellsCopy := make([]game.ShellState, len(gameState.Shells))
-			copy(shellsCopy, gameState.Shells)
+		copy(shellsCopy, gameState.Shells)
 
-			// Log shell positions before physics update
-			if len(shellsCopy) > 0 {
-				log.Printf("📷 BEFORE PHYSICS: First shell %s at (%.2f,%.2f,%.2f)", 
-					shellsCopy[0].ID, 
-					shellsCopy[0].Position.X, 
-					shellsCopy[0].Position.Y, 
-					shellsCopy[0].Position.Z)
-			}
+		// Log shell positions before physics update
+		if len(shellsCopy) > 0 {
+			log.Printf("📷 BEFORE PHYSICS: First shell %s at (%.2f,%.2f,%.2f)", 
+				shellsCopy[0].ID, 
+				shellsCopy[0].Position.X, 
+				shellsCopy[0].Position.Y, 
+				shellsCopy[0].Position.Z)
+		}
 
 		// Update shells with physics simulation
-
-			// Log shell positions after physics update to see if they changed
-			if len(shellsCopy) > 0 {
-				log.Printf("📷 AFTER PHYSICS: First shell %s at (%.2f,%.2f,%.2f)", 
-					shellsCopy[0].ID, 
-					shellsCopy[0].Position.X, 
-					shellsCopy[0].Position.Y, 
-					shellsCopy[0].Position.Z)
-			}
 		pi.physicsManager.UpdateShells(shellsCopy)
+
+		// Log shell positions after physics update to see if they changed
+		if len(shellsCopy) > 0 {
+			log.Printf("📷 AFTER PHYSICS: First shell %s at (%.2f,%.2f,%.2f)", 
+				shellsCopy[0].ID, 
+				shellsCopy[0].Position.X, 
+				shellsCopy[0].Position.Y, 
+				shellsCopy[0].Position.Z)
+		}
 
 		// Check if any shells were modified by physics (hit ground or expired)
 		// and need to be removed from game state

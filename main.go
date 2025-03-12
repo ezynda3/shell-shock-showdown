@@ -87,7 +87,9 @@ func main() {
 
 	// Create all the required components in the correct order
 	gameMap := game.GetGameMap() // Use GetGameMap instead of InitGameMap to avoid redeclaration
-	physics.PhysicsManagerInstance = physics.NewPhysicsManager(gameMap, gameManager)
+	
+	// Use the new Vu physics-based manager instead of the old one
+	physics.PhysicsManagerInstance = physics.NewVuPhysicsManager(gameMap, gameManager)
 	physicsIntegration := physics.NewPhysicsIntegration(gameManager)
 	physicsIntegration.Start()
 
