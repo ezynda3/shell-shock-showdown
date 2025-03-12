@@ -115,8 +115,24 @@ func (pm *PhysicsManager) UpdateShells(shells []game.ShellState) {
 		}
 	}
 
-	// Replace current shells with new shell data
-	pm.shells = shells
+	// Filter out shells that have already hit something (Y = -1)
+	// This prevents shells from causing damage more than once
+	var activeShells []game.ShellState
+	var filteredCount int
+	for _, shell := range shells {
+		if shell.Position.Y != -1 {
+			activeShells = append(activeShells, shell)
+		} else {
+			filteredCount++
+		}
+	}
+
+	if filteredCount > 0 {
+		log.Printf("🧹 PHYSICS: Filtered out %d shells that already hit something", filteredCount)
+	}
+
+	// Replace current shells with filtered shell data
+	pm.shells = activeShells
 
 	// Check for collisions with tanks
 	pm.checkShellCollisions()
@@ -124,9 +140,9 @@ func (pm *PhysicsManager) UpdateShells(shells []game.ShellState) {
 
 // checkShellCollisions detects collisions between shells and tanks
 func (pm *PhysicsManager) checkShellCollisions() {
-	// Base damage amount
-	const baseDamage = 25 // Base damage per hit
-	const tankRadius = 20.0 // Tank radius increased for better hit detection
+	// Base damage amount - reduced to prevent one-shot kills
+	const baseDamage = 20 // Base damage per hit (reduced from 25)
+	// Note: tankRadius is now defined in GetTankCollider and DetailedCollisionCheck as 20.0 consistently
 
 	// Clear previous hits
 	pm.hits = pm.hits[:0]
@@ -174,23 +190,42 @@ func (pm *PhysicsManager) checkShellCollisions() {
 			collision, hitLocation, damageMultiplier := pm.shellPhysics.DetailedCollisionCheck(shell, *tank)
 
 			if collision {
+				// Check if this shell has already been processed for a hit
+				// by looking at its Y position (-1 indicates already processed)
+				if pm.shells[i].Position.Y == -1 {
+					log.Printf("🛑 DUPLICATE HIT PREVENTED: Shell %s already processed for a hit", shell.ID)
+					break
+				}
+
 				// Calculate final damage based on multiplier
+				// Calculate final damage based on multiplier, but with a maximum cap
 				damageAmount := int(float64(baseDamage) * damageMultiplier)
+
+				// Cap maximum damage to prevent one-shot kills (no more than 50% of health in one hit)
+				if damageAmount > 50 {
+					log.Printf("⚠️ DAMAGE CAPPED: Reducing damage from %d to 50 to prevent one-shot kills", damageAmount)
+					damageAmount = 50
+				}
 
 				// Log hit detection with more details
 				log.Printf("🎯 Shell hit detected: Shell %s from player %s hit tank %s (%s) on %s for %d damage",
 					shell.ID, shell.PlayerID, tankID, tank.Name, hitLocation, damageAmount)
 
-				// Create a hit record
+				// IMPORTANT: Mark shell as hit IMMEDIATELY to prevent multiple hits
+				// Update it in the original slice
+				pm.shells[i].Position.Y = -1 // Special value to indicate collision hit
+
+				// Create a hit record with complete data for the server to process
 				hit := game.HitData{
 					TargetID:     tankID,
 					SourceID:     shell.PlayerID,
 					DamageAmount: damageAmount,
+					HitLocation:  hitLocation,
+					Timestamp:    time.Now().UnixMilli(),
 				}
 
 				// Add to hits list
 				pm.hits = append(pm.hits, hit)
-
 				// Process hit immediately if game manager is available
 				if pm.manager != nil {
 					err := pm.manager.ProcessTankHit(hit)
@@ -198,7 +233,7 @@ func (pm *PhysicsManager) checkShellCollisions() {
 						// Log error but don't stop processing - it might be an NPC tank
 						// that's not properly registered with the game manager
 						log.Printf("Error processing tank hit: %v", err)
-						
+
 						// Attempt to register the tank with the game manager if it's not found
 						if tankID == hit.TargetID {
 							// Create a new player state for this tank if it doesn't exist
@@ -208,10 +243,10 @@ func (pm *PhysicsManager) checkShellCollisions() {
 								if tankHealth < 0 {
 									tankHealth = 0
 								}
-								
+
 								// Try to update tank to game manager to fix the issue
 								logTankData := fmt.Sprintf("ID: %s, Name: %s, Health: %d, Position: (%.2f,%.2f,%.2f)",
-									tankID, tank.Name, tankHealth, 
+									tankID, tank.Name, tankHealth,
 									tank.Position.X, tank.Position.Y, tank.Position.Z)
 								log.Printf("🔄 RECOVERY: Attempting to register tank: %s", logTankData)
 							}
@@ -255,22 +290,22 @@ func (pm *PhysicsManager) CheckLineOfSight(fromPos, toPos shared.Position) bool 
 	dx := toPos.X - fromPos.X
 	dy := toPos.Y - fromPos.Y
 	dz := toPos.Z - fromPos.Z
-	
+
 	// Calculate distance
 	distance := math.Sqrt(dx*dx + dy*dy + dz*dz)
-	
+
 	// Normalize direction vector
 	if distance > 0 {
 		dx /= distance
 		dy /= distance
 		dz /= distance
 	}
-	
+
 	// Check for obstacles along the line of sight
 	// This is a simplified ray-casting approach
 	stepSize := 5.0 // Step size for checks along the ray
-	maxSteps := int(distance / stepSize) + 1
-	
+	maxSteps := int(distance/stepSize) + 1
+
 	// We'll sample at several points along the line
 	for step := 1; step < maxSteps; step++ {
 		// Calculate the point to check
@@ -278,7 +313,7 @@ func (pm *PhysicsManager) CheckLineOfSight(fromPos, toPos shared.Position) bool 
 		if checkDist > distance {
 			checkDist = distance
 		}
-		
+
 		// Create check position (currently unused, but will be used in future enhancements)
 		// We're calculating this but not using it yet since we don't have obstacle data
 		_ = shared.Position{
@@ -286,16 +321,16 @@ func (pm *PhysicsManager) CheckLineOfSight(fromPos, toPos shared.Position) bool 
 			Y: fromPos.Y + dy*checkDist,
 			Z: fromPos.Z + dz*checkDist,
 		}
-		
+
 		// Check for collisions with environment objects
 		// For simplicity, only check for terrain height or fixed obstacles
-		
+
 		// TODO: Add more sophisticated obstacle checks if needed
-		
+
 		// For now, return true as a basic implementation
 		// In a full implementation, we would check for terrain and obstacles
 	}
-	
+
 	// No obstacles found, there is line of sight
 	return true
 }

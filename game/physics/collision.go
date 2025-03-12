@@ -75,7 +75,7 @@ func GetRockColliders(gameMap *game.GameMap) []*Collider {
 func GetTankCollider(tank *game.PlayerState) *Collider {
 	return &Collider{
 		Position: tank.Position,
-		Radius:   1.5, // Standard tank radius
+		Radius:   20.0, // Tank radius to match the 100x scale (client uses 2.0)
 		Type:     ColliderTank,
 		ID:       tank.ID,
 	}

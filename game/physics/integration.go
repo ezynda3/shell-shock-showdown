@@ -383,14 +383,14 @@ func (pi *PhysicsIntegration) checkTankCollisions(tank *game.PlayerState) {
 			Type:     ColliderTank,
 			ID:       tank.ID,
 		}
-		
+
 		b := &Collider{
 			Position: pos2,
 			Radius:   radius2,
 			Type:     ColliderTree,
 			ID:       "environment",
 		}
-		
+
 		return CheckCollision(a, b)
 	}
 
@@ -458,14 +458,14 @@ func (pi *PhysicsIntegration) checkCollisionsForced(tank *game.PlayerState) {
 			Type:     ColliderTank,
 			ID:       tank.ID,
 		}
-		
+
 		b := &Collider{
 			Position: pos2,
 			Radius:   radius2,
 			Type:     ColliderTree,
 			ID:       "environment",
 		}
-		
+
 		return CheckCollision(a, b)
 	}
 
@@ -729,7 +729,7 @@ func (pi *PhysicsIntegration) updatePhysics() {
 		if !player.IsDestroyed {
 			// Make a copy of the player to pass to physics manager
 			playerCopy := player
-			
+
 			// Use the interface directly
 			pi.physicsManager.RegisterTank(&playerCopy)
 		}
@@ -748,10 +748,10 @@ func (pi *PhysicsIntegration) updatePhysics() {
 
 		// Log shell positions before physics update
 		if len(shellsCopy) > 0 {
-			log.Printf("📷 BEFORE PHYSICS: First shell %s at (%.2f,%.2f,%.2f)", 
-				shellsCopy[0].ID, 
-				shellsCopy[0].Position.X, 
-				shellsCopy[0].Position.Y, 
+			log.Printf("📷 BEFORE PHYSICS: First shell %s at (%.2f,%.2f,%.2f)",
+				shellsCopy[0].ID,
+				shellsCopy[0].Position.X,
+				shellsCopy[0].Position.Y,
 				shellsCopy[0].Position.Z)
 		}
 
@@ -760,10 +760,10 @@ func (pi *PhysicsIntegration) updatePhysics() {
 
 		// Log shell positions after physics update to see if they changed
 		if len(shellsCopy) > 0 {
-			log.Printf("📷 AFTER PHYSICS: First shell %s at (%.2f,%.2f,%.2f)", 
-				shellsCopy[0].ID, 
-				shellsCopy[0].Position.X, 
-				shellsCopy[0].Position.Y, 
+			log.Printf("📷 AFTER PHYSICS: First shell %s at (%.2f,%.2f,%.2f)",
+				shellsCopy[0].ID,
+				shellsCopy[0].Position.X,
+				shellsCopy[0].Position.Y,
 				shellsCopy[0].Position.Z)
 		}
 

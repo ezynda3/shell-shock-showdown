@@ -23,8 +23,8 @@ type PlayerState struct {
 	Timestamp       int64    `json:"timestamp"`
 	Color           string   `json:"color,omitempty"`
 	IsDestroyed     bool     `json:"isDestroyed"`
-	Kills           int      `json:"kills"`     // Number of kills
-	Deaths          int      `json:"deaths"`    // Number of deaths
+	Kills           int      `json:"kills"`  // Number of kills
+	Deaths          int      `json:"deaths"` // Number of deaths
 }
 
 // ShellState represents the state of a shell
@@ -68,6 +68,8 @@ type HitData struct {
 	TargetID     string `json:"targetId"`
 	SourceID     string `json:"sourceId"`
 	DamageAmount int    `json:"damageAmount"`
+	HitLocation  string `json:"hitLocation"` // Part of tank that was hit (turret, body, tracks)
+	Timestamp    int64  `json:"timestamp"`   // When the hit occurred (server time)
 }
 
 // RespawnData represents a tank respawn event

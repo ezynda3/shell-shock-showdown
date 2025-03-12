@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"log"
+	"math/rand"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/delaneyj/toolbelt/embeddednats"
@@ -20,6 +22,10 @@ import (
 )
 
 func main() {
+	// Initialize a new random source for better randomness
+	// This is the proper way to initialize random in older Go versions
+	rand.Seed(time.Now().UnixNano())
+	
 	app := pocketbase.New()
 
 	// Setup embedded NATS server
@@ -87,7 +93,7 @@ func main() {
 
 	// Create all the required components in the correct order
 	gameMap := game.GetGameMap() // Use GetGameMap instead of InitGameMap to avoid redeclaration
-	
+
 	// Use the new Vu physics-based manager instead of the old one
 	physics.PhysicsManagerInstance = physics.NewVuPhysicsManager(gameMap, gameManager)
 	physicsIntegration := physics.NewPhysicsIntegration(gameManager)
@@ -103,22 +109,39 @@ func main() {
 	npcController := game.NewNPCController(gameManager, gameMap, physics.PhysicsManagerInstance)
 	npcController.Start()
 
-	// Spawn 5 NPC tanks with different movement patterns
-	movementPatterns := []game.MovementPattern{
-		game.CircleMovement,
-		game.ZigzagMovement,
-		game.PatrolMovement,
-		game.RandomMovement,
-		game.CircleMovement,
+	// Set the number of NPC tanks to spawn
+	// Read from environment variable or default to 1
+	numNPCsStr := os.Getenv("NUM_NPCS")
+	numNPCs := 1 // Default value
+	if numNPCsStr != "" {
+		if val, err := strconv.Atoi(numNPCsStr); err == nil && val > 0 {
+			numNPCs = val
+			// Cap the number of NPCs to prevent performance issues
+			const MAX_NPCS = 10
+			if numNPCs > MAX_NPCS {
+				log.Printf("WARNING: Requested %d NPCs exceeds maximum of %d. Limiting to %d NPCs", 
+					numNPCs, MAX_NPCS, MAX_NPCS)
+				numNPCs = MAX_NPCS
+			}
+		}
 	}
 
-	npcNames := []string{"Alpha", "Bravo", "Charlie", "Delta", "Echo"}
-
-	for i := 0; i < 5; i++ {
-		npcController.SpawnNPC(npcNames[i], movementPatterns[i])
-		// Small delay between spawns to avoid physics conflicts
-		time.Sleep(100 * time.Millisecond)
+	// Spawn NPCs in a loop
+	for i := 0; i < numNPCs; i++ {
+		// Choose a random movement pattern for each NPC
+		movementPatterns := []game.MovementPattern{
+			game.CircleMovement,
+			game.ZigzagMovement,
+			game.PatrolMovement,
+			game.RandomMovement,
+		}
+		movementPattern := movementPatterns[rand.Intn(len(movementPatterns))]
+		
+		// Spawn the NPC with a random pattern
+		npcController.SpawnNPC("Bot", movementPattern)
+		log.Printf("Spawned NPC %d/%d with movement pattern: %s", i+1, numNPCs, movementPattern)
 	}
+	log.Printf("Spawned %d NPC tanks in total (set NUM_NPCS environment variable to change)", numNPCs)
 
 	log.Println("\n==================================================")
 	log.Println("📊 SYSTEM STATUS:")
@@ -128,6 +151,7 @@ func main() {
 	log.Println("  - Game Manager: Initialized ✅")
 	log.Println("  - Physics System: Running ✅")
 	log.Println("  - NPC Controller: Running ✅")
+	log.Printf("  - Active NPCs: %d ✅", numNPCs)
 	log.Println("==================================================\n")
 
 	middleware.AddCookieSessionMiddleware(*app)

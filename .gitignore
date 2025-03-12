@@ -5,3 +5,4 @@ bin/
 **/*.txt
 tmp/
 node_modules/
+bin/

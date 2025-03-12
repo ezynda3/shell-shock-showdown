@@ -812,7 +812,7 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 
 			// Player preference (prefer players over NPCs)
 			playerScore := 0.0
-			if !isBot {
+			if !isNPC {
 				playerScore = 0.3
 			}
 
@@ -837,7 +837,7 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 				npc.TargetID = playerID
 
 				// Log target selection for high-value targets (debug info)
-				if player.Health < 30 || !isBot {
+				if player.Health < 30 || !isNPC {
 					log.Printf("NPC %s found strategic target %s: distance=%.1f, health=%d, score=%.2f",
 						npc.ID, playerID, dist, player.Health, targetScore)
 				}

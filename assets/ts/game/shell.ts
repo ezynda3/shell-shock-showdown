@@ -317,11 +317,12 @@ export class Shell implements ICollidable {
     this.createExplosion(this.mesh.position.clone());
     
     // If hit a tank, create visual and sound effects but don't apply damage
-    // Health changes are now managed by the server
+    // Health changes are managed by the server (server is authoritative)
     if (other.getType() === 'tank') {
       const tank = other as ITank;
       
       // IMPORTANT: Set the tank's lastSourceOfDamage to track who hit it (for kill attribution)
+      // This is just for client-side tracking; the server remains authoritative for damage
       if (tank && typeof tank === 'object' && 'lastSourceOfDamage' in tank) {
         (tank as any).lastSourceOfDamage = this.source;
         console.log(`Setting lastSourceOfDamage on tank ${(tank as any).tankName || 'unknown'} to ${this.source?.constructor?.name || 'unknown source'}`);
@@ -348,9 +349,9 @@ export class Shell implements ICollidable {
           }
         }
         
-        console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit on ${hitLocation}. Current health: ${tank.getHealth()}`);
+        console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit on ${hitLocation}. Current health: ${tank.getHealth()} (visual only - waiting for server confirmation)`);
       } else {
-        console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit. Current health: ${tank.getHealth()}`);
+        console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit. Current health: ${tank.getHealth()} (visual only - waiting for server confirmation)`);
       }
       
       // Fire tank-hit event for visual effects and sound only
@@ -361,7 +362,9 @@ export class Shell implements ICollidable {
         detail: {
           tank: tank,
           source: this.source,
-          hitLocation: hitLocation
+          hitLocation: hitLocation,
+          // Note: This is a client-side hit detection, server will confirm actual damage
+          clientSideHit: true
         }
       });
       document.dispatchEvent(hitEvent);

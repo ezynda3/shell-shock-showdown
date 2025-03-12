@@ -24,13 +24,14 @@ type ShellPhysics struct {
 // NewShellPhysics creates a new shell physics calculator
 func NewShellPhysics() *ShellPhysics {
 	// Create new physics object with appropriate collision radius for game scale (5000x5000 world)
+	// Ensure consistency with client: client uses 0.2 * 100 = 20.0
 	physics := &ShellPhysics{
-		GRAVITY:          0.005,  // Gravity effect per update
-		AIR_RESISTANCE:   0.001,  // Air resistance coefficient
-		MAX_LIFETIME:     20000,  // 20 seconds
-		COLLISION_RADIUS: 20.0,   // Shell collision radius adjusted to game scale - increased for larger world
-		WIND_X:           0.0005,
-		WIND_Z:           0.0005,
+		GRAVITY:          0.005,  // Gravity effect per update - matches client's 0.005
+		AIR_RESISTANCE:   0.001,  // Air resistance coefficient - matches client's 0.001
+		MAX_LIFETIME:     20000,  // 20 seconds - matches client's 20 seconds (1200 frames at 60fps)
+		COLLISION_RADIUS: 20.0,   // Shell collision radius (client uses 0.2 but server scale is 100x)
+		WIND_X:           0.0005, // Matches client wind factor
+		WIND_Z:           0.0005, // Matches client wind factor
 	}
 
 	// Log the collision parameters
@@ -143,7 +144,8 @@ func (sp *ShellPhysics) DetailedCollisionCheck(shell game.ShellState, tank game.
 	// Use squared distance for efficiency in collision check
 	distanceSquared := dx*dx + dy*dy + dz*dz
 
-	// Tank collision radius based on actual tank size in game (increased for better hit detection)
+	// Tank collision radius - consistent with the value in collision.go (20.0)
+	// Client uses 2.0 but server scale is 100x larger
 	tankRadius := 20.0
 
 	// Calculate the squared sum of radii
@@ -181,12 +183,13 @@ func (sp *ShellPhysics) DetailedCollisionCheck(shell game.ShellState, tank game.
 	damageMultiplier := 1.0
 	hitLocation := "body"
 
-	// Simple hit location detection
-	if hitHeight > 1.2 {
-		// Hit the turret - critical hit
+	// Simple hit location detection - matches client-side hit detection in shell.ts
+	// Client uses different values but the same concept (height-based detection)
+	if hitHeight > 12.0 { // 1.2 * 10 for scale consistency
+		// Hit the turret - critical hit but not too extreme
 		hitLocation = "turret"
-		damageMultiplier = 1.5
-	} else if hitHeight < 0.5 {
+		damageMultiplier = 1.25 // Reduced from 1.5 to prevent one-shot kills
+	} else if hitHeight < 5.0 { // 0.5 * 10 for scale consistency
 		// Hit the tracks - reduced damage
 		hitLocation = "tracks"
 		damageMultiplier = 0.75
@@ -194,6 +197,12 @@ func (sp *ShellPhysics) DetailedCollisionCheck(shell game.ShellState, tank game.
 		// Hit the body - normal damage
 		hitLocation = "body"
 		damageMultiplier = 1.0
+	}
+
+	// Safety check to ensure damage multiplier stays within reasonable bounds
+	if damageMultiplier > 2.0 {
+		damageMultiplier = 2.0
+		log.Printf("⚠️ PHYSICS: Capped damage multiplier at 2.0 for sanity")
 	}
 
 	// Log detailed collision info

@@ -49,12 +49,12 @@ func NewManager(ctx context.Context, kv jetstream.KeyValue) (*Manager, error) {
 
 	// Always ensure we start with an empty players map
 	manager.state.Players = make(map[string]PlayerState)
-	
+
 	// Save initial empty state to KV
 	if err := manager.saveState(); err != nil {
 		return nil, fmt.Errorf("failed to save initial game state: %v", err)
 	}
-	
+
 	log.Printf("Game manager initialized with empty players map")
 
 	// Start background processes
@@ -128,7 +128,7 @@ func (m *Manager) UpdatePlayer(update PlayerState, playerID string, playerName s
 		if currentPlayer.IsDestroyed {
 			update.IsDestroyed = true
 		}
-		
+
 		// Preserve existing kills and deaths counts from current player state
 		update.Kills = currentPlayer.Kills
 		update.Deaths = currentPlayer.Deaths
@@ -188,22 +188,51 @@ func (m *Manager) FireShell(shellData ShellData, playerID string) (ShellState, e
 	return newShell, nil
 }
 
-// ProcessTankHit handles when a tank is hit by a shell
+// ProcessTankHit handles when a tank is hit by a shell - server is authoritative for all damage
 func (m *Manager) ProcessTankHit(hitData HitData) error {
 	// Create a transaction function to be executed with proper locking
 	processTankHitFunc := func() error {
 		// NOTE: Caller must handle locking/unlocking
-		
+
+		// Set timestamp if not already set
+		if hitData.Timestamp == 0 {
+			hitData.Timestamp = m.getTime()
+		}
+
 		// Check if target player exists
 		if targetPlayer, exists := m.state.Players[hitData.TargetID]; exists {
+			// Skip if tank is already destroyed
+			if targetPlayer.IsDestroyed {
+				log.Printf("🛑 INVALID HIT: Tank %s is already destroyed, ignoring hit", hitData.TargetID)
+				return nil
+			}
+
+			// Log detailed hit location info for debugging
+			log.Printf("🎯 DAMAGE: Tank %s hit on %s for %d damage by %s",
+				hitData.TargetID, hitData.HitLocation, hitData.DamageAmount, hitData.SourceID)
+
+			// Additional validation to prevent excessive damage
+			// Ensure damage isn't excessive (more than 50 per hit)
+			if hitData.DamageAmount > 50 {
+				log.Printf("⚠️ EXCESSIVE DAMAGE CAPPED: Reducing %d to 50 for tank %s",
+					hitData.DamageAmount, hitData.TargetID)
+				hitData.DamageAmount = 50
+			}
+
+			// Log health before damage
+			log.Printf("HEALTH UPDATE: Tank %s health before hit: %d", hitData.TargetID, targetPlayer.Health)
+
 			// Apply damage to tank
 			targetPlayer.Health = targetPlayer.Health - hitData.DamageAmount
+
+			// Log health after damage
+			log.Printf("HEALTH UPDATE: Tank %s health after hit: %d", hitData.TargetID, targetPlayer.Health)
 
 			// Check if destroyed
 			if targetPlayer.Health <= 0 {
 				targetPlayer.Health = 0
 				targetPlayer.IsDestroyed = true
-				
+
 				// Increment target player's death count
 				targetPlayer.Deaths++
 
@@ -214,7 +243,7 @@ func (m *Manager) ProcessTankHit(hitData HitData) error {
 					log.Printf("Incremented kill count for player %s to %d", hitData.SourceID, sourcePlayer.Kills)
 				}
 
-				log.Printf("Tank %s destroyed by %s", hitData.TargetID, hitData.SourceID)
+				log.Printf("💥 DESTRUCTION: Tank %s destroyed by %s", hitData.TargetID, hitData.SourceID)
 			}
 
 			// Save updated player back to game state
@@ -224,70 +253,65 @@ func (m *Manager) ProcessTankHit(hitData HitData) error {
 			// Tank not found in player list - could be an NPC that wasn't properly registered
 			// Create a minimal player state for it
 			log.Printf("Target tank %s not found - creating placeholder entry", hitData.TargetID)
-			
-			// Is this an NPC based on ID?
-			isNPC := strings.HasPrefix(hitData.TargetID, "npc_")
-			
-			// Use playerName NPC-Something if we can parse it from ID
+
+			// Is this a bot based on ID?
+			isBot := strings.HasPrefix(hitData.TargetID, "bot_")
+
+			// Use a default name for bots that we can't identify
 			playerName := "Unknown"
-			if isNPC {
-				// Try to extract NPC name from ID
-				parts := strings.Split(hitData.TargetID, "_")
-				if len(parts) > 1 {
-					playerName = "NPC-" + parts[1]
-				} else {
-					playerName = "NPC-Unknown"
-				}
+			if isBot {
+				// Use a generic bot name since we can't recover the original name
+				playerName = "Mystery Bot"
 			}
-			
+
 			// Create basic tank state
 			newPlayer := PlayerState{
 				ID:          hitData.TargetID,
 				Name:        playerName,
 				Health:      100 - hitData.DamageAmount, // Start with full health minus damage
-				Position:    Position{X: 0, Y: 0, Z: 0},  // Default position
+				Position:    Position{X: 0, Y: 0, Z: 0}, // Default position
 				Timestamp:   m.getTime(),
 				IsDestroyed: false,
 			}
-			
+
 			// Check if health is zero
 			if newPlayer.Health <= 0 {
 				newPlayer.Health = 0
 				newPlayer.IsDestroyed = true
 				log.Printf("Newly registered tank %s destroyed by %s", hitData.TargetID, hitData.SourceID)
 			}
-			
+
 			// Add to players map
 			m.state.Players[hitData.TargetID] = newPlayer
-			
+
 			log.Printf("⚠️ Created new tank entry for %s with health %d", hitData.TargetID, newPlayer.Health)
 			return nil
 		}
 	}
-	
+
 	// Acquire lock, process hit, release lock
 	m.mutex.Lock()
 	err := processTankHitFunc()
 	m.mutex.Unlock()
-	
+
 	// If we failed to process the hit, return the error
 	if err != nil {
 		log.Printf("Error processing tank hit: %v", err)
 		return err
 	}
-	
+
 	// Save state after processing hit (without holding lock)
 	if err := m.saveState(); err != nil {
 		log.Printf("Error saving game state after tank hit: %v", err)
 		return err
 	}
-	
+
 	// Check if this was a killing hit
 	m.mutex.RLock()
 	targetPlayer, exists := m.state.Players[hitData.TargetID]
 	isDestroyed := exists && targetPlayer.IsDestroyed
 	m.mutex.RUnlock()
-	
+
 	// If tank was destroyed, schedule an auto-respawn
 	if isDestroyed {
 		// Start a goroutine to respawn the tank after 5 seconds
@@ -309,10 +333,10 @@ func (m *Manager) ProcessTankHit(hitData HitData) error {
 			}
 		}(hitData.TargetID)
 	}
-	
-	log.Printf("✅ Tank hit processed successfully: Target=%s, Source=%s, Damage=%d", 
+
+	log.Printf("✅ Tank hit processed successfully: Target=%s, Source=%s, Damage=%d",
 		hitData.TargetID, hitData.SourceID, hitData.DamageAmount)
-	
+
 	return nil
 }
 
@@ -324,10 +348,10 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 		// Reset health and destroyed status
 		player.Health = 100
 		player.IsDestroyed = false
-		
+
 		// Keep existing kills and deaths (don't reset them on respawn)
 		// Increment death count only happens in ProcessTankHit
-		
+
 		// Update timestamp to ensure state propagation
 		player.Timestamp = m.getTime()
 
@@ -345,7 +369,7 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 				Z: offsetZ,
 			}
 		}
-		
+
 		// Update timestamp to ensure state propagation
 		player.Timestamp = m.getTime()
 
@@ -354,7 +378,7 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 
 		log.Printf("✅ RESPAWN: Tank %s respawned with health=%d, destroyed=%v at position (%f, %f, %f)",
 			respawnData.PlayerID,
-			player.Health, 
+			player.Health,
 			player.IsDestroyed,
 			player.Position.X,
 			player.Position.Y,
@@ -372,7 +396,7 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 	} else {
 		// Player not found, create a new one
 		log.Printf("Player %s not found for respawn, creating new entry", respawnData.PlayerID)
-		
+
 		// Random offset for respawn position or use provided position
 		var position Position
 		if (respawnData.Position != Position{}) {
@@ -388,13 +412,13 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 				Z: offsetZ,
 			}
 		}
-		
+
 		// Create new player state
 		playerName := "Player"
 		if respawnData.PlayerID != "" {
 			playerName = "Player: " + respawnData.PlayerID[:6]
 		}
-		
+
 		// Create new player
 		newPlayer := PlayerState{
 			ID:          respawnData.PlayerID,
@@ -405,24 +429,24 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 			Timestamp:   m.getTime(),
 			Color:       m.getPlayerColor(respawnData.PlayerID),
 		}
-		
+
 		// Add to game state
 		m.state.Players[respawnData.PlayerID] = newPlayer
-		
+
 		log.Printf("✅ RESPAWN: Created new tank for %s with health=100 at position (%f, %f, %f)",
 			respawnData.PlayerID,
 			position.X,
 			position.Y,
 			position.Z)
-		
+
 		m.mutex.Unlock()
-		
+
 		// Save to KV store
 		if err := m.saveState(); err != nil {
 			log.Printf("Error saving game state after new player creation: %v", err)
 			return err
 		}
-		
+
 		return nil
 	}
 }
@@ -464,7 +488,7 @@ func (m *Manager) saveState() error {
 	// Don't hold the lock during potentially slow KV operations
 	var stateJSON []byte
 	var err error
-	
+
 	// Use a copy of state under read lock
 	m.mutex.RLock()
 	// Deep copy the state to avoid concurrent map access issues
@@ -472,16 +496,16 @@ func (m *Manager) saveState() error {
 		Players: make(map[string]PlayerState, len(m.state.Players)),
 		Shells:  make([]ShellState, len(m.state.Shells)),
 	}
-	
+
 	// Copy players map
 	for id, player := range m.state.Players {
 		stateCopy.Players[id] = player
 	}
-	
-	// Copy shells slice 
+
+	// Copy shells slice
 	copy(stateCopy.Shells, m.state.Shells)
 	m.mutex.RUnlock()
-	
+
 	// Marshal the copied state
 	stateJSON, err = json.Marshal(stateCopy)
 	if err != nil {
@@ -498,10 +522,10 @@ func (m *Manager) saveState() error {
 
 	// Log successful save occasionally
 	if time.Now().UnixNano()%100 == 0 {
-		log.Printf("Game state saved successfully: %d players, %d shells", 
+		log.Printf("Game state saved successfully: %d players, %d shells",
 			len(stateCopy.Players), len(stateCopy.Shells))
 	}
-	
+
 	return nil
 }
 
@@ -536,17 +560,17 @@ func (m *Manager) RemoveShells(shellIDs []string) error {
 	if len(shellIDs) == 0 {
 		return nil
 	}
-	
+
 	// First, create a function to handle the shell updates with proper locking
 	removeShellsFunc := func() []ShellState {
 		// NOTE: The caller must handle locking
-		
+
 		// Create a map for faster lookup of shell IDs to remove
 		removeMap := make(map[string]bool)
 		for _, id := range shellIDs {
 			removeMap[id] = true
 		}
-		
+
 		// Filter out shells that should be removed
 		var remainingShells []ShellState
 		var removedCount int
@@ -557,28 +581,28 @@ func (m *Manager) RemoveShells(shellIDs []string) error {
 				removedCount++
 			}
 		}
-		
+
 		// Update shells in game state
 		m.state.Shells = remainingShells
-		
+
 		if removedCount > 0 {
 			log.Printf("Removed %d shells from state", removedCount)
 		}
-		
+
 		return remainingShells
 	}
-	
+
 	// Acquire lock, process shell removal, release lock
 	m.mutex.Lock()
 	removeShellsFunc()
 	m.mutex.Unlock()
-	
+
 	// Save state without holding the lock
 	if err := m.saveState(); err != nil {
 		log.Printf("Error saving game state after removing shells: %v", err)
 		return err
 	}
-	
+
 	return nil
 }
 

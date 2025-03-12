@@ -29340,9 +29340,9 @@ class Shell {
             break;
           }
         }
-        console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit on ${hitLocation}. Current health: ${tank.getHealth()}`);
+        console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit on ${hitLocation}. Current health: ${tank.getHealth()} (visual only - waiting for server confirmation)`);
       } else {
-        console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit. Current health: ${tank.getHealth()}`);
+        console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit. Current health: ${tank.getHealth()} (visual only - waiting for server confirmation)`);
       }
       const hitEvent = new CustomEvent("tank-hit", {
         bubbles: true,
@@ -29350,7 +29350,8 @@ class Shell {
         detail: {
           tank,
           source: this.source,
-          hitLocation
+          hitLocation,
+          clientSideHit: true
         }
       });
       document.dispatchEvent(hitEvent);
