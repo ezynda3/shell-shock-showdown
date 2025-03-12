@@ -170,11 +170,16 @@ func GetRandomizedPersonality(difficultyLevel float64) NPCPersonality {
 	}
 
 	// Calculate cooldown from fire rate: higher fire rate = lower cooldown
-	// Base range: 1 second (max fire rate) to 5 seconds (min fire rate)
-	baseCooldown := 5.0 - (personality.FireRate * 4.0)
+	// Modified base range: 1.5 second (max fire rate) to 5 seconds (min fire rate)
+	// This ensures NPCs can't fire too rapidly
+	baseCooldown := 5.0 - (personality.FireRate * 3.5)
+	
 	// Add some randomness to cooldown
 	cooldownWithJitter := baseCooldown + (rand.Float64() - 0.5)
-	personality.Cooldown = time.Duration(math.Max(1.0, cooldownWithJitter) * float64(time.Second))
+	
+	// Enforce minimum cooldown of 1.5 seconds to prevent rapid firing
+	minCooldown := 1.5
+	personality.Cooldown = time.Duration(math.Max(minCooldown, cooldownWithJitter) * float64(time.Second))
 
 	return personality
 }
@@ -1213,15 +1218,15 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 			log.Printf("NPC %s firing at target %s: distance=%.1f, accuracy=%.2f, inaccuracy=%.3f, shellSpeed=%.1f",
 				npc.ID, npc.TargetID, bestDistance, npc.FiringAccuracy, inaccuracy, shellSpeed)
 
-			// Fire the shell
+			// Fire the shell using the helper method
 			c.mutex.Unlock() // Unlock before calling manager
-			if _, err := c.manager.FireShell(shellData, npc.ID); err != nil {
-				log.Printf("Error firing NPC shell: %v", err)
-			}
+			success := c.FireNPCShell(npc, shellData)
 			c.mutex.Lock() // Lock again to continue processing
 
-			// Update last fire time
-			npc.LastFire = time.Now()
+			// Only update last fire time if successfully fired
+			if success {
+				npc.LastFire = time.Now()
+			}
 		}
 	} else {
 		// If no target, behavior depends on TacticalIQ - similar to client's NPCTank behavior
@@ -1283,6 +1288,21 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 		npc.AimingAt = nil
 		npc.CanSeeTarget = false
 	}
+}
+
+// FireNPCShell handles firing a shell with proper debouncing
+func (c *NPCController) FireNPCShell(npc *NPCTank, shellData ShellData) bool {
+	// Fire the shell through the manager (which has its own debouncing)
+	_, err := c.manager.FireShell(shellData, npc.ID)
+	
+	// If there was an error (like debounce rejection), return false
+	if err != nil {
+		log.Printf("Error firing NPC shell: %v", err)
+		return false
+	}
+	
+	// Shell fired successfully
+	return true
 }
 
 // GetActiveNPCs returns a list of active NPC IDs

@@ -110,9 +110,9 @@ func main() {
 	npcController.Start()
 
 	// Set the number of NPC tanks to spawn
-	// Read from environment variable or default to 1
+	// Read from environment variable or default to 5
 	numNPCsStr := os.Getenv("NUM_NPCS")
-	numNPCs := 1 // Default value
+	numNPCs := 5 // Default to 5 NPCs for better gameplay
 	if numNPCsStr != "" {
 		if val, err := strconv.Atoi(numNPCsStr); err == nil && val > 0 {
 			numNPCs = val

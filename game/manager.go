@@ -25,12 +25,14 @@ var playerColors = []string{
 
 // Manager handles all game state operations
 type Manager struct {
-	state          GameState
-	mutex          sync.RWMutex
-	kv             jetstream.KeyValue
-	ctx            context.Context
-	shellIDCounter int
-	getTime        TimeStamper
+	state              GameState
+	mutex              sync.RWMutex
+	kv                 jetstream.KeyValue
+	ctx                context.Context
+	shellIDCounter     int
+	getTime            TimeStamper
+	lastPlayerFireTime map[string]int64 // Map to track the last time each player fired a shell
+	fireCooldownMs     int64            // Cooldown time between firing shells
 }
 
 // NewManager creates a new game manager instance
@@ -40,11 +42,13 @@ func NewManager(ctx context.Context, kv jetstream.KeyValue) (*Manager, error) {
 			Players: make(map[string]PlayerState),
 			Shells:  []ShellState{},
 		},
-		mutex:          sync.RWMutex{},
-		kv:             kv,
-		ctx:            ctx,
-		shellIDCounter: 0,
-		getTime:        DefaultTimeStamper,
+		mutex:              sync.RWMutex{},
+		kv:                 kv,
+		ctx:                ctx,
+		shellIDCounter:     0,
+		getTime:            DefaultTimeStamper,
+		lastPlayerFireTime: make(map[string]int64),
+		fireCooldownMs:     500, // 500ms cooldown between shell firings
 	}
 
 	// Always ensure we start with an empty players map
@@ -99,18 +103,18 @@ func (m *Manager) UpdatePlayer(update PlayerState, playerID string, playerName s
 
 	// Handle new player joining (not in game state yet)
 	if !playerExists {
-		// Random offset for spawn position (-20 to 20 range)
-		offsetX := -20.0 + rand.Float64()*40.0
-		offsetZ := -20.0 + rand.Float64()*40.0
+		// Random position anywhere on the 5000x5000 map
+		posX := -2500.0 + rand.Float64()*5000.0
+		posZ := -2500.0 + rand.Float64()*5000.0
 
-		log.Printf("New player %s joined. Setting spawn position at center with offset (%f, %f)",
-			playerID, offsetX, offsetZ)
+		log.Printf("New player %s joined. Setting spawn position at (%f, %f)",
+			playerID, posX, posZ)
 
-		// Override position to spawn near center
+		// Set spawn position across full map
 		update.Position = Position{
-			X: offsetX,
+			X: posX,
 			Y: 0,
-			Z: offsetZ,
+			Z: posZ,
 		}
 
 		// Initialize health, kills and deaths for new player
@@ -156,10 +160,26 @@ func (m *Manager) UpdatePlayer(update PlayerState, playerID string, playerName s
 	return nil
 }
 
-// FireShell adds a new shell to the game state
+// FireShell adds a new shell to the game state with debouncing
 func (m *Manager) FireShell(shellData ShellData, playerID string) (ShellState, error) {
-	// Generate shell ID
+	// Apply debouncing logic
+	currentTime := m.getTime()
+	
 	m.mutex.Lock()
+	
+	// Check if the player has fired recently
+	lastFireTime, exists := m.lastPlayerFireTime[playerID]
+	if exists && (currentTime - lastFireTime < m.fireCooldownMs) {
+		// Player is trying to fire too quickly
+		m.mutex.Unlock()
+		log.Printf("Rejected shell firing from player %s: cooldown in effect", playerID)
+		return ShellState{}, fmt.Errorf("firing too rapidly, please wait %dms between shots", m.fireCooldownMs)
+	}
+	
+	// Update the last fire time for this player
+	m.lastPlayerFireTime[playerID] = currentTime
+	
+	// Generate shell ID
 	m.shellIDCounter++
 	newShell := ShellState{
 		ID:        fmt.Sprintf("shell_%d", m.shellIDCounter),
@@ -167,7 +187,7 @@ func (m *Manager) FireShell(shellData ShellData, playerID string) (ShellState, e
 		Position:  shellData.Position,
 		Direction: shellData.Direction,
 		Speed:     shellData.Speed,
-		Timestamp: m.getTime(),
+		Timestamp: currentTime,
 	}
 
 	// Add shell to game state
@@ -352,6 +372,11 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 		// Keep existing kills and deaths (don't reset them on respawn)
 		// Increment death count only happens in ProcessTankHit
 
+		// Reset movement-related properties
+		player.IsMoving = false
+		player.Velocity = 0.0 // Start with zero velocity to prevent erratic movement
+		player.TurretRotation = player.TankRotation // Reset turret to match tank
+
 		// Update timestamp to ensure state propagation
 		player.Timestamp = m.getTime()
 
@@ -359,14 +384,11 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 		if (respawnData.Position != Position{}) {
 			player.Position = respawnData.Position
 		} else {
-			// Random offset for respawn position
-			offsetX := -20.0 + rand.Float64()*40.0
-			offsetZ := -20.0 + rand.Float64()*40.0
-
+			// Random position anywhere on the 5000x5000 map
 			player.Position = Position{
-				X: offsetX,
+				X: -2500.0 + rand.Float64()*5000.0,
 				Y: 0,
-				Z: offsetZ,
+				Z: -2500.0 + rand.Float64()*5000.0,
 			}
 		}
 
@@ -402,14 +424,11 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 		if (respawnData.Position != Position{}) {
 			position = respawnData.Position
 		} else {
-			// Random offset for respawn position
-			offsetX := -20.0 + rand.Float64()*40.0
-			offsetZ := -20.0 + rand.Float64()*40.0
-
+			// Random position anywhere on the 5000x5000 map
 			position = Position{
-				X: offsetX,
+				X: -2500.0 + rand.Float64()*5000.0,
 				Y: 0,
-				Z: offsetZ,
+				Z: -2500.0 + rand.Float64()*5000.0,
 			}
 		}
 
@@ -428,6 +447,8 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 			IsDestroyed: false,
 			Timestamp:   m.getTime(),
 			Color:       m.getPlayerColor(respawnData.PlayerID),
+			IsMoving:    false,
+			Velocity:    0.0, // Start with zero velocity to prevent erratic movement
 		}
 
 		// Add to game state
@@ -547,7 +568,7 @@ func (m *Manager) runStateCleanup() {
 // Returns the KeyWatcher directly so caller can use its Updates() channel
 func (m *Manager) WatchState(ctx context.Context) (jetstream.KeyWatcher, error) {
 	// Create a watcher for the KV store
-	watcher, err := m.kv.Watch(ctx, "current")
+	watcher, err := m.kv.Watch(ctx, "current", jetstream.UpdatesOnly())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create KV watcher: %v", err)
 	}
@@ -619,6 +640,9 @@ func (m *Manager) cleanupGameState() {
 		if now-player.Timestamp > 10000 {
 			log.Printf("Removing inactive player: %s", id)
 			delete(m.state.Players, id)
+			
+			// Also clean up the lastPlayerFireTime entry for this player
+			delete(m.lastPlayerFireTime, id)
 		}
 	}
 
