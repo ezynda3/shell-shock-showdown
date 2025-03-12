@@ -164,21 +164,21 @@ func (m *Manager) UpdatePlayer(update PlayerState, playerID string, playerName s
 func (m *Manager) FireShell(shellData ShellData, playerID string) (ShellState, error) {
 	// Apply debouncing logic
 	currentTime := m.getTime()
-	
+
 	m.mutex.Lock()
-	
+
 	// Check if the player has fired recently
 	lastFireTime, exists := m.lastPlayerFireTime[playerID]
-	if exists && (currentTime - lastFireTime < m.fireCooldownMs) {
+	if exists && (currentTime-lastFireTime < m.fireCooldownMs) {
 		// Player is trying to fire too quickly
 		m.mutex.Unlock()
 		log.Printf("Rejected shell firing from player %s: cooldown in effect", playerID)
 		return ShellState{}, fmt.Errorf("firing too rapidly, please wait %dms between shots", m.fireCooldownMs)
 	}
-	
+
 	// Update the last fire time for this player
 	m.lastPlayerFireTime[playerID] = currentTime
-	
+
 	// Generate shell ID
 	m.shellIDCounter++
 	newShell := ShellState{
@@ -339,12 +339,7 @@ func (m *Manager) ProcessTankHit(hitData HitData) error {
 			time.Sleep(5 * time.Second)
 			respawnData := RespawnData{
 				PlayerID: playerID,
-				// Random offset for respawn position
-				Position: Position{
-					X: -20.0 + rand.Float64()*40.0,
-					Y: 0,
-					Z: -20.0 + rand.Float64()*40.0,
-				},
+				// Empty Position will trigger full map respawn in RespawnTank
 			}
 			if err := m.RespawnTank(respawnData); err != nil {
 				log.Printf("Error auto-respawning tank %s: %v", playerID, err)
@@ -374,26 +369,20 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 
 		// Reset movement-related properties
 		player.IsMoving = false
-		player.Velocity = 0.0 // Start with zero velocity to prevent erratic movement
-		player.TurretRotation = player.TankRotation // Reset turret to match tank
+		player.Velocity = 0.0                                 // Start with zero velocity to prevent erratic movement
+		player.TurretRotation = player.TankRotation           // Reset turret to match tank
+		player.Color = m.getPlayerColor(respawnData.PlayerID) // Ensure color is set consistently
 
 		// Update timestamp to ensure state propagation
 		player.Timestamp = m.getTime()
 
-		// Update position if provided
-		if (respawnData.Position != Position{}) {
-			player.Position = respawnData.Position
-		} else {
-			// Random position anywhere on the 5000x5000 map
-			player.Position = Position{
-				X: -2500.0 + rand.Float64()*5000.0,
-				Y: 0,
-				Z: -2500.0 + rand.Float64()*5000.0,
-			}
+		// Update position - always use the full map range like in UpdatePlayer
+		// Random position anywhere on the 5000x5000 map
+		player.Position = Position{
+			X: -2500.0 + rand.Float64()*5000.0,
+			Y: 0,
+			Z: -2500.0 + rand.Float64()*5000.0,
 		}
-
-		// Update timestamp to ensure state propagation
-		player.Timestamp = m.getTime()
 
 		// Save updated player back to game state
 		m.state.Players[respawnData.PlayerID] = player
@@ -419,46 +408,43 @@ func (m *Manager) RespawnTank(respawnData RespawnData) error {
 		// Player not found, create a new one
 		log.Printf("Player %s not found for respawn, creating new entry", respawnData.PlayerID)
 
-		// Random offset for respawn position or use provided position
-		var position Position
-		if (respawnData.Position != Position{}) {
-			position = respawnData.Position
-		} else {
-			// Random position anywhere on the 5000x5000 map
-			position = Position{
-				X: -2500.0 + rand.Float64()*5000.0,
-				Y: 0,
-				Z: -2500.0 + rand.Float64()*5000.0,
-			}
-		}
+		// Use playerID as both ID and name, like in UpdatePlayer
+		playerID := respawnData.PlayerID
 
-		// Create new player state
-		playerName := "Player"
-		if respawnData.PlayerID != "" {
-			playerName = "Player: " + respawnData.PlayerID[:6]
-		}
+		// Random position anywhere on the 5000x5000 map (same as in UpdatePlayer)
+		posX := -2500.0 + rand.Float64()*5000.0
+		posZ := -2500.0 + rand.Float64()*5000.0
 
-		// Create new player
+		log.Printf("New player %s joined via respawn. Setting spawn position at (%f, %f)",
+			playerID, posX, posZ)
+
+		// Create new player with same initialization as UpdatePlayer
 		newPlayer := PlayerState{
-			ID:          respawnData.PlayerID,
-			Name:        playerName,
-			Position:    position,
+			ID:   playerID,
+			Name: playerID, // Use ID as name like UpdatePlayer would
+			Position: Position{
+				X: posX,
+				Y: 0,
+				Z: posZ,
+			},
 			Health:      100,
 			IsDestroyed: false,
+			Kills:       0,
+			Deaths:      0,
 			Timestamp:   m.getTime(),
-			Color:       m.getPlayerColor(respawnData.PlayerID),
+			Color:       m.getPlayerColor(playerID),
 			IsMoving:    false,
-			Velocity:    0.0, // Start with zero velocity to prevent erratic movement
+			Velocity:    0.0,
 		}
 
 		// Add to game state
-		m.state.Players[respawnData.PlayerID] = newPlayer
+		m.state.Players[playerID] = newPlayer
 
 		log.Printf("✅ RESPAWN: Created new tank for %s with health=100 at position (%f, %f, %f)",
-			respawnData.PlayerID,
-			position.X,
-			position.Y,
-			position.Z)
+			playerID,
+			posX,
+			0.0,
+			posZ)
 
 		m.mutex.Unlock()
 
@@ -640,7 +626,7 @@ func (m *Manager) cleanupGameState() {
 		if now-player.Timestamp > 10000 {
 			log.Printf("Removing inactive player: %s", id)
 			delete(m.state.Players, id)
-			
+
 			// Also clean up the lastPlayerFireTime entry for this player
 			delete(m.lastPlayerFireTime, id)
 		}

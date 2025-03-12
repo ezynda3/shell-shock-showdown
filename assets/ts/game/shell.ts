@@ -316,22 +316,18 @@ export class Shell implements ICollidable {
     // Create explosion effect
     this.createExplosion(this.mesh.position.clone());
     
-    // If hit a tank, create visual and sound effects but don't apply damage
-    // Health changes are managed by the server (server is authoritative)
+    // If hit a tank, create visual and sound effects only
+    // Important: Health/damage is ONLY managed by the server
     if (other.getType() === 'tank') {
       const tank = other as ITank;
       
-      // IMPORTANT: Set the tank's lastSourceOfDamage to track who hit it (for kill attribution)
-      // This is just for client-side tracking; the server remains authoritative for damage
+      // Store source info for client-side effects only - damage is server-authoritative
       if (tank && typeof tank === 'object' && 'lastSourceOfDamage' in tank) {
         (tank as any).lastSourceOfDamage = this.source;
-        console.log(`Setting lastSourceOfDamage on tank ${(tank as any).tankName || 'unknown'} to ${this.source?.constructor?.name || 'unknown source'}`);
+        console.log(`Shell hit: Tracking source of hit on ${(tank as any).tankName || 'unknown'} (visual only)`);
       }
       
-      // Check if this is a player-tank hit or a remote/NPC tank hit
-      const isPlayerTank = !(tank instanceof RemoteTank);
-      
-      // Determine hit location for visual effects only
+      // Determine hit location for visual effects only (no damage calculation)
       let hitLocation = "body";
       
       // Check for hit location with compound colliders if available (for visual effects only)
@@ -343,18 +339,16 @@ export class Shell implements ICollidable {
         for (const collider of tank.getDetailedColliders()) {
           const distance = shellPosition.distanceTo(collider.collider.center);
           if (distance < collider.collider.radius) {
-            // This is the part we hit!
+            // This is the part we hit! (visual effects only)
             hitLocation = collider.part;
             break;
           }
         }
         
-        console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit on ${hitLocation}. Current health: ${tank.getHealth()} (visual only - waiting for server confirmation)`);
-      } else {
-        console.log(`Shell collision: ${isPlayerTank ? 'PLAYER' : 'NPC'} tank hit. Current health: ${tank.getHealth()} (visual only - waiting for server confirmation)`);
+        console.log(`Client-side hit detection: Hit on ${hitLocation} (visual only)`);
       }
       
-      // Fire tank-hit event for visual effects and sound only
+      // Dispatch event for visual/sound effects only - NO HEALTH CHANGES CLIENT-SIDE
       // Health changes will come from server state updates
       const hitEvent = new CustomEvent('tank-hit', {
         bubbles: true,
@@ -363,8 +357,8 @@ export class Shell implements ICollidable {
           tank: tank,
           source: this.source,
           hitLocation: hitLocation,
-          // Note: This is a client-side hit detection, server will confirm actual damage
-          clientSideHit: true
+          clientSideHit: true, // Flag indicating this is a client-side detection only
+          visualOnly: true     // Explicitly mark that this is for visual effects only
         }
       });
       document.dispatchEvent(hitEvent);

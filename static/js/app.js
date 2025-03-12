@@ -29327,9 +29327,8 @@ class Shell {
       const tank = other;
       if (tank && typeof tank === "object" && "lastSourceOfDamage" in tank) {
         tank.lastSourceOfDamage = this.source;
-        console.log(`Setting lastSourceOfDamage on tank ${tank.tankName || "unknown"} to ${this.source?.constructor?.name || "unknown source"}`);
+        console.log(`Shell hit: Tracking source of hit on ${tank.tankName || "unknown"} (visual only)`);
       }
-      const isPlayerTank = !(tank instanceof RemoteTank);
       let hitLocation = "body";
       if (tank.getDetailedColliders && tank.getDetailedColliders().length > 0) {
         const shellPosition = this.mesh.position.clone();
@@ -29340,9 +29339,7 @@ class Shell {
             break;
           }
         }
-        console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit on ${hitLocation}. Current health: ${tank.getHealth()} (visual only - waiting for server confirmation)`);
-      } else {
-        console.log(`Shell collision: ${isPlayerTank ? "PLAYER" : "NPC"} tank hit. Current health: ${tank.getHealth()} (visual only - waiting for server confirmation)`);
+        console.log(`Client-side hit detection: Hit on ${hitLocation} (visual only)`);
       }
       const hitEvent = new CustomEvent("tank-hit", {
         bubbles: true,
@@ -29351,7 +29348,8 @@ class Shell {
           tank,
           source: this.source,
           hitLocation,
-          clientSideHit: true
+          clientSideHit: true,
+          visualOnly: true
         }
       });
       document.dispatchEvent(hitEvent);
@@ -34871,16 +34869,21 @@ class GameComponent extends LitElement {
     }
   }
   handleTankHit(event) {
-    const { tank, source, damageAmount } = event.detail;
+    const { tank, source, hitLocation, visualOnly } = event.detail;
     if (tank === this.playerTank) {
-      console.log(`Player tank hit for ${damageAmount} damage!`);
+      console.log(`Player tank hit detected on ${hitLocation || "body"} (visual effects only)`);
       this.showPlayerHitEffects();
-      this.updateStats();
       if (source && source !== this.playerTank) {
+        let estimatedDamage = 20;
+        if (hitLocation === "turret")
+          estimatedDamage = 25;
+        if (hitLocation === "tracks")
+          estimatedDamage = 15;
         const hitData = {
           targetId: this.playerId,
           sourceId: source.getOwnerId ? source.getOwnerId() : "unknown",
-          damageAmount
+          damageAmount: estimatedDamage,
+          hitLocation: hitLocation || "body"
         };
         const gameEvent = new CustomEvent("game-event", {
           detail: {

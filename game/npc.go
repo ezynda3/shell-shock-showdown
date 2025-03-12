@@ -173,10 +173,10 @@ func GetRandomizedPersonality(difficultyLevel float64) NPCPersonality {
 	// Modified base range: 1.5 second (max fire rate) to 5 seconds (min fire rate)
 	// This ensures NPCs can't fire too rapidly
 	baseCooldown := 5.0 - (personality.FireRate * 3.5)
-	
+
 	// Add some randomness to cooldown
 	cooldownWithJitter := baseCooldown + (rand.Float64() - 0.5)
-	
+
 	// Enforce minimum cooldown of 1.5 seconds to prevent rapid firing
 	minCooldown := 1.5
 	personality.Cooldown = time.Duration(math.Max(minCooldown, cooldownWithJitter) * float64(time.Second))
@@ -335,18 +335,38 @@ func (c *NPCController) updateNPCs() {
 			log.Printf("Updating NPC %s from server state: health=%d, position=(%f,%f,%f), destroyed=%v",
 				npc.ID, serverState.Health, serverState.Position.X, serverState.Position.Y, serverState.Position.Z, serverState.IsDestroyed)
 
+			// Check if this is a respawn (destroyed -> not destroyed transition)
+			isRespawn := npc.State.IsDestroyed && !serverState.IsDestroyed
+
 			// Update health and destroyed status from server
 			npc.State.Health = serverState.Health
 			npc.State.IsDestroyed = serverState.IsDestroyed
 
-			// Only update position if significant movement happened on server side
-			dx := npc.State.Position.X - serverState.Position.X
-			dz := npc.State.Position.Z - serverState.Position.Z
-			dist := math.Sqrt(dx*dx + dz*dz)
-			if dist > 5.0 {
-				log.Printf("NPC %s position corrected by server from (%f,%f) to (%f,%f)",
-					npc.ID, npc.State.Position.X, npc.State.Position.Z, serverState.Position.X, serverState.Position.Z)
+			// Handle respawn: always take server position and reset movement
+			if isRespawn {
+				log.Printf("NPC %s respawned by server at position (%f,%f,%f)",
+					npc.ID, serverState.Position.X, serverState.Position.Y, serverState.Position.Z)
+
+				// Always take the server's position on respawn
 				npc.State.Position = serverState.Position
+
+				// Reset movement state to prevent erratic movement
+				npc.State.IsMoving = false
+				npc.State.Velocity = 0.0
+
+				// Randomize tank rotation on respawn to avoid all NPCs facing same direction
+				npc.State.TankRotation = rand.Float64() * 2 * math.Pi
+				npc.State.TurretRotation = npc.State.TankRotation
+			} else {
+				// For normal updates: Only update position if significant movement happened on server side
+				dx := npc.State.Position.X - serverState.Position.X
+				dz := npc.State.Position.Z - serverState.Position.Z
+				dist := math.Sqrt(dx*dx + dz*dz)
+				if dist > 5.0 {
+					log.Printf("NPC %s position corrected by server from (%f,%f) to (%f,%f)",
+						npc.ID, npc.State.Position.X, npc.State.Position.Z, serverState.Position.X, serverState.Position.Z)
+					npc.State.Position = serverState.Position
+				}
 			}
 		} else {
 			log.Printf("NPC %s not found in server state, re-registering", npc.ID)
@@ -358,27 +378,15 @@ func (c *NPCController) updateNPCs() {
 			c.mutex.Lock()
 		}
 
-		// Skip if destroyed, wait for respawn
+		// Skip if destroyed, just wait for game manager to respawn us
 		if npc.State.IsDestroyed {
-			// Check if enough time has passed to respawn
-			if time.Since(npc.LastUpdate) > 5*time.Second {
-				log.Printf("Respawning destroyed NPC %s", npc.ID)
-				// Respawn the NPC
-				respawnData := RespawnData{
-					PlayerID: npc.ID,
-					Position: Position{
-						X: -2000.0 + rand.Float64()*4000.0,
-						Y: 0,
-						Z: -2000.0 + rand.Float64()*4000.0,
-					},
-				}
-				c.mutex.Unlock() // Unlock before calling manager
-				c.manager.RespawnTank(respawnData)
-				c.mutex.Lock() // Lock again to continue processing
+			// Reset movement properties while dead to prevent erratic movement on respawn
+			npc.State.IsMoving = false
+			npc.State.Velocity = 0.0
 
-				// Reset tank state
-				npc.State.IsDestroyed = false
-				npc.State.Health = 100
+			// Log status occasionally but not too frequently
+			if time.Since(npc.LastUpdate) > 1*time.Second {
+				log.Printf("NPC %s is destroyed, waiting for manager respawn", npc.ID)
 				npc.LastUpdate = time.Now()
 			}
 			continue
@@ -583,7 +591,7 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 	// Use sine wave for more natural turning like client-side tank movement
 	// Add time-based oscillation for more natural motion
 	turnMultiplier := 0.5 + (math.Sin(now*0.3) * 0.5) // Oscillate between 0.0 and 1.0
-	
+
 	// Smoother, more gradual turning with time-based variation
 	turnAmount := 0.001 * speed * turnMultiplier // For smoother 60fps motion
 	state.TankRotation += turnAmount
@@ -593,7 +601,7 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 
 	// Always be moving
 	state.IsMoving = true
-	
+
 	// Add slight speed variation for more natural movement (like client)
 	speedVariation := 1.0 + (math.Sin(now*0.2) * 0.1) // ±10% speed variation
 	state.Velocity = speed * speedVariation
@@ -610,7 +618,7 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 	// Update track animation (for client visualization) - add small oscillation
 	// The client uses this value to animate tracks and wheels
 	state.TrackRotation = state.Velocity * 5.0
-	
+
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
 		log.Printf("NPC tank %s moving in circle: pos=(%.2f,%.2f), rotation=%.2f, velocity=%.2f",
@@ -625,15 +633,15 @@ func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
 
 	// Calculate zigzag pattern with more natural motion like client-side
 	// Use sine wave with variable amplitude based on tactical IQ
-	oscillationFrequency := 0.2 + (npc.TacticalIQ * 0.3) // Higher IQ = faster zigzag
-	oscillationAmplitude := 0.02 * (1.0 - npc.TacticalIQ * 0.5) // Higher IQ = more controlled zigzag
-	
+	oscillationFrequency := 0.2 + (npc.TacticalIQ * 0.3)      // Higher IQ = faster zigzag
+	oscillationAmplitude := 0.02 * (1.0 - npc.TacticalIQ*0.5) // Higher IQ = more controlled zigzag
+
 	// Create more dynamic and natural zigzag pattern using time
 	oscillation := math.Sin(now*oscillationFrequency) * oscillationAmplitude
-	
+
 	// Add second harmonic for more natural and less predictable motion
 	oscillation += math.Sin(now*oscillationFrequency*2.7) * oscillationAmplitude * 0.3
-	
+
 	// Apply the oscillation to the tank's rotation
 	state.TankRotation += oscillation
 
@@ -642,12 +650,12 @@ func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
 
 	// Always be moving
 	state.IsMoving = true
-	baseSpeed := 0.2                           // Base speed value (matching player tank speed)
-	
+	baseSpeed := 0.2 // Base speed value (matching player tank speed)
+
 	// Vary speed slightly based on zigzag phase for more natural movement
 	speedVariation := 1.0 + (math.Cos(now*oscillationFrequency*2) * 0.1) // ±10% speed variation
 	state.Velocity = baseSpeed * npc.MoveSpeed * speedVariation
-	
+
 	// IMPORTANT: Actually update the position based on rotation and velocity
 	moveX := math.Cos(state.TankRotation) * state.Velocity
 	moveZ := math.Sin(state.TankRotation) * state.Velocity
@@ -655,7 +663,7 @@ func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
 	// Update position by applying movement vector
 	state.Position.X += moveX
 	state.Position.Z += moveZ
-	
+
 	// Update track animation (for client visualization)
 	// The client uses this value to animate tracks and wheels
 	state.TrackRotation = state.Velocity * 5.0
@@ -671,16 +679,16 @@ func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
 func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 	// Get current time for time-based animation (matching client)
 	now := float64(time.Now().UnixNano()) / 1e9
-	
+
 	if len(npc.PatrolPoints) == 0 {
 		// If no patrol points, just move forward with slight oscillation
 		state.IsMoving = true
-		baseSpeed := 0.2                           // Base speed value (matching player tank speed)
-		
+		baseSpeed := 0.2 // Base speed value (matching player tank speed)
+
 		// Add slight movement variation like client
 		speedVariation := 1.0 + (math.Sin(now*0.5) * 0.1) // ±10% variation
 		state.Velocity = baseSpeed * npc.MoveSpeed * speedVariation
-		
+
 		// Add slight directional oscillation
 		oscillation := math.Sin(now*0.3) * 0.005
 		state.TankRotation += oscillation
@@ -692,7 +700,7 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 
 		state.Position.X += moveX
 		state.Position.Z += moveZ
-		
+
 		// Update track animation (for client visualization)
 		state.TrackRotation = state.Velocity * 5.0
 		return
@@ -708,7 +716,7 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 
 	// Check if reached target point - use variable distance based on TacticalIQ
 	// Smarter NPCs navigate more precisely to waypoints
-	arrivalDistance := 5.0 + (1.0 - npc.TacticalIQ) * 5.0 // 5-10 units
+	arrivalDistance := 5.0 + (1.0-npc.TacticalIQ)*5.0 // 5-10 units
 	if dist < arrivalDistance {
 		// Move to next patrol point
 		npc.CurrentPoint = (npc.CurrentPoint + 1) % len(npc.PatrolPoints)
@@ -722,54 +730,54 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 	// Turn gradually toward target angle with smoother motion (like client aimAtTarget)
 	currentAngle := state.TankRotation
 	angleDiff := normalizeAngle(targetAngle - currentAngle)
-	
+
 	// Calculate rotation speed - higher TacticalIQ = smoother turning
 	baseRotationSpeed := 0.01 // Base rotation speed
-	
+
 	// Scale rotation speed based on angle difference (faster when far off target)
 	// and TacticalIQ (smarter NPCs turn more precisely)
-	rotationSpeedFactor := math.Min(1.0, 0.3 + math.Abs(angleDiff) * 2)
-	rotationSpeed := baseRotationSpeed * rotationSpeedFactor * (0.8 + npc.TacticalIQ * 0.4)
-	
+	rotationSpeedFactor := math.Min(1.0, 0.3+math.Abs(angleDiff)*2)
+	rotationSpeed := baseRotationSpeed * rotationSpeedFactor * (0.8 + npc.TacticalIQ*0.4)
+
 	// Calculate rotation amount with smooth dampening (like client)
 	rotationAmount := math.Copysign(
 		math.Min(math.Abs(angleDiff), rotationSpeed),
 		angleDiff,
 	)
-	
+
 	// Add slight wobble for natural movement (like client)
 	wobble := (rand.Float64() - 0.5) * 0.001
-	
+
 	// Apply rotation
 	state.TankRotation = normalizeAngle(currentAngle + rotationAmount + wobble)
 
 	// Adjust speed based on turning - when turning sharply, slow down (like real tanks)
 	// This makes movement look more realistic
-	turnFactor := 1.0 - (math.Min(1.0, math.Abs(angleDiff) / (math.Pi/4)) * 0.4)
-	
+	turnFactor := 1.0 - (math.Min(1.0, math.Abs(angleDiff)/(math.Pi/4)) * 0.4)
+
 	// Also slow down when approaching target
 	approachFactor := 1.0
 	if dist < 50.0 {
 		// Start slowing down when getting close to target
 		approachFactor = 0.6 + ((dist / 50.0) * 0.4)
 	}
-	
+
 	// Calculate speed with tactical variations
 	baseSpeed := 0.2 // Base speed value (matching player tank speed)
-	
+
 	// Add slight speed oscillation for natural movement
 	speedOscillation := 1.0 + (math.Sin(now*0.5) * 0.05) // ±5% variation
-	
+
 	// High tactical IQ means better speed control in turns
 	tacticFactor := 0.7 + (npc.TacticalIQ * 0.3)
-	
+
 	// Calculate final speed - scale by turn factor and approach factor
 	// High TacticalIQ NPCs slow less in turns (better driving)
-	state.Velocity = baseSpeed * npc.MoveSpeed * 
-		(turnFactor * tacticFactor + (1.0 - tacticFactor)) * 
+	state.Velocity = baseSpeed * npc.MoveSpeed *
+		(turnFactor*tacticFactor + (1.0 - tacticFactor)) *
 		approachFactor * speedOscillation
-	
-	// Always be moving 
+
+	// Always be moving
 	state.IsMoving = true
 
 	// IMPORTANT: Actually update the position based on rotation and velocity
@@ -779,7 +787,7 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 	// Update position by applying movement vector
 	state.Position.X += moveX
 	state.Position.Z += moveZ
-	
+
 	// Update track animation (for client visualization)
 	state.TrackRotation = state.Velocity * 5.0
 
@@ -795,42 +803,42 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 	// Get current time for smooth time-based animation (like client-side)
 	now := float64(time.Now().UnixNano()) / 1e9
-	
+
 	// Use time directly for animations instead of a movement timer counter
-	
+
 	// Use nonlinear time-based probability to change direction (like client)
 	// Higher TacticalIQ = more purposeful movement with fewer random changes
-	changeProbability := 0.01 * (1.0 - npc.TacticalIQ * 0.5)
-	
+	changeProbability := 0.01 * (1.0 - npc.TacticalIQ*0.5)
+
 	// Add time-based variation - creates a more natural pattern
-	changeProbability *= 0.8 + math.Abs(math.Sin(now*0.5)) * 0.4
-	
+	changeProbability *= 0.8 + math.Abs(math.Sin(now*0.5))*0.4
+
 	// Occasionally change direction with a natural pattern
 	if rand.Float64() < changeProbability {
 		// More intelligent NPCs make smaller, more controlled turns
 		// Less intelligent NPCs make more chaotic turns
-		maxTurn := math.Pi / 8 * (1.0 - npc.TacticalIQ * 0.5 + 0.5)
+		maxTurn := math.Pi / 8 * (1.0 - npc.TacticalIQ*0.5 + 0.5)
 		rotationChange := (rand.Float64() - 0.5) * maxTurn
-		
+
 		// Store target rotation for gradual turning (like client)
 		npc.TargetRotation = normalizeAngle(state.TankRotation + rotationChange)
-		
+
 		// Log direction changes occasionally
 		if rand.Float64() < 0.1 {
 			log.Printf("NPC %s changing direction: current=%.2f, target=%.2f, change=%.2f",
 				npc.ID, state.TankRotation, npc.TargetRotation, rotationChange)
 		}
 	}
-	
+
 	// Gradually turn toward target rotation (smooth interpolation like client)
 	if npc.TargetRotation != 0 {
 		// Calculate angle difference
 		angleDiff := normalizeAngle(npc.TargetRotation - state.TankRotation)
-		
+
 		// Determine turn speed based on TacticalIQ and angle difference
 		// Smarter NPCs turn more smoothly and precisely
-		turnSpeed := 0.01 * (0.8 + npc.TacticalIQ * 0.4)
-		
+		turnSpeed := 0.01 * (0.8 + npc.TacticalIQ*0.4)
+
 		// Apply smooth interpolation like client
 		if math.Abs(angleDiff) > 0.01 {
 			// Determine rotation direction and amount
@@ -838,7 +846,7 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 				math.Min(turnSpeed, math.Abs(angleDiff)),
 				angleDiff,
 			)
-			
+
 			// Apply rotation with tiny wobble for natural movement
 			wobble := (rand.Float64() - 0.5) * 0.002
 			state.TankRotation += rotationAmount + wobble
@@ -851,12 +859,12 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 	} else {
 		// Add slight wobble to movement like client-side for more natural look
 		// Intelligent NPCs have less random wobble
-		wobbleAmount := 0.003 * (1.0 - npc.TacticalIQ * 0.7)
+		wobbleAmount := 0.003 * (1.0 - npc.TacticalIQ*0.7)
 		wobble := (rand.Float64() - 0.5) * wobbleAmount
-		
+
 		// Add time-based oscillation component
 		oscillation := math.Sin(now*0.3) * 0.001
-		
+
 		// Apply tiny rotation adjustments for natural movement
 		state.TankRotation += wobble + oscillation
 		state.TankRotation = normalizeAngle(state.TankRotation)
@@ -865,10 +873,10 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 	// Always be moving
 	state.IsMoving = true
 	baseSpeed := 0.2 // Base speed value (matching player tank speed)
-	
+
 	// Add smooth speed variations like client-side
 	// Higher TacticalIQ = more consistent speed
-	speedVariation := 1.0 + (math.Sin(now*0.7) * 0.1 * (1.0 - npc.TacticalIQ * 0.5))
+	speedVariation := 1.0 + (math.Sin(now*0.7) * 0.1 * (1.0 - npc.TacticalIQ*0.5))
 	state.Velocity = baseSpeed * npc.MoveSpeed * speedVariation
 
 	// IMPORTANT: Actually update the position based on rotation and velocity
@@ -878,7 +886,7 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 	// Update position by applying movement vector
 	state.Position.X += moveX
 	state.Position.Z += moveZ
-	
+
 	// Update track animation (for client visualization)
 	state.TrackRotation = state.Velocity * 5.0
 
@@ -890,7 +898,7 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 	if distFromCenter > MAP_BOUND {
 		// Calculate angle toward center
 		centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
-		
+
 		// Set target rotation toward center (for smooth turning)
 		npc.TargetRotation = centerAngle
 
@@ -1010,14 +1018,14 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 
 		// Get current rotation to animate smoothly to target (like client's aimAtTarget method)
 		currentTurretAngle := state.TurretRotation
-		
+
 		// Calculate direction to target
 		dx := targetPos.X - state.Position.X
 		dz := targetPos.Z - state.Position.Z
-		
+
 		// Calculate target turret angle
 		targetAngle := math.Atan2(dz, dx)
-		
+
 		// If TacticalIQ is high, predict target movement for leading shots
 		if npc.TacticalIQ > 0.7 && bestTarget.IsMoving {
 			// Calculate estimated time for shell to reach target
@@ -1048,19 +1056,19 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 		// Normalize angle difference between current and target angle (like client-side code)
 		angleDifference := targetAngle - currentTurretAngle
 		normalizedDifference := normalizeAngle(angleDifference)
-		
+
 		// Apply smooth rotation with speed limit (matching client-side aimAtTarget behavior)
 		turretRotationSpeed := 0.05 // Base speed for turret rotation
-		
+
 		// Adjust based on TacticalIQ - higher IQ = faster rotation (more responsive)
-		turretRotationSpeed *= (0.8 + npc.TacticalIQ * 0.4)
-		
+		turretRotationSpeed *= (0.8 + npc.TacticalIQ*0.4)
+
 		// Calculate rotation amount with smooth dampening
 		rotationAmount := math.Copysign(
 			math.Min(math.Abs(normalizedDifference), turretRotationSpeed),
 			normalizedDifference,
 		)
-		
+
 		// Add inaccuracy based on NPC's skill level
 		// Less accurate NPCs have more random aim - matching client approach
 		baseInaccuracy := (1.0 - npc.FiringAccuracy) * 0.5
@@ -1077,10 +1085,10 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 
 		// Calculate aim randomness - add slight wobble for realism like client
 		randomOffset := (rand.Float64() - 0.5) * inaccuracy
-		
+
 		// Add slight random wobble (matching client behavior)
 		wobble := (rand.Float64() - 0.5) * 0.002
-		
+
 		// Apply calculated rotation with wobble
 		state.TurretRotation = currentTurretAngle + rotationAmount + wobble + randomOffset
 		state.TurretRotation = normalizeAngle(state.TurretRotation)
@@ -1088,10 +1096,10 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 		// Calculate barrel elevation based on distance (like client's aimAtTarget method)
 		// Calculate horizontal distance to target
 		horizontalDistance := math.Sqrt(dx*dx + dz*dz)
-		
+
 		// Target height difference (accounting for tank height)
 		heightDifference := (targetPos.Y - state.Position.Y) + 5.0 // Add tank height offset
-		
+
 		// Calculate elevation angle needed
 		targetElevation := 0.0
 		if horizontalDistance > 0 {
@@ -1099,39 +1107,39 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 			// Limit to only depression or horizontal (matching client limits)
 			targetElevation = math.Min(0.0, -math.Atan2(heightDifference, horizontalDistance))
 		}
-		
+
 		// Adjust for distance - further targets need more precise angle
 		distanceAdjustment := math.Min(bestDistance/500.0, 0.3)
-		
+
 		// Add slight random variation to elevation for imperfect aiming (like client)
 		elevationRandomness := (rand.Float64() - 0.5) * inaccuracy * 0.2
-		
+
 		// Clamp to realistic barrel elevation range
 		minBarrelElevation := -0.8 // About -45 degrees
 		maxBarrelElevation := 0.0  // Horizontal position
-		
+
 		// Calculate current elevation to animate smoothly
 		currentElevation := state.BarrelElevation
-		
+
 		// Calculate difference and apply smooth movement
 		elevationDifference := targetElevation - currentElevation
-		
+
 		// Barrel elevation speed
 		barrelElevationSpeed := 0.03 // Base speed for barrel movement
-		
+
 		// Adjust based on distance to target angle (faster when far from target angle)
-		elevationSpeedFactor := math.Min(1.0, 0.3 + math.Abs(elevationDifference) * 2)
+		elevationSpeedFactor := math.Min(1.0, 0.3+math.Abs(elevationDifference)*2)
 		elevationAmount := math.Copysign(
-			math.Min(math.Abs(elevationDifference), barrelElevationSpeed * elevationSpeedFactor),
+			math.Min(math.Abs(elevationDifference), barrelElevationSpeed*elevationSpeedFactor),
 			elevationDifference,
 		)
-		
+
 		// Apply calculated elevation with randomness
 		newElevation := currentElevation + elevationAmount + elevationRandomness + ((rand.Float64() - 0.5) * 0.001)
-		
+
 		// Clamp to valid range
-		state.BarrelElevation = math.Max(minBarrelElevation, 
-			math.Min(maxBarrelElevation, newElevation + distanceAdjustment))
+		state.BarrelElevation = math.Max(minBarrelElevation,
+			math.Min(maxBarrelElevation, newElevation+distanceAdjustment))
 
 		// Check if we can fire (cooldown expired and have line of sight)
 		timeSinceLastFire := time.Since(npc.LastFire)
@@ -1169,20 +1177,20 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 
 			// Calculate barrel end position (like client's fireShell method)
 			barrelLength := 1.5 // BARREL_END_OFFSET from client code
-			
+
 			// Calculate barrel tip position using barrel elevation and turret rotation
 			// This matches the client-side calculation in fireShell method
-			
+
 			// Calculate firing direction - matching client's fireShell method
 			firingDirX := 0.0
-			firingDirY := 0.0 
+			firingDirY := 0.0
 			firingDirZ := 1.0 // Start with forward vector (z-axis)
-			
+
 			// Apply barrel elevation (x-axis rotation)
 			// After elevation: dir = (0, sin(elev), cos(elev))
 			firingDirY = math.Sin(state.BarrelElevation)
 			firingDirZ = math.Cos(state.BarrelElevation)
-			
+
 			// Apply turret rotation (y-axis rotation)
 			// After turret rotation:
 			// dirX = sin(turretRot) * cos(elev)
@@ -1191,7 +1199,7 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 			cosElev := math.Cos(state.BarrelElevation)
 			firingDirX = math.Sin(state.TurretRotation) * cosElev
 			firingDirZ = math.Cos(state.TurretRotation) * cosElev
-			
+
 			// Apply same calculation to get barrel tip position
 			// NEW: Starting shell position must be at the barrel tip to match client behavior
 			barrelTipX := state.Position.X + (firingDirX * barrelLength)
@@ -1232,14 +1240,14 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 		// If no target, behavior depends on TacticalIQ - similar to client's NPCTank behavior
 		// Get current time for oscillation like in client-side
 		now := float64(time.Now().UnixNano()) / 1e9
-		
+
 		if npc.TacticalIQ > 0.6 {
 			// Smarter NPCs try to align turret with movement when searching
 			alignmentBias := npc.TacticalIQ * 0.2
 
 			// Interpolate between scanning and forward alignment
-			scanSpeed := 0.002 
-			
+			scanSpeed := 0.002
+
 			// Add time-based oscillation like client's NPCTank movement
 			scanComponent := scanSpeed * (1.0 - alignmentBias) * math.Sin(now*0.5)
 
@@ -1256,29 +1264,29 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 			// Apply combined rotation with slight wobble (like client)
 			wobble := (rand.Float64() - 0.5) * 0.002
 			state.TurretRotation += scanComponent + alignmentComponent + wobble
-			
+
 			// Animate barrel elevation with sine wave (like client)
 			// This creates the same effect as the client code:
 			// barrelTarget = Math.sin(movementTimer * 0.005) * (maxBarrelElevation - minBarrelElevation) / 2
 			minBarrelElevation := -0.8 // About -45 degrees
 			maxBarrelElevation := 0.0  // Horizontal position
-			
+
 			// Calculate oscillating barrel elevation
-			barrelTarget := math.Sin(now * 0.5) * (maxBarrelElevation - minBarrelElevation) / 2
-			
+			barrelTarget := math.Sin(now*0.5) * (maxBarrelElevation - minBarrelElevation) / 2
+
 			// Apply smooth animation toward target (like client)
 			elevationDiff := barrelTarget - state.BarrelElevation
 			state.BarrelElevation += elevationDiff * 0.01
 		} else {
 			// Basic scanning for lower TacticalIQ NPCs with time-based oscillation (like client)
 			scanSpeed := 0.002 + (rand.Float64() * 0.001)
-			
+
 			// Add oscillating component from client-side code
-			oscillation := math.Sin(now * 0.5) * 0.01
+			oscillation := math.Sin(now*0.5) * 0.01
 			state.TurretRotation += scanSpeed + oscillation
-			
+
 			// Simple barrel oscillation
-			state.BarrelElevation = -0.4 + math.Sin(now * 0.3) * 0.2
+			state.BarrelElevation = -0.4 + math.Sin(now*0.3)*0.2
 		}
 
 		// Normalize angle
@@ -1294,13 +1302,13 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 func (c *NPCController) FireNPCShell(npc *NPCTank, shellData ShellData) bool {
 	// Fire the shell through the manager (which has its own debouncing)
 	_, err := c.manager.FireShell(shellData, npc.ID)
-	
+
 	// If there was an error (like debounce rejection), return false
 	if err != nil {
 		log.Printf("Error firing NPC shell: %v", err)
 		return false
 	}
-	
+
 	// Shell fired successfully
 	return true
 }

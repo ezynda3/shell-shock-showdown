@@ -110,9 +110,9 @@ func main() {
 	npcController.Start()
 
 	// Set the number of NPC tanks to spawn
-	// Read from environment variable or default to 5
+	// Read from environment variable or default to 10
 	numNPCsStr := os.Getenv("NUM_NPCS")
-	numNPCs := 5 // Default to 5 NPCs for better gameplay
+	numNPCs := 10 // Default to 10 NPCs for more exciting gameplay
 	if numNPCsStr != "" {
 		if val, err := strconv.Atoi(numNPCsStr); err == nil && val > 0 {
 			numNPCs = val
@@ -141,7 +141,7 @@ func main() {
 		npcController.SpawnNPC("Bot", movementPattern)
 		log.Printf("Spawned NPC %d/%d with movement pattern: %s", i+1, numNPCs, movementPattern)
 	}
-	log.Printf("Spawned %d NPC tanks in total (set NUM_NPCS environment variable to change)", numNPCs)
+	log.Printf("Spawned %d NPC tanks in total (default is now 10, can be changed with NUM_NPCS environment variable)", numNPCs)
 
 	log.Println("\n==================================================")
 	log.Println("📊 SYSTEM STATUS:")

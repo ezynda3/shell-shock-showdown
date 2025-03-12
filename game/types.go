@@ -23,8 +23,8 @@ type PlayerState struct {
 	Timestamp       int64    `json:"timestamp"`
 	Color           string   `json:"color,omitempty"`
 	IsDestroyed     bool     `json:"isDestroyed"`
-	Kills           int      `json:"kills"`  // Number of kills
-	Deaths          int      `json:"deaths"` // Number of deaths
+	Kills           int      `json:"kills"`         // Number of kills
+	Deaths          int      `json:"deaths"`        // Number of deaths
 	TrackRotation   float64  `json:"trackRotation"` // Track animation speed for client visualization
 }
 

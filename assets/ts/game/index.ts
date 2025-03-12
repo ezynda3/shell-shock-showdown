@@ -2667,28 +2667,33 @@ export class GameComponent extends LitElement {
   
   // Handle damage events for all tanks
   private handleTankHit(event: CustomEvent) {
-    const { tank, source, damageAmount } = event.detail;
+    const { tank, source, hitLocation, visualOnly } = event.detail;
     
     // Check if this is the player tank
     if (tank === this.playerTank) {
-      console.log(`Player tank hit for ${damageAmount} damage!`);
+      console.log(`Player tank hit detected on ${hitLocation || 'body'} (visual effects only)`);
       
-      // Show hit effects
+      // Show visual/audio hit effects
       this.showPlayerHitEffects();
       
-      // Update stats
-      this.updateStats();
-      
-      // Send tank hit event to server for synchronization
+      // Send tank hit event to server for damage calculation and processing
+      // Health and damage are only managed by the server
       if (source && source !== this.playerTank) {
+        // Estimate damage amount (server will recalculate this)
+        // Different hit locations have different damage multipliers
+        let estimatedDamage = 20; // Base damage
+        if (hitLocation === 'turret') estimatedDamage = 25;
+        if (hitLocation === 'tracks') estimatedDamage = 15;
+        
         // Create tank hit data
         const hitData = {
           targetId: this.playerId,
           sourceId: source.getOwnerId ? source.getOwnerId() : 'unknown',
-          damageAmount: damageAmount
+          damageAmount: estimatedDamage,
+          hitLocation: hitLocation || 'body'
         };
         
-        // Create a custom event using the new consolidated format
+        // Create a custom event using the consolidated format
         const gameEvent = new CustomEvent('game-event', { 
           detail: {
             type: "TANK_HIT",
