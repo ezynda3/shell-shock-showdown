@@ -13,6 +13,7 @@ import (
 	"github.com/mark3labs/pro-saaskit/game"
 	"github.com/mark3labs/pro-saaskit/game/physics"
 	"github.com/mark3labs/pro-saaskit/middleware"
+	_ "github.com/mark3labs/pro-saaskit/migrations"
 	"github.com/mark3labs/pro-saaskit/routes"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
