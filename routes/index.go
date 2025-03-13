@@ -184,36 +184,6 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 		}
 		defer watcher.Stop()
 
-		// Skip the initial nil value which indicates the watcher is ready
-		<-watcher.Updates()
-
-		// Drain all previously queued updates from the channel to prevent receiving old updates
-		// This prevents the client from receiving a flood of old missed updates
-		drainCount := 0
-		drainStartTime := time.Now()
-	drainLoop:
-		for {
-			select {
-			case entry := <-watcher.Updates():
-				if entry != nil {
-					drainCount++
-				}
-			default:
-				// No more entries in the channel, exit the drain loop
-				break drainLoop
-			}
-
-			// Safety timeout after 500ms to avoid getting stuck in the drain loop
-			if time.Since(drainStartTime) > 500*time.Millisecond {
-				log.Printf("Gamestate drain loop timed out after clearing %d old updates", drainCount)
-				break
-			}
-		}
-
-		if drainCount > 0 {
-			log.Printf("Drained %d old gamestate updates before starting fresh connection", drainCount)
-		}
-
 		// Get the latest state to send to the client immediately
 		latestState := gameManager.GetState()
 		latestStateJSON, err := json.Marshal(latestState)
