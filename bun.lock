@@ -3,6 +3,7 @@
   "workspaces": {
     "": {
       "dependencies": {
+        "@types/web": "^0.0.211",
         "ammo.js": "^0.0.10",
         "lit": "^3.2.1",
         "three": "^0.174.0",
@@ -15,6 +16,8 @@
     "@lit/reactive-element": ["@lit/reactive-element@2.0.4", "", { "dependencies": { "@lit-labs/ssr-dom-shim": "^1.2.0" } }, "sha512-GFn91inaUa2oHLak8awSIigYz0cU0Payr1rcFsrkf5OJ5eSPxElyZfKh0f2p9FsTiZWXQdWGJeXZICEfXXYSXQ=="],
 
     "@types/trusted-types": ["@types/trusted-types@2.0.7", "", {}, "sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw=="],
+
+    "@types/web": ["@types/web@0.0.211", "", {}, "sha512-IjFpdU00NjEce4W2zXQpV23DEr+OpoT/iFmLkgnzUdGPuVwjYyd+0r6pfLrmD5mwxnHLluCuf0GGwIIoysFKpg=="],
 
     "ammo.js": ["ammo.js@0.0.10", "", {}, "sha512-jOv977u71jrDUzHfmQ99YaW90/y8YLn/3HFTmtLLzf5wJynAfG+/a1Ie5gbn0fE0uSAHxXVsFk4Bzq8qRPWqAA=="],
 

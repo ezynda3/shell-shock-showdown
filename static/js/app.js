@@ -8,6 +8,10 @@ var __legacyDecorateClassTS = function(decorators, target, key, desc) {
         r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
   return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
+var __legacyMetadataTS = (k, v) => {
+  if (typeof Reflect === "object" && typeof Reflect.metadata === "function")
+    return Reflect.metadata(k, v);
+};
 
 // node_modules/@lit/reactive-element/development/css-tag.js
 var NODE_MODE = false;
@@ -8661,7 +8665,7 @@ var _v3$1 = /* @__PURE__ */ new Vector3;
 var _minTarget = /* @__PURE__ */ new Vector2;
 var _maxTarget = /* @__PURE__ */ new Vector2;
 
-class PerspectiveCamera extends Camera {
+class PerspectiveCamera2 extends Camera {
   constructor(fov = 50, aspect = 1, near = 0.1, far = 2000) {
     super();
     this.isPerspectiveCamera = true;
@@ -8791,22 +8795,22 @@ class CubeCamera extends Object3D {
     this.renderTarget = renderTarget;
     this.coordinateSystem = null;
     this.activeMipmapLevel = 0;
-    const cameraPX = new PerspectiveCamera(fov, aspect, near, far);
+    const cameraPX = new PerspectiveCamera2(fov, aspect, near, far);
     cameraPX.layers = this.layers;
     this.add(cameraPX);
-    const cameraNX = new PerspectiveCamera(fov, aspect, near, far);
+    const cameraNX = new PerspectiveCamera2(fov, aspect, near, far);
     cameraNX.layers = this.layers;
     this.add(cameraNX);
-    const cameraPY = new PerspectiveCamera(fov, aspect, near, far);
+    const cameraPY = new PerspectiveCamera2(fov, aspect, near, far);
     cameraPY.layers = this.layers;
     this.add(cameraPY);
-    const cameraNY = new PerspectiveCamera(fov, aspect, near, far);
+    const cameraNY = new PerspectiveCamera2(fov, aspect, near, far);
     cameraNY.layers = this.layers;
     this.add(cameraNY);
-    const cameraPZ = new PerspectiveCamera(fov, aspect, near, far);
+    const cameraPZ = new PerspectiveCamera2(fov, aspect, near, far);
     cameraPZ.layers = this.layers;
     this.add(cameraPZ);
-    const cameraNZ = new PerspectiveCamera(fov, aspect, near, far);
+    const cameraNZ = new PerspectiveCamera2(fov, aspect, near, far);
     cameraNZ.layers = this.layers;
     this.add(cameraNZ);
   }
@@ -9207,7 +9211,7 @@ class FogExp2 {
     };
   }
 }
-class Scene extends Object3D {
+class Scene2 extends Object3D {
   constructor() {
     super();
     this.isScene = true;
@@ -13798,7 +13802,7 @@ class AmbientLight extends Light {
     this.type = "AmbientLight";
   }
 }
-class ArrayCamera extends PerspectiveCamera {
+class ArrayCamera extends PerspectiveCamera2 {
   constructor(array = []) {
     super();
     this.isArrayCamera = true;
@@ -19571,7 +19575,7 @@ class PMREMGenerator {
   _sceneToCubeUV(scene, near, far, cubeUVRenderTarget, position) {
     const fov2 = 90;
     const aspect2 = 1;
-    const cubeCamera = new PerspectiveCamera(fov2, aspect2, near, far);
+    const cubeCamera = new PerspectiveCamera2(fov2, aspect2, near, far);
     const upSign = [1, -1, 1, 1, 1, 1];
     const forwardSign = [1, 1, 1, -1, -1, -1];
     const renderer = this._renderer;
@@ -25364,9 +25368,9 @@ class WebXRManager extends EventDispatcher {
     const controllerInputSources = [];
     const currentSize = new Vector2;
     let currentPixelRatio = null;
-    const cameraL = new PerspectiveCamera;
+    const cameraL = new PerspectiveCamera2;
     cameraL.viewport = new Vector4;
-    const cameraR = new PerspectiveCamera;
+    const cameraR = new PerspectiveCamera2;
     cameraR.viewport = new Vector4;
     const cameras = [cameraL, cameraR];
     const cameraXR = new ArrayCamera;
@@ -25743,7 +25747,7 @@ class WebXRManager extends EventDispatcher {
           }
           let camera = cameras[i];
           if (camera === undefined) {
-            camera = new PerspectiveCamera;
+            camera = new PerspectiveCamera2;
             camera.layers.enable(i);
             camera.viewport = new Vector4;
             cameras[i] = camera;
@@ -26306,7 +26310,7 @@ function WebGLUniformsGroups(gl, info, capabilities, state3) {
   };
 }
 
-class WebGLRenderer {
+class WebGLRenderer2 {
   constructor(parameters = {}) {
     const {
       canvas = createCanvasElement(),
@@ -33051,31 +33055,40 @@ class GameStats extends LitElement {
   }
 }
 __legacyDecorateClassTS([
-  state()
+  state(),
+  __legacyMetadataTS("design:type", Number)
 ], GameStats.prototype, "fps", undefined);
 __legacyDecorateClassTS([
-  state()
+  state(),
+  __legacyMetadataTS("design:type", Number)
 ], GameStats.prototype, "frameTime", undefined);
 __legacyDecorateClassTS([
-  state()
+  state(),
+  __legacyMetadataTS("design:type", Number)
 ], GameStats.prototype, "objectCount", undefined);
 __legacyDecorateClassTS([
-  state()
+  state(),
+  __legacyMetadataTS("design:type", Number)
 ], GameStats.prototype, "triangleCount", undefined);
 __legacyDecorateClassTS([
-  state()
+  state(),
+  __legacyMetadataTS("design:type", Number)
 ], GameStats.prototype, "playerHealth", undefined);
 __legacyDecorateClassTS([
-  state()
+  state(),
+  __legacyMetadataTS("design:type", Number)
 ], GameStats.prototype, "kills", undefined);
 __legacyDecorateClassTS([
-  state()
+  state(),
+  __legacyMetadataTS("design:type", Number)
 ], GameStats.prototype, "deaths", undefined);
 __legacyDecorateClassTS([
-  state()
+  state(),
+  __legacyMetadataTS("design:type", Number)
 ], GameStats.prototype, "playersOnline", undefined);
 GameStats = __legacyDecorateClassTS([
-  customElement("game-stats")
+  customElement("game-stats"),
+  __legacyMetadataTS("design:paramtypes", [])
 ], GameStats);
 
 // assets/ts/game/index.ts
@@ -33107,25 +33120,10 @@ class GameComponent extends LitElement {
         }
         if (parsed && parsed.players && typeof parsed.players === "object") {
           this.multiplayerState = parsed;
-        } else if (parsed && parsed.gameState) {
-          if (typeof parsed.gameState === "object" && parsed.gameState.players) {
-            this.multiplayerState = parsed.gameState;
-          } else if (typeof parsed.gameState === "string") {
-            try {
-              const nestedState = JSON.parse(parsed.gameState);
-              if (nestedState && nestedState.players) {
-                this.multiplayerState = nestedState;
-              }
-            } catch (err) {
-              console.error("Failed to parse nested gameState string:", err);
-              return;
-            }
-          }
         } else {
           console.error("Unrecognized game state format - missing players object:", parsed);
           return;
         }
-        const playerCount = this.multiplayerState && this.multiplayerState.players ? Object.keys(this.multiplayerState.players).length : 0;
         this.updateRemotePlayers();
         this.updateLocalPlayerHealth();
         this.updateStats();
@@ -33171,13 +33169,11 @@ class GameComponent extends LitElement {
   animationFrameId;
   playerTank;
   remoteTanks = new Map;
-  lodDistance = 300;
   collisionSystem = new CollisionSystem;
   mapGenerator;
   activeShells = [];
   playerDestroyed = false;
   respawnTimer = 0;
-  RESPAWN_TIME = 300;
   playerKills = 0;
   playerDeaths = 0;
   showDamageOverlay = false;
@@ -33189,7 +33185,6 @@ class GameComponent extends LitElement {
   NOTIFICATION_DURATION = 5000;
   processedDeathEvents = new Set;
   keys = {};
-  isFullscreen = false;
   skyColor = new Color(8900331);
   groundMaterial;
   static styles = css`
@@ -34350,10 +34345,6 @@ class GameComponent extends LitElement {
       this.collisionSystem.removeCollider(this.playerTank);
       this.playerTank.dispose();
     }
-    for (const tank of this.npcTanks) {
-      this.collisionSystem.removeCollider(tank);
-      tank.dispose();
-    }
     for (const shell of this.activeShells) {
       this.collisionSystem.removeCollider(shell);
     }
@@ -34361,14 +34352,14 @@ class GameComponent extends LitElement {
     this.renderer?.dispose();
   }
   initThree() {
-    this.scene = new Scene;
+    this.scene = new Scene2;
     this.scene.background = this.skyColor;
     this.scene.fog = new FogExp2(this.skyColor, 0.0006);
     this.createSkybox();
-    this.camera = new PerspectiveCamera(60, this.canvas.clientWidth / this.canvas.clientHeight, 0.5, 1500);
+    this.camera = new PerspectiveCamera2(60, this.canvas.clientWidth / this.canvas.clientHeight, 0.5, 1500);
     this.scene.add(this.camera);
     this.scene.updateMatrixWorld(true);
-    this.renderer = new WebGLRenderer({
+    this.renderer = new WebGLRenderer2({
       canvas: this.canvas,
       antialias: false,
       powerPreference: "high-performance",
@@ -34642,7 +34633,6 @@ class GameComponent extends LitElement {
     this.scene.add(this.crosshairObject);
     this.updateCrosshairPosition();
   }
-  tempVector = new Vector3;
   tempDirection = new Vector3;
   tempBarrelEnd = new Vector3;
   tempEuler = new Euler;
@@ -34724,12 +34714,10 @@ class GameComponent extends LitElement {
       this.requestFullscreen().catch((err) => {
         console.error(`Error attempting to enable fullscreen: ${err.message}`);
       });
-      this.isFullscreen = true;
     } else {
       document.exitFullscreen().catch((err) => {
         console.error(`Error attempting to exit fullscreen: ${err.message}`);
       });
-      this.isFullscreen = false;
     }
   }
   requestFullscreen() {
@@ -34889,7 +34877,7 @@ class GameComponent extends LitElement {
     }
   }
   handleTankHit(event) {
-    const { tank, source, hitLocation, visualOnly, clientSideHit } = event.detail;
+    const { tank, source, hitLocation } = event.detail;
     if (tank === this.playerTank) {
       console.log(`Player tank hit detected on ${hitLocation || "body"} (visual effects only)`);
       this.showPlayerHitEffects();
@@ -34984,18 +34972,12 @@ class GameComponent extends LitElement {
     if (source === this.playerTank) {
       killerName = "Player";
       killerId = this.playerId;
-    } else if (source) {
-      const npcIndex = this.npcTanks.findIndex((npc) => npc === source);
-      if (npcIndex !== -1) {
-        killerName = this.npcTanks[npcIndex].tankName || `NPC ${npcIndex + 1}`;
-        killerId = `npc_${npcIndex}`;
-      } else {
-        for (const [id, remoteTank] of this.remoteTanks.entries()) {
-          if (remoteTank === source) {
-            killerName = remoteTank.tankName || `Player ${id.substr(0, 6)}`;
-            killerId = id;
-            break;
-          }
+    } else {
+      for (const [id, remoteTank] of this.remoteTanks.entries()) {
+        if (remoteTank === source) {
+          killerName = remoteTank.tankName || `Player ${id.substr(0, 6)}`;
+          killerId = id;
+          break;
         }
       }
     }
@@ -35201,28 +35183,36 @@ class GameComponent extends LitElement {
   }
 }
 __legacyDecorateClassTS([
-  query("#canvas")
+  query("#canvas"),
+  __legacyMetadataTS("design:type", typeof HTMLCanvasElement === "undefined" ? Object : HTMLCanvasElement)
 ], GameComponent.prototype, "canvas", undefined);
 __legacyDecorateClassTS([
-  property({ attribute: false })
+  property({ attribute: false }),
+  __legacyMetadataTS("design:type", typeof MultiplayerGameState === "undefined" ? Object : MultiplayerGameState)
 ], GameComponent.prototype, "multiplayerState", undefined);
 __legacyDecorateClassTS([
-  property({ type: String, attribute: "player-id" })
+  property({ type: String, attribute: "player-id" }),
+  __legacyMetadataTS("design:type", String)
 ], GameComponent.prototype, "playerId", undefined);
 __legacyDecorateClassTS([
-  property({ type: String, attribute: "map-data" })
+  property({ type: String, attribute: "map-data" }),
+  __legacyMetadataTS("design:type", String)
 ], GameComponent.prototype, "mapData", undefined);
 __legacyDecorateClassTS([
-  property({ type: String, attribute: "notification" })
+  property({ type: String, attribute: "notification" }),
+  __legacyMetadataTS("design:type", String)
 ], GameComponent.prototype, "notification", undefined);
 __legacyDecorateClassTS([
-  property({ attribute: false })
+  property({ attribute: false }),
+  __legacyMetadataTS("design:type", typeof exports_three_module === "undefined" || typeof exports_three_module.Scene === "undefined" ? Object : exports_three_module.Scene)
 ], GameComponent.prototype, "scene", undefined);
 __legacyDecorateClassTS([
-  property({ attribute: false })
+  property({ attribute: false }),
+  __legacyMetadataTS("design:type", typeof exports_three_module === "undefined" || typeof exports_three_module.PerspectiveCamera === "undefined" ? Object : exports_three_module.PerspectiveCamera)
 ], GameComponent.prototype, "camera", undefined);
 __legacyDecorateClassTS([
-  property({ attribute: false })
+  property({ attribute: false }),
+  __legacyMetadataTS("design:type", typeof exports_three_module === "undefined" || typeof exports_three_module.WebGLRenderer === "undefined" ? Object : exports_three_module.WebGLRenderer)
 ], GameComponent.prototype, "renderer", undefined);
 GameComponent = __legacyDecorateClassTS([
   customElement("game-component")
@@ -35397,16 +35387,20 @@ class GameRadar extends LitElement {
   }
 }
 __legacyDecorateClassTS([
-  property({ type: String })
+  property({ type: String }),
+  __legacyMetadataTS("design:type", String)
 ], GameRadar.prototype, "playerId", undefined);
 __legacyDecorateClassTS([
-  property({ type: Object })
+  property({ type: Object }),
+  __legacyMetadataTS("design:type", typeof GameState === "undefined" ? Object : GameState)
 ], GameRadar.prototype, "gameState", undefined);
 __legacyDecorateClassTS([
-  property({ type: Number })
+  property({ type: Number }),
+  __legacyMetadataTS("design:type", Number)
 ], GameRadar.prototype, "radarRadius", undefined);
 __legacyDecorateClassTS([
-  property({ type: Number })
+  property({ type: Number }),
+  __legacyMetadataTS("design:type", Number)
 ], GameRadar.prototype, "mapScale", undefined);
 GameRadar = __legacyDecorateClassTS([
   customElement("game-radar")

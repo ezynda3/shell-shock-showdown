@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, query, property } from 'lit/decorators.js';
 import * as THREE from 'three';
 import { MapGenerator } from './map';
-import { Tank, RemoteTank, NPCTank, ITank, ICollidable, SpatialAudio } from './tank';
+import { Tank, RemoteTank, ITank, ICollidable, SpatialAudio } from './tank';
 import { CollisionSystem } from './collision';
 import { Shell } from './shell';
 import './stats'; // Import stats component
@@ -88,38 +88,12 @@ export class GameComponent extends LitElement {
         // Handle the format from DataStar in views/index.templ
         // The gameState property in our component gets ONLY the inner JSON
         // directly from the server via: data-attr-game-state__case.kebab="$gameState"
-        
-        // CASE 1: Direct players object (most likely format)
         if (parsed && parsed.players && typeof parsed.players === 'object') {
           this.multiplayerState = parsed;
-        }
-        // CASE 2: Maybe we still have a gameState wrapper in some cases
-        else if (parsed && parsed.gameState) {
-          // If gameState is an object with players, use it directly
-          if (typeof parsed.gameState === 'object' && parsed.gameState.players) {
-            this.multiplayerState = parsed.gameState;
-          }
-          // If gameState is a string, try to parse it
-          else if (typeof parsed.gameState === 'string') {
-            try {
-              const nestedState = JSON.parse(parsed.gameState);
-              if (nestedState && nestedState.players) {
-                this.multiplayerState = nestedState;
-              }
-            } catch (err) {
-              console.error('Failed to parse nested gameState string:', err);
-              return;
-            }
-          }
-        } 
-        else {
+        } else {
           console.error('Unrecognized game state format - missing players object:', parsed);
           return;
         }
-        
-        // Count the players in the state
-        const playerCount = this.multiplayerState && this.multiplayerState.players ? 
-          Object.keys(this.multiplayerState.players).length : 0;
         
         // Update remote players
         this.updateRemotePlayers();
@@ -212,8 +186,6 @@ export class GameComponent extends LitElement {
   private playerTank?: Tank;
   private remoteTanks: Map<string, RemoteTank> = new Map();
   
-  // Performance settings
-  private lodDistance = 300; // Distance at which to switch to lower detail
   
   // Collision system
   private collisionSystem: CollisionSystem = new CollisionSystem();
@@ -225,7 +197,6 @@ export class GameComponent extends LitElement {
   // Game state
   private playerDestroyed = false;
   private respawnTimer = 0;
-  private readonly RESPAWN_TIME = 300; // 5 seconds at 60fps
   private playerKills = 0;
   private playerDeaths = 0;
   
@@ -245,9 +216,6 @@ export class GameComponent extends LitElement {
   
   // Control state
   private keys: { [key: string]: boolean } = {};
-  
-  // Fullscreen state
-  private isFullscreen: boolean = false;
   
   // Assets
   // Sky gradient colors
@@ -1879,12 +1847,6 @@ export class GameComponent extends LitElement {
       this.playerTank.dispose();
     }
     
-    // Clean up NPC tank resources
-    for (const tank of this.npcTanks) {
-      this.collisionSystem.removeCollider(tank);
-      tank.dispose();
-    }
-    
     // Clean up shell resources
     for (const shell of this.activeShells) {
       this.collisionSystem.removeCollider(shell);
@@ -2279,7 +2241,6 @@ export class GameComponent extends LitElement {
   }
   
   // Reuse these vectors to avoid unnecessary object creation
-  private readonly tempVector = new THREE.Vector3();
   private readonly tempDirection = new THREE.Vector3();
   private readonly tempBarrelEnd = new THREE.Vector3();
   private readonly tempEuler = new THREE.Euler();
@@ -2426,13 +2387,11 @@ export class GameComponent extends LitElement {
       this.requestFullscreen().catch(err => {
         console.error(`Error attempting to enable fullscreen: ${err.message}`);
       });
-      this.isFullscreen = true;
     } else {
       // Exit fullscreen
       document.exitFullscreen().catch(err => {
         console.error(`Error attempting to exit fullscreen: ${err.message}`);
       });
-      this.isFullscreen = false;
     }
   }
   
@@ -2535,10 +2494,6 @@ export class GameComponent extends LitElement {
       this.keys['mousefire'] = false;
     }
   }
-  
-  
-  
-  
   
   private handleResize() {
     if (!this.camera || !this.renderer) return;
@@ -2718,7 +2673,7 @@ export class GameComponent extends LitElement {
   
   // Handle damage events for all tanks
   private handleTankHit(event: CustomEvent) {
-    const { tank, source, hitLocation, visualOnly, clientSideHit } = event.detail;
+    const { tank, source, hitLocation } = event.detail;
     
     // Check if this is the player tank being hit
     if (tank === this.playerTank) {
@@ -2859,20 +2814,13 @@ export class GameComponent extends LitElement {
     if (source === this.playerTank) {
       killerName = "Player";
       killerId = this.playerId;
-    } else if (source) {
-      // Find NPC tank name
-      const npcIndex = this.npcTanks.findIndex(npc => npc === source);
-      if (npcIndex !== -1) {
-        killerName = this.npcTanks[npcIndex].tankName || `NPC ${npcIndex + 1}`;
-        killerId = `npc_${npcIndex}`;
-      } else {
-        // Check if it's a remote player
-        for (const [id, remoteTank] of this.remoteTanks.entries()) {
-          if (remoteTank === source) {
-            killerName = remoteTank.tankName || `Player ${id.substr(0, 6)}`;
-            killerId = id;
-            break;
-          }
+    } else {
+      // Check if it's a remote player
+      for (const [id, remoteTank] of this.remoteTanks.entries()) {
+        if (remoteTank === source) {
+          killerName = remoteTank.tankName || `Player ${id.substr(0, 6)}`;
+          killerId = id;
+          break;
         }
       }
     }
