@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/pro-saaskit/game"
 	"github.com/mark3labs/pro-saaskit/middleware"
 	"github.com/mark3labs/pro-saaskit/views"
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
 	datastar "github.com/starfederation/datastar/sdk/go"
@@ -27,6 +28,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 	// Create a group for protected routes
 	protected := router.Group("")
 	protected.BindFunc(middleware.AuthGuard)
+	protected.Bind(apis.Gzip())
 
 	// POST route for update endpoint
 	router.POST("/update", func(e *core.RequestEvent) error {
