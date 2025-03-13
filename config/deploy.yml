@@ -23,6 +23,10 @@ proxy:
   # Proxy connects to your container on port 80 by default.
   app_port: 8090
 
+  buffering:
+    requests: false
+    responses: false
+
 # Credentials for your image host.
 registry:
   # Specify the registry server, if you're not using Docker Hub
