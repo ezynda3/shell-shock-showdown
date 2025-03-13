@@ -1448,7 +1448,8 @@ export class GameComponent extends LitElement {
         if (this.multiplayerState.players[playerData.lastKilledBy]) {
           killerName = this.multiplayerState.players[playerData.lastKilledBy].name || 
                        `Player ${playerData.lastKilledBy.substring(0, 6)}`;
-        } else if (playerData.lastKilledBy === this.playerId) {
+        }
+        if (playerData.lastKilledBy === this.playerId) {
           killerName = "You"; // If the current player is the killer
         }
         
@@ -2793,19 +2794,12 @@ export class GameComponent extends LitElement {
       victimName = "Player";
       victimId = this.playerId;
     } else {
-      // Find NPC tank name
-      const npcIndex = this.npcTanks.findIndex(npc => npc === tank);
-      if (npcIndex !== -1) {
-        victimName = this.npcTanks[npcIndex].tankName || `NPC ${npcIndex + 1}`;
-        victimId = `npc_${npcIndex}`;
-      } else {
-        // Check if it's a remote player
-        for (const [id, remoteTank] of this.remoteTanks.entries()) {
-          if (remoteTank === tank) {
-            victimName = remoteTank.tankName || `Player ${id.substr(0, 6)}`;
-            victimId = id;
-            break;
-          }
+      // Check if it's a remote player
+      for (const [id, remoteTank] of this.remoteTanks.entries()) {
+        if (remoteTank === tank) {
+          victimName = remoteTank.tankName || `Player ${id.substr(0, 6)}`;
+          victimId = id;
+          break;
         }
       }
     }
@@ -2826,7 +2820,7 @@ export class GameComponent extends LitElement {
     }
     
     // Add kill notification
-    this.addKillNotification(killerName, victimName);
+    // this.addKillNotification(killerName, victimName);
     
     // Check if this is the player tank
     if (tank === this.playerTank) {
@@ -2889,15 +2883,6 @@ export class GameComponent extends LitElement {
           composed: true
         });
         this.dispatchEvent(gameEvent);
-      }
-      
-      // Find the NPC tank in our array
-      const npcIndex = this.npcTanks.findIndex(npc => npc === tank);
-      if (npcIndex !== -1) {
-        // Respawn the NPC tank at a random location
-        setTimeout(() => {
-          this.npcTanks[npcIndex].respawn();
-        }, 2000); // 2 second delay before respawn
       }
     }
   }

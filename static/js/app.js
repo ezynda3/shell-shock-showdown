@@ -34116,7 +34116,8 @@ class GameComponent extends LitElement {
         let killerName = "Unknown";
         if (this.multiplayerState.players[playerData.lastKilledBy]) {
           killerName = this.multiplayerState.players[playerData.lastKilledBy].name || `Player ${playerData.lastKilledBy.substring(0, 6)}`;
-        } else if (playerData.lastKilledBy === this.playerId) {
+        }
+        if (playerData.lastKilledBy === this.playerId) {
           killerName = "You";
         }
         let victimName = playerData.name || `Player ${playerId.substring(0, 6)}`;
@@ -34955,17 +34956,11 @@ class GameComponent extends LitElement {
       victimName = "Player";
       victimId = this.playerId;
     } else {
-      const npcIndex = this.npcTanks.findIndex((npc) => npc === tank);
-      if (npcIndex !== -1) {
-        victimName = this.npcTanks[npcIndex].tankName || `NPC ${npcIndex + 1}`;
-        victimId = `npc_${npcIndex}`;
-      } else {
-        for (const [id, remoteTank] of this.remoteTanks.entries()) {
-          if (remoteTank === tank) {
-            victimName = remoteTank.tankName || `Player ${id.substr(0, 6)}`;
-            victimId = id;
-            break;
-          }
+      for (const [id, remoteTank] of this.remoteTanks.entries()) {
+        if (remoteTank === tank) {
+          victimName = remoteTank.tankName || `Player ${id.substr(0, 6)}`;
+          victimId = id;
+          break;
         }
       }
     }
@@ -34981,7 +34976,6 @@ class GameComponent extends LitElement {
         }
       }
     }
-    this.addKillNotification(killerName, victimName);
     if (tank === this.playerTank) {
       console.log("Player tank destroyed!");
       this.playerDestroyed = true;
@@ -35024,12 +35018,6 @@ class GameComponent extends LitElement {
           composed: true
         });
         this.dispatchEvent(gameEvent);
-      }
-      const npcIndex = this.npcTanks.findIndex((npc) => npc === tank);
-      if (npcIndex !== -1) {
-        setTimeout(() => {
-          this.npcTanks[npcIndex].respawn();
-        }, 2000);
       }
     }
   }
