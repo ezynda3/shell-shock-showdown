@@ -17,9 +17,9 @@ func init() {
 		// update collection data
 		if err := json.Unmarshal([]byte(`{
 			"indexes": [
-				"CREATE UNIQUE INDEX ` + "`" + `idx_tokenKey__pb_users_auth_` + "`" + ` ON ` + "`" + `users` + "`" + ` (` + "`" + `tokenKey` + "`" + `)",
-				"CREATE UNIQUE INDEX ` + "`" + `idx_email__pb_users_auth_` + "`" + ` ON ` + "`" + `users` + "`" + ` (` + "`" + `email` + "`" + `) WHERE ` + "`" + `email` + "`" + ` != ''",
-				"CREATE UNIQUE INDEX ` + "`" + `idx_sD3oNZuzuk` + "`" + ` ON ` + "`" + `users` + "`" + ` (` + "`" + `callsign` + "`" + `) WHERE ` + "`" + `callsign` + "`" + ` != ''"
+				"CREATE UNIQUE INDEX `+"`"+`idx_tokenKey__pb_users_auth_`+"`"+` ON `+"`"+`users`+"`"+` (`+"`"+`tokenKey`+"`"+`)",
+				"CREATE UNIQUE INDEX `+"`"+`idx_email__pb_users_auth_`+"`"+` ON `+"`"+`users`+"`"+` (`+"`"+`email`+"`"+`) WHERE `+"`"+`email`+"`"+` != ''",
+				"CREATE UNIQUE INDEX `+"`"+`idx_sD3oNZuzuk`+"`"+` ON `+"`"+`users`+"`"+` (`+"`"+`callsign`+"`"+`) WHERE `+"`"+`callsign`+"`"+` != ''"
 			]
 		}`), &collection); err != nil {
 			return err
@@ -35,8 +35,8 @@ func init() {
 		// update collection data
 		if err := json.Unmarshal([]byte(`{
 			"indexes": [
-				"CREATE UNIQUE INDEX ` + "`" + `idx_tokenKey__pb_users_auth_` + "`" + ` ON ` + "`" + `users` + "`" + ` (` + "`" + `tokenKey` + "`" + `)",
-				"CREATE UNIQUE INDEX ` + "`" + `idx_email__pb_users_auth_` + "`" + ` ON ` + "`" + `users` + "`" + ` (` + "`" + `email` + "`" + `) WHERE ` + "`" + `email` + "`" + ` != ''"
+				"CREATE UNIQUE INDEX `+"`"+`idx_tokenKey__pb_users_auth_`+"`"+` ON `+"`"+`users`+"`"+` (`+"`"+`tokenKey`+"`"+`)",
+				"CREATE UNIQUE INDEX `+"`"+`idx_email__pb_users_auth_`+"`"+` ON `+"`"+`users`+"`"+` (`+"`"+`email`+"`"+`) WHERE `+"`"+`email`+"`"+` != ''"
 			]
 		}`), &collection); err != nil {
 			return err

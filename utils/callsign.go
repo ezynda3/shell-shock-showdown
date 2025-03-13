@@ -23,10 +23,10 @@ var (
 // GenerateCallsign creates a random callsign in the format "<Adjective> <Noun> <4 digit int>"
 func GenerateCallsign() string {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	
+
 	adj := adjectives[r.Intn(len(adjectives))]
 	noun := nouns[r.Intn(len(nouns))]
 	number := r.Intn(9000) + 1000 // Ensures a 4-digit number (1000-9999)
-	
+
 	return fmt.Sprintf("%s %s %d", adj, noun, number)
 }
