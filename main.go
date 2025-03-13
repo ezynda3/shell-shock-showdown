@@ -15,6 +15,7 @@ import (
 	"github.com/mark3labs/pro-saaskit/middleware"
 	_ "github.com/mark3labs/pro-saaskit/migrations"
 	"github.com/mark3labs/pro-saaskit/routes"
+	"github.com/mark3labs/pro-saaskit/utils"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -30,6 +31,17 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	app := pocketbase.New()
+
+	// Add hook for setting user callsigns on creation
+	app.OnRecordCreate("users").BindFunc(func(e *core.RecordEvent) error {
+		// Generate and set callsign if it's empty
+		if e.Record.Get("callsign") == "" {
+			callsign := utils.GenerateCallsign()
+			e.Record.Set("callsign", callsign)
+			log.Printf("Generated callsign for new user: %s", callsign)
+		}
+		return e.Next()
+	})
 
 	// Migrations
 	// loosely check if it was executed using "go run"
