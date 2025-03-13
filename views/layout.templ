@@ -122,7 +122,9 @@ templ Layout(loggedIn bool, appURL string) {
 					<nav class="flex items-center justify-between h-16">
 						<div class="flex items-center gap-x-6">
 							<a href="/" class="font-bold text-lg">Shell Shock Showdown</a>
-							<div class="flex gap-x-4"></div>
+							<div class="flex gap-x-4">
+								<a href="/settings" class="text-lg">Settings</a>
+							</div>
 						</div>
 						<div class="flex items-center gap-x-2">
 							if loggedIn {
