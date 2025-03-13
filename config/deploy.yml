@@ -43,9 +43,9 @@ builder:
 
 # Inject ENV variables into containers (secrets come from .kamal/secrets).
 #
-# env:
-#   clear:
-#     DB_HOST: 192.168.0.2
+env:
+  clear:
+    NUM_NPCS: 5
 #   secret:
 #     - RAILS_MASTER_KEY
 
