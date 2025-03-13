@@ -1,0 +1,43 @@
+package views
+
+import (
+	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/core"
+)
+
+templ Settings() {
+	if app, ok := ctx.Value("app").(*pocketbase.PocketBase); ok {
+		@Layout(true, app.Settings().Meta.AppURL) {
+			<div class="container mx-auto p-6">
+				<h1 class="text-3xl font-bold mb-6">Settings</h1>
+				<div class="uk-card uk-card-default uk-card-body rounded-lg shadow-lg max-w-xl mx-auto">
+					<h2 class="text-xl font-bold mb-4 pb-2 border-b border-border">Player Settings</h2>
+					<div class="mb-6">
+						<label for="callsign" class="uk-form-label font-medium text-foreground mb-2 block">Callsign</label>
+						<div class="uk-form-controls">
+							<div class="relative">
+								if user := ctx.Value("user"); user != nil {
+									if auth, ok := user.(*core.Record); ok {
+										<input
+											data-bind="$callsign"
+											type="text"
+											id="callsign"
+											name="callsign"
+											class="uk-input uk-form-large w-full border border-input rounded-md bg-background px-4 py-2 text-foreground"
+											value={ auth.GetString("callsign") }
+											placeholder="Enter your callsign"
+										/>
+									}
+								}
+								<div class="mt-2 text-sm text-muted-foreground">Your unique identifier in the game. This will be visible to other players.</div>
+							</div>
+						</div>
+					</div>
+					<div class="flex justify-end">
+						<button type="button" class="uk-btn uk-btn-primary px-6 py-2 rounded-md" data-on-click="@post('/callsign')">Save Changes</button>
+					</div>
+				</div>
+			</div>
+		}
+	}
+}

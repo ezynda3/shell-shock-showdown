@@ -2,8 +2,8 @@ package views
 
 import (
 	"encoding/json"
-	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/core"
 )
 
 // GetMapData returns the game map data as a JSON string
@@ -17,24 +17,25 @@ func GetMapData() string {
 templ Index() {
 	if app, ok := ctx.Value("app").(*pocketbase.PocketBase); ok {
 		@Layout(true, app.Settings().Meta.AppURL) {
-		<div
-			style="width: 100%; height: calc(100vh - 64px);"
-			data-signals="{gameEvent: '', gameState: '', notification: ''}"
-			data-on-load="@get('/gamestate', { openWhenHidden: true })"
-		>
-			<game-component
-				data-on-game-event__case.kebab="$gameEvent = JSON.stringify(evt.detail); @post('/update')"
-				data-attr-game-state__case.kebab="$gameState"
-				data-attr-notification__case.kebab="$notification"
-				data-on-signals-change__delay.3s="$notification = ''"
-				map-data={ GetMapData() }
-				if user := ctx.Value("user"); user != nil {
-					if auth, ok := user.(*core.Record); ok {
-						player-id={ auth.Id }
+			<div
+				style="width: 100%; height: calc(100vh - 64px);"
+				data-signals="{gameEvent: '', gameState: '', notification: ''}"
+				data-on-load="@get('/gamestate', { openWhenHidden: true })"
+			>
+				<game-component
+					data-on-game-event__case.kebab="$gameEvent = JSON.stringify(evt.detail); @post('/update')"
+					data-attr-game-state__case.kebab="$gameState"
+					data-attr-notification__case.kebab="$notification"
+					data-on-signals-change__delay.3s="$notification = ''"
+					map-data={ GetMapData() }
+					if user := ctx.Value("user"); user != nil {
+						if auth, ok := user.(*core.Record); ok {
+							player-id={ auth.Id }
+							player-name={ auth.GetString("callsign") }
+						}
 					}
-				}
-			></game-component>
-		</div>
+				></game-component>
+			</div>
 		}
 	}
 }

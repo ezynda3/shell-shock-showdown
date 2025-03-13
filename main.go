@@ -92,15 +92,15 @@ func main() {
 
 	// Create KV bucket for game state
 	ctx := context.Background()
-	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
+	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
 		Bucket: "gamestate",
 	})
 	if err != nil {
-		// If bucket already exists, just get it
-		kv, err = js.KeyValue(ctx, "gamestate")
-		if err != nil {
-			log.Fatalf("Failed to get KV bucket: %v", err)
-		}
+		log.Fatalf("Failed to get KV bucket: %v", err)
+	}
+	err = kv.Purge(context.Background(), "current")
+	if err != nil {
+		log.Fatalf("Failed to purge KV bucket: %v", err)
 	}
 	log.Println("KV store initialized")
 

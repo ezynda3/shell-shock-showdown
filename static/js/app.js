@@ -33098,6 +33098,7 @@ class GameComponent extends LitElement {
   constructor() {
     super(...arguments);
     this.playerId = "";
+    this.playerName = "";
     this.mapData = "";
     this.notification = "";
   }
@@ -33128,13 +33129,7 @@ class GameComponent extends LitElement {
         this.updateLocalPlayerHealth();
         this.updateStats();
         if (!this.gameStateInitialized && this.playerTank) {
-          if (!this.playerId) {
-            this.playerId = "player_" + Math.random().toString(36).substring(2, 9);
-            console.log("No player-id attribute found, using random ID:", this.playerId);
-          } else {
-            console.log("Using player ID from attribute:", this.playerId);
-          }
-          if (this.playerTank && typeof this.playerTank.setOwnerId === "function") {
+          if (this.playerTank) {
             this.playerTank.setOwnerId(this.playerId);
             console.log("Set player tank owner ID:", this.playerId);
           }
@@ -33158,6 +33153,10 @@ class GameComponent extends LitElement {
       playerId: {
         type: String,
         attribute: "player-id"
+      },
+      playerName: {
+        type: String,
+        attribute: "player-name"
       },
       mapData: {
         type: String,
@@ -33253,6 +33252,21 @@ class GameComponent extends LitElement {
       pointer-events: none;
       z-index: 1000;
       font-size: 16px;
+    }
+    
+    .callsign-card {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      pointer-events: none;
+      z-index: 1000;
+      font-size: 16px;
+      font-weight: bold;
     }
     
     .game-over {
@@ -33531,31 +33545,7 @@ class GameComponent extends LitElement {
     }
     
     /* Fullscreen button */
-    .fullscreen-button {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      width: 50px;
-      height: 50px;
-      background: rgba(0, 0, 0, 0.6);
-      border: 3px solid rgba(255, 255, 255, 0.6);
-      border-radius: 50%;
-      pointer-events: all;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      color: white;
-      font-size: 22px;
-      z-index: 1000;
-      touch-action: none;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-    }
-    
-    .fullscreen-button:active {
-      background: rgba(0, 0, 0, 0.8);
-      transform: scale(0.95);
-    }
-    
+      
     /* Visual label for joysticks */
     .joystick-label {
       position: absolute;
@@ -33577,6 +33567,8 @@ class GameComponent extends LitElement {
           <canvas id="canvas"></canvas>
           <div class="damage-overlay ${this.showDamageOverlay ? "active" : ""}"></div>
           
+          <div class="callsign-card">Callsign: ${this.playerName}</div>
+          
           <game-stats></game-stats>
           <div class="controls" style="display: ${this.isMobile ? "none" : "block"}">
             <div>W: Forward, S: Backward</div>
@@ -33584,7 +33576,6 @@ class GameComponent extends LitElement {
             <div>Mouse: Aim turret and barrel</div>
             <div>Arrow keys: Alternative turret control</div>
             <div>Left Click, Space, or F: Fire shell</div>
-            <div>F11: Toggle fullscreen</div>
             <div>Click canvas to lock pointer</div>
           </div>
           <div class="game-over ${this.playerTank && this.playerTank.getIsDestroyed() || this.playerDestroyed ? "visible" : ""}">
@@ -33608,8 +33599,6 @@ class GameComponent extends LitElement {
             <!-- Fire button -->
             <div class="fire-button" id="fire-button">FIRE</div>
             
-            <!-- Fullscreen toggle button -->
-            <div class="fullscreen-button" id="fullscreen-button">⛶</div>
           </div>
           
           <!-- Kill notifications container -->
@@ -33637,7 +33626,6 @@ class GameComponent extends LitElement {
   turretJoystickContainer;
   turretJoystickThumb;
   fireButton;
-  fullscreenButton;
   activeTouches = new Map;
   firstUpdated() {
     this.initThree();
@@ -33663,8 +33651,7 @@ class GameComponent extends LitElement {
     this.turretJoystickContainer = this.shadowRoot?.getElementById("turret-joystick-container");
     this.turretJoystickThumb = this.shadowRoot?.getElementById("turret-joystick-thumb");
     this.fireButton = this.shadowRoot?.getElementById("fire-button");
-    this.fullscreenButton = this.shadowRoot?.getElementById("fullscreen-button");
-    if (!this.joystickContainer || !this.joystickThumb || !this.fireButton || !this.turretJoystickContainer || !this.turretJoystickThumb || !this.fullscreenButton) {
+    if (!this.joystickContainer || !this.joystickThumb || !this.fireButton || !this.turretJoystickContainer || !this.turretJoystickThumb) {
       console.error("Could not find all touch control elements");
       return;
     }
@@ -33679,11 +33666,6 @@ class GameComponent extends LitElement {
     this.fireButton.addEventListener("touchstart", this.handleFireButtonStart.bind(this), { passive: false });
     this.fireButton.addEventListener("touchend", this.handleFireButtonEnd.bind(this), { passive: false });
     this.fireButton.addEventListener("touchcancel", this.handleFireButtonEnd.bind(this), { passive: false });
-    this.fullscreenButton.addEventListener("click", this.toggleFullscreen.bind(this));
-    this.fullscreenButton.addEventListener("touchstart", (e) => {
-      e.preventDefault();
-      this.toggleFullscreen();
-    }, { passive: false });
     const touchControlsArea = this.shadowRoot?.querySelector(".touch-controls");
     if (touchControlsArea) {
       touchControlsArea.addEventListener("touchstart", (e) => {
@@ -34331,10 +34313,6 @@ class GameComponent extends LitElement {
       this.fireButton.removeEventListener("touchend", this.handleFireButtonEnd);
       this.fireButton.removeEventListener("touchcancel", this.handleFireButtonEnd);
     }
-    if (this.fullscreenButton) {
-      this.fullscreenButton.removeEventListener("click", this.toggleFullscreen);
-      this.fullscreenButton.removeEventListener("touchstart", this.toggleFullscreen);
-    }
     if (document.pointerLockElement === this.canvas) {
       document.exitPointerLock();
     }
@@ -34375,7 +34353,6 @@ class GameComponent extends LitElement {
     this.renderer.setPixelRatio(pixelRatio);
     this.renderer.shadowMap.enabled = false;
     this.renderer.sortObjects = true;
-    this.renderer.physicallyCorrectLights = false;
     this.renderer.localClippingEnabled = false;
     const directionalLight = new DirectionalLight(16777164, 0.8);
     directionalLight.position.set(100, 200, 50);
@@ -34702,35 +34679,8 @@ class GameComponent extends LitElement {
     if (key === " " || key === "space") {
       this.keys["space"] = true;
     }
-    if (key === "f11") {
+    if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "space"].includes(key)) {
       event.preventDefault();
-      this.toggleFullscreen();
-    }
-    if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "space", "f11"].includes(key)) {
-      event.preventDefault();
-    }
-  }
-  toggleFullscreen() {
-    if (!document.fullscreenElement) {
-      this.requestFullscreen().catch((err) => {
-        console.error(`Error attempting to enable fullscreen: ${err.message}`);
-      });
-    } else {
-      document.exitFullscreen().catch((err) => {
-        console.error(`Error attempting to exit fullscreen: ${err.message}`);
-      });
-    }
-  }
-  requestFullscreen() {
-    const elem = this.shadowRoot?.host;
-    if (elem.requestFullscreen) {
-      return elem.requestFullscreen();
-    } else if (elem.webkitRequestFullscreen) {
-      return elem.webkitRequestFullscreen();
-    } else if (elem.msRequestFullscreen) {
-      return elem.msRequestFullscreen();
-    } else {
-      return Promise.reject(new Error("Fullscreen API not supported"));
     }
   }
   handleKeyUp(event) {
@@ -35182,6 +35132,10 @@ __legacyDecorateClassTS([
   property({ type: String, attribute: "player-id" }),
   __legacyMetadataTS("design:type", String)
 ], GameComponent.prototype, "playerId", undefined);
+__legacyDecorateClassTS([
+  property({ type: String, attribute: "player-name" }),
+  __legacyMetadataTS("design:type", String)
+], GameComponent.prototype, "playerName", undefined);
 __legacyDecorateClassTS([
   property({ type: String, attribute: "map-data" }),
   __legacyMetadataTS("design:type", String)

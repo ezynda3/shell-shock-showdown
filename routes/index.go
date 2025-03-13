@@ -46,17 +46,12 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 			}
 
 			// Get player ID from auth
-			playerID := "guest"
+			playerName := "Guest"
+			playerID := "none"
 			authRecord := e.Auth
 			if authRecord != nil {
+				playerName = authRecord.GetString("callsign")
 				playerID = authRecord.Id
-			}
-
-			// Get username from player ID
-			playerName := "Guest"
-			if authRecord != nil {
-				// Use player ID instead of email
-				playerName = "Player: " + playerID
 			}
 
 			// Process based on event type
@@ -201,6 +196,14 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 		for {
 			select {
 			case <-ctx.Done():
+				// Get player ID from auth (we can assume e.Auth is not nil due to auth guard)
+				playerID := e.Auth.Id
+				// Remove player from game state
+				if err := gameManager.RemovePlayer(playerID); err != nil {
+					log.Printf("Error removing player %s from game state: %v", playerID, err)
+				} else {
+					log.Printf("Player %s removed from game state on connection close", playerID)
+				}
 				return nil
 			case entry := <-watcher.Updates():
 				// Skip nil entries or deleted keys
@@ -261,6 +264,50 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 		ctx := context.WithValue(context.Background(), "user", e.Auth)
 		ctx = context.WithValue(ctx, "app", e.App)
 		return views.Index().Render(ctx, e.Response)
+	})
+
+	protected.GET("/settings", func(e *core.RequestEvent) error {
+		ctx := context.WithValue(context.Background(), "user", e.Auth)
+		ctx = context.WithValue(ctx, "app", e.App)
+		return views.Settings().Render(ctx, e.Response)
+	})
+	
+	// POST route for updating user callsign
+	protected.POST("/callsign", func(e *core.RequestEvent) error {
+		// Verify user is authenticated
+		if e.Auth == nil {
+			return e.JSON(http.StatusUnauthorized, map[string]string{"error": "Authentication required"})
+		}
+		
+		// Read callsign from signal
+		var callsignSignal struct {
+			Callsign string `json:"callsign"`
+		}
+		
+		if err := datastar.ReadSignals(e.Request, &callsignSignal); err != nil {
+			log.Println("Error reading callsign signal:", err)
+			return e.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		
+		// Validate callsign
+		if callsignSignal.Callsign == "" {
+			return e.JSON(http.StatusBadRequest, map[string]string{"error": "Callsign cannot be empty"})
+		}
+		
+		// Update user record with new callsign
+		e.Auth.Set("callsign", callsignSignal.Callsign)
+		
+		// Validate and persist the record
+		if err := e.App.Save(e.Auth); err != nil {
+			log.Println("Error saving user record:", err)
+			return e.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update callsign"})
+		}
+		
+		// Create a new SSE connection
+		sse := datastar.NewSSE(e.Response, e.Request)
+		
+		// Redirect to the homepage on successful save
+		return sse.Redirect("/")
 	})
 
 	protected.GET("/sse", func(e *core.RequestEvent) error {

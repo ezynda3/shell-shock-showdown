@@ -106,16 +106,9 @@ export class GameComponent extends LitElement {
         
         // Use the player ID from the attribute, or generate one if not set
         if (!this.gameStateInitialized && this.playerTank) {
-          if (!this.playerId) {
-            // Generate fallback ID only if attribute wasn't set
-            this.playerId = 'player_' + Math.random().toString(36).substring(2, 9);
-            console.log('No player-id attribute found, using random ID:', this.playerId);
-          } else {
-            console.log('Using player ID from attribute:', this.playerId);
-          }
-          
+                    
           // Set the player ID on the tank
-          if (this.playerTank && typeof this.playerTank.setOwnerId === 'function') {
+          if (this.playerTank) {
             this.playerTank.setOwnerId(this.playerId);
             console.log('Set player tank owner ID:', this.playerId);
           }
@@ -149,6 +142,10 @@ export class GameComponent extends LitElement {
         type: String, 
         attribute: 'player-id' 
       },
+      playerName: {
+        type: String,
+        attribute: 'player-name'
+      },
       mapData: {
         type: String,
         attribute: 'map-data'
@@ -159,7 +156,10 @@ export class GameComponent extends LitElement {
   // Player ID from server-side attribute
   @property({ type: String, attribute: 'player-id' })
   public playerId: string = '';
-  
+ 
+  @property({ type: String, attribute: 'player-name' })
+  public playerName: string = '';
+
   // Map data from server
   @property({ type: String, attribute: 'map-data' })
   public mapData: string = '';
@@ -289,6 +289,21 @@ export class GameComponent extends LitElement {
       pointer-events: none;
       z-index: 1000;
       font-size: 16px;
+    }
+    
+    .callsign-card {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      pointer-events: none;
+      z-index: 1000;
+      font-size: 16px;
+      font-weight: bold;
     }
     
     .game-over {
@@ -567,31 +582,7 @@ export class GameComponent extends LitElement {
     }
     
     /* Fullscreen button */
-    .fullscreen-button {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      width: 50px;
-      height: 50px;
-      background: rgba(0, 0, 0, 0.6);
-      border: 3px solid rgba(255, 255, 255, 0.6);
-      border-radius: 50%;
-      pointer-events: all;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      color: white;
-      font-size: 22px;
-      z-index: 1000;
-      touch-action: none;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-    }
-    
-    .fullscreen-button:active {
-      background: rgba(0, 0, 0, 0.8);
-      transform: scale(0.95);
-    }
-    
+      
     /* Visual label for joysticks */
     .joystick-label {
       position: absolute;
@@ -614,6 +605,8 @@ export class GameComponent extends LitElement {
           <canvas id="canvas"></canvas>
           <div class="damage-overlay ${this.showDamageOverlay ? 'active' : ''}"></div>
           
+          <div class="callsign-card">Callsign: ${this.playerName}</div>
+          
           <game-stats></game-stats>
           <div class="controls" style="display: ${this.isMobile ? 'none' : 'block'}">
             <div>W: Forward, S: Backward</div>
@@ -621,7 +614,6 @@ export class GameComponent extends LitElement {
             <div>Mouse: Aim turret and barrel</div>
             <div>Arrow keys: Alternative turret control</div>
             <div>Left Click, Space, or F: Fire shell</div>
-            <div>F11: Toggle fullscreen</div>
             <div>Click canvas to lock pointer</div>
           </div>
           <div class="game-over ${(this.playerTank && this.playerTank.getIsDestroyed()) || this.playerDestroyed ? 'visible' : ''}">
@@ -645,8 +637,6 @@ export class GameComponent extends LitElement {
             <!-- Fire button -->
             <div class="fire-button" id="fire-button">FIRE</div>
             
-            <!-- Fullscreen toggle button -->
-            <div class="fullscreen-button" id="fullscreen-button">⛶</div>
           </div>
           
           <!-- Kill notifications container -->
@@ -676,7 +666,6 @@ export class GameComponent extends LitElement {
   private turretJoystickContainer?: HTMLElement;
   private turretJoystickThumb?: HTMLElement;
   private fireButton?: HTMLElement;
-  private fullscreenButton?: HTMLElement;
   // Track active touch points by ID
   private activeTouches: Map<number, { element: string, x: number, y: number }> = new Map();
 
@@ -726,10 +715,8 @@ export class GameComponent extends LitElement {
     this.turretJoystickContainer = this.shadowRoot?.getElementById('turret-joystick-container') as HTMLElement;
     this.turretJoystickThumb = this.shadowRoot?.getElementById('turret-joystick-thumb') as HTMLElement;
     this.fireButton = this.shadowRoot?.getElementById('fire-button') as HTMLElement;
-    this.fullscreenButton = this.shadowRoot?.getElementById('fullscreen-button') as HTMLElement;
-
     if (!this.joystickContainer || !this.joystickThumb || !this.fireButton || 
-        !this.turretJoystickContainer || !this.turretJoystickThumb || !this.fullscreenButton) {
+        !this.turretJoystickContainer || !this.turretJoystickThumb) {
       console.error('Could not find all touch control elements');
       return;
     }
@@ -751,12 +738,6 @@ export class GameComponent extends LitElement {
     this.fireButton.addEventListener('touchend', this.handleFireButtonEnd.bind(this), { passive: false });
     this.fireButton.addEventListener('touchcancel', this.handleFireButtonEnd.bind(this), { passive: false });
     
-    // Fullscreen button handler
-    this.fullscreenButton.addEventListener('click', this.toggleFullscreen.bind(this));
-    this.fullscreenButton.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      this.toggleFullscreen();
-    }, { passive: false });
     
     // Add touch handlers to the game canvas for handling touch events outside the controls
     const touchControlsArea = this.shadowRoot?.querySelector('.touch-controls') as HTMLElement;
@@ -1826,10 +1807,6 @@ export class GameComponent extends LitElement {
       this.fireButton.removeEventListener('touchcancel', this.handleFireButtonEnd);
     }
     
-    if (this.fullscreenButton) {
-      this.fullscreenButton.removeEventListener('click', this.toggleFullscreen);
-      this.fullscreenButton.removeEventListener('touchstart', this.toggleFullscreen);
-    }
     
     // Exit pointer lock if active
     if (document.pointerLockElement === this.canvas) {
@@ -1909,7 +1886,6 @@ export class GameComponent extends LitElement {
     
     // Enable renderer optimizations
     this.renderer.sortObjects = true;
-    this.renderer.physicallyCorrectLights = false;
     this.renderer.localClippingEnabled = false; // Disable clipping planes if not needed
     
     // Simplified lighting setup for better performance
@@ -2365,52 +2341,15 @@ export class GameComponent extends LitElement {
       this.keys['space'] = true;
     }
     
-    // Fullscreen toggle with 'f11' key
-    if (key === 'f11') {
-      event.preventDefault();
-      this.toggleFullscreen();
-    }
     
     // No need to log every key press
     
     // Prevent default for arrow keys, WASD, and Space to avoid page scrolling/browser shortcuts
-    if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', ' ', 'space', 'f11'].includes(key)) {
+    if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', ' ', 'space'].includes(key)) {
       event.preventDefault();
     }
   }
   
-  /**
-   * Toggle fullscreen mode
-   */
-  private toggleFullscreen(): void {
-    if (!document.fullscreenElement) {
-      // Enter fullscreen
-      this.requestFullscreen().catch(err => {
-        console.error(`Error attempting to enable fullscreen: ${err.message}`);
-      });
-    } else {
-      // Exit fullscreen
-      document.exitFullscreen().catch(err => {
-        console.error(`Error attempting to exit fullscreen: ${err.message}`);
-      });
-    }
-  }
-  
-  /**
-   * Request fullscreen on the component
-   */
-  private requestFullscreen(): Promise<void> {
-    const elem = this.shadowRoot?.host as any;
-    if (elem.requestFullscreen) {
-      return elem.requestFullscreen();
-    } else if (elem.webkitRequestFullscreen) {
-      return elem.webkitRequestFullscreen();
-    } else if (elem.msRequestFullscreen) {
-      return elem.msRequestFullscreen();
-    } else {
-      return Promise.reject(new Error('Fullscreen API not supported'));
-    }
-  }
   
   private handleKeyUp(event: KeyboardEvent) {
     const key = event.key.toLowerCase();

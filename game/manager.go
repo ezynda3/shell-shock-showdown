@@ -581,6 +581,40 @@ func (m *Manager) WatchState(ctx context.Context) (jetstream.KeyWatcher, error) 
 	return watcher, nil
 }
 
+// RemovePlayer removes a player by ID from the game state
+func (m *Manager) RemovePlayer(playerID string) error {
+	if playerID == "" {
+		return fmt.Errorf("playerID cannot be empty")
+	}
+	
+	// Check if player exists first
+	m.mutex.RLock()
+	_, exists := m.state.Players[playerID]
+	m.mutex.RUnlock()
+	
+	if !exists {
+		return fmt.Errorf("player with ID %s not found", playerID)
+	}
+	
+	// Remove the player from game state
+	m.mutex.Lock()
+	delete(m.state.Players, playerID)
+	
+	// Also clean up the lastPlayerFireTime entry for this player
+	delete(m.lastPlayerFireTime, playerID)
+	
+	log.Printf("Player %s has been removed from the game state", playerID)
+	m.mutex.Unlock()
+	
+	// Save to KV store
+	if err := m.saveState(); err != nil {
+		log.Printf("Error saving game state after removing player: %v", err)
+		return fmt.Errorf("error saving game state after removing player: %v", err)
+	}
+	
+	return nil
+}
+
 // RemoveShells removes specific shells by ID from game state
 func (m *Manager) RemoveShells(shellIDs []string) error {
 	if len(shellIDs) == 0 {
