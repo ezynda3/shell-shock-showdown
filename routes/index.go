@@ -78,6 +78,9 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 					break
 				}
 
+				// always set health to 0 because server should update this
+				playerUpdate.Health = 0
+
 				// Update player with game manager
 				if err := gameManager.UpdatePlayer(playerUpdate, playerID, playerName); err != nil {
 					log.Println("Error updating player:", err)
@@ -271,41 +274,41 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 		ctx = context.WithValue(ctx, "app", e.App)
 		return views.Settings().Render(ctx, e.Response)
 	})
-	
+
 	// POST route for updating user callsign
 	protected.POST("/callsign", func(e *core.RequestEvent) error {
 		// Verify user is authenticated
 		if e.Auth == nil {
 			return e.JSON(http.StatusUnauthorized, map[string]string{"error": "Authentication required"})
 		}
-		
+
 		// Read callsign from signal
 		var callsignSignal struct {
 			Callsign string `json:"callsign"`
 		}
-		
+
 		if err := datastar.ReadSignals(e.Request, &callsignSignal); err != nil {
 			log.Println("Error reading callsign signal:", err)
 			return e.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
-		
+
 		// Validate callsign
 		if callsignSignal.Callsign == "" {
 			return e.JSON(http.StatusBadRequest, map[string]string{"error": "Callsign cannot be empty"})
 		}
-		
+
 		// Update user record with new callsign
 		e.Auth.Set("callsign", callsignSignal.Callsign)
-		
+
 		// Validate and persist the record
 		if err := e.App.Save(e.Auth); err != nil {
 			log.Println("Error saving user record:", err)
 			return e.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update callsign"})
 		}
-		
+
 		// Create a new SSE connection
 		sse := datastar.NewSSE(e.Response, e.Request)
-		
+
 		// Redirect to the homepage on successful save
 		return sse.Redirect("/")
 	})
