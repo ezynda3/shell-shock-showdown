@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"math/rand"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/delaneyj/toolbelt/embeddednats"
 	"github.com/mark3labs/pro-saaskit/game"
 	"github.com/mark3labs/pro-saaskit/game/physics"
@@ -38,7 +39,7 @@ func main() {
 		if e.Record.Get("callsign") == "" {
 			callsign := utils.GenerateCallsign()
 			e.Record.Set("callsign", callsign)
-			log.Printf("Generated callsign for new user: %s", callsign)
+			log.Info("Generated callsign for new user", "callsign", callsign)
 		}
 		return e.Next()
 	})
@@ -54,7 +55,7 @@ func main() {
 	})
 
 	// Setup embedded NATS server
-	log.Println("Starting embedded NATS server...")
+	log.Info("Starting embedded NATS server")
 
 	ns, err := embeddednats.New(
 		context.Background(),
@@ -64,11 +65,11 @@ func main() {
 		}),
 	)
 	if err != nil {
-		log.Fatalf("Failed to create NATS server: %v", err)
+		log.Fatal("Failed to create NATS server", "error", err)
 	}
 	ns.NatsServer.Start()
 	ns.WaitForServer()
-	log.Println("NATS server started")
+	log.Info("NATS server started")
 
 	// Connect to the embedded NATS server
 	clientOpts := []nats.Option{
@@ -78,17 +79,17 @@ func main() {
 
 	nc, err := nats.Connect(ns.NatsServer.ClientURL(), clientOpts...)
 	if err != nil {
-		log.Fatalf("Failed to connect to NATS: %v", err)
+		log.Fatal("Failed to connect to NATS", "error", err)
 	}
 	defer nc.Drain()
-	log.Println("Connected to NATS server at", ns.NatsServer.ClientURL())
+	log.Info("Connected to NATS server", "url", ns.NatsServer.ClientURL())
 
 	// Initialize JetStream
 	js, err := jetstream.New(nc)
 	if err != nil {
-		log.Fatalf("Failed to create JetStream context: %v", err)
+		log.Fatal("Failed to create JetStream context", "error", err)
 	}
-	log.Println("JetStream initialized")
+	log.Info("JetStream initialized")
 
 	// Create KV bucket for game state
 	ctx := context.Background()
@@ -96,25 +97,23 @@ func main() {
 		Bucket: "gamestate",
 	})
 	if err != nil {
-		log.Fatalf("Failed to get KV bucket: %v", err)
+		log.Fatal("Failed to get KV bucket", "error", err)
 	}
 	err = kv.Purge(context.Background(), "current")
 	if err != nil {
-		log.Fatalf("Failed to purge KV bucket: %v", err)
+		log.Fatal("Failed to purge KV bucket", "error", err)
 	}
-	log.Println("KV store initialized")
+	log.Info("KV store initialized")
 
 	// Initialize game manager
 	gameManager, err := game.NewManager(ctx, kv)
 	if err != nil {
-		log.Fatalf("Failed to initialize game manager: %v", err)
+		log.Fatal("Failed to initialize game manager", "error", err)
 	}
-	log.Println("Game manager initialized")
+	log.Info("Game manager initialized")
 
 	// Initialize physics system
-	log.Println("\n\n==================================================")
-	log.Println("⚙️ INITIALIZING PHYSICS COLLISION DETECTION SYSTEM")
-	log.Println("==================================================\n")
+	log.Info("Initializing physics collision detection system")
 
 	// Create all the required components in the correct order
 	gameMap := game.GetGameMap() // Use GetGameMap instead of InitGameMap to avoid redeclaration
@@ -125,9 +124,7 @@ func main() {
 	physicsIntegration.Start()
 
 	// Initialize NPC controller
-	log.Println("\n==================================================")
-	log.Println("🤖 INITIALIZING NPC CONTROLLER")
-	log.Println("==================================================\n")
+	log.Info("Initializing NPC controller")
 
 	// Reuse the gameMap variable from above
 	// Pass the physics manager to provide NPC tanks with targeting capabilities
@@ -144,8 +141,8 @@ func main() {
 			// Cap the number of NPCs to prevent performance issues
 			const MAX_NPCS = 10
 			if numNPCs > MAX_NPCS {
-				log.Printf("WARNING: Requested %d NPCs exceeds maximum of %d. Limiting to %d NPCs",
-					numNPCs, MAX_NPCS, MAX_NPCS)
+				log.Warn("Requested NPCs exceeds maximum limit",
+					"requested", numNPCs, "max", MAX_NPCS, "using", MAX_NPCS)
 				numNPCs = MAX_NPCS
 			}
 		}
@@ -164,20 +161,18 @@ func main() {
 
 		// Spawn the NPC with a random pattern
 		npcController.SpawnNPC("Bot", movementPattern)
-		log.Printf("Spawned NPC %d/%d with movement pattern: %s", i+1, numNPCs, movementPattern)
+		log.Debug("Spawned NPC", "count", fmt.Sprintf("%d/%d", i+1, numNPCs), "pattern", movementPattern)
 	}
-	log.Printf("Spawned %d NPC tanks in total (default is now 10, can be changed with NUM_NPCS environment variable)", numNPCs)
+	log.Info("NPC tanks spawned", "count", numNPCs, "note", "can be changed with NUM_NPCS env var")
 
-	log.Println("\n==================================================")
-	log.Println("📊 SYSTEM STATUS:")
-	log.Println("  - NATS Server: Running ✅")
-	log.Println("  - JetStream: Ready ✅")
-	log.Println("  - KV Store: Connected ✅")
-	log.Println("  - Game Manager: Initialized ✅")
-	log.Println("  - Physics System: Running ✅")
-	log.Println("  - NPC Controller: Running ✅")
-	log.Printf("  - Active NPCs: %d ✅", numNPCs)
-	log.Println("==================================================\n")
+	log.Info("System status", 
+		"nats", "Running",
+		"jetstream", "Ready",
+		"kvstore", "Connected",
+		"gamemanager", "Initialized",
+		"physics", "Running",
+		"npccontroller", "Running",
+		"activeNPCs", numNPCs)
 
 	middleware.AddCookieSessionMiddleware(*app)
 
@@ -195,6 +190,6 @@ func main() {
 	})
 
 	if err := app.Start(); err != nil {
-		log.Fatal(err)
+		log.Fatal("Application failed to start", "error", err)
 	}
 }

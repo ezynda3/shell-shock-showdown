@@ -1,10 +1,10 @@
 package physics
 
 import (
-	"log"
 	"math"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/mark3labs/pro-saaskit/game"
 )
 
@@ -28,186 +28,253 @@ func NewShellPhysics() *ShellPhysics {
 	physics := &ShellPhysics{
 		GRAVITY:          0.005,  // Gravity effect per update - matches client's 0.005
 		AIR_RESISTANCE:   0.001,  // Air resistance coefficient - matches client's 0.001
-		MAX_LIFETIME:     20000,  // 20 seconds - matches client's 20 seconds (1200 frames at 60fps)
-		COLLISION_RADIUS: 20.0,   // Shell collision radius (client uses 0.2 but server scale is 100x)
-		WIND_X:           0.0005, // Matches client wind factor
-		WIND_Z:           0.0005, // Matches client wind factor
+		MAX_LIFETIME:     10000,  // 10 seconds maximum shell lifetime
+		COLLISION_RADIUS: 0.5,    // Shell collision radius in world units
+		WIND_X:           0.0001, // Very subtle wind effect in X direction
+		WIND_Z:           0.0001, // Very subtle wind effect in Z direction
 	}
 
-	// Log the collision parameters
-	log.Printf("🔧 PHYSICS: Initialized shell physics with: Shell radius=%.2f, Tank radius=20.0, Combined=%.2f",
-		physics.COLLISION_RADIUS, physics.COLLISION_RADIUS+20.0)
+	log.Debug("Shell physics initialized", 
+		"gravity", physics.GRAVITY, 
+		"airResistance", physics.AIR_RESISTANCE, 
+		"maxLifetime", physics.MAX_LIFETIME,
+		"collisionRadius", physics.COLLISION_RADIUS)
 
 	return physics
 }
 
-// updateShellPosition calculates the new position of a shell based on physics
+// UpdateShells updates all shells in the game state
+func (sp *ShellPhysics) UpdateShells(shells []game.ShellState) []game.ShellState {
+	// Process each shell
+	for i := range shells {
+		// Make a copy to avoid issues with array references
+		shell := &shells[i]
+
+		// Skip shells that have hit something (Y < 0)
+		if shell.Position.Y < 0 {
+			continue
+		}
+
+		// Check if shell has expired based on timestamp
+		currentTime := time.Now().UnixMilli()
+		if currentTime-shell.Timestamp > sp.MAX_LIFETIME {
+			log.Debug("Shell expired", "shellID", shell.ID, "age", currentTime-shell.Timestamp)
+			shell.Position.Y = -1 // Mark as hit (below ground)
+			continue
+		}
+
+		// Update the shell's position based on its direction and speed
+		sp.UpdateShellPosition(shell)
+	}
+
+	// Return the updated shells
+	return shells
+}
+
+// UpdateShellPosition updates the position of a single shell
 func (sp *ShellPhysics) UpdateShellPosition(shell *game.ShellState) bool {
-	// Check if shell has expired
-	lifetime := time.Now().UnixMilli() - shell.Timestamp
-	if lifetime > sp.MAX_LIFETIME {
-		// Shell expired
-		log.Printf("🕒 SHELL EXPIRED: Shell %s age %dms exceeded max lifetime %dms",
-			shell.ID, lifetime, sp.MAX_LIFETIME)
+	// Apply gravity to Y component of velocity
+	// Velocity = Direction * Speed
+	velocityY := shell.Direction.Y * shell.Speed
+	velocityY -= sp.GRAVITY
+
+	// Apply wind effects (subtle random drift)
+	velocityX := shell.Direction.X * shell.Speed
+	velocityZ := shell.Direction.Z * shell.Speed
+
+	// Add wind effects
+	velocityX += sp.WIND_X
+	velocityZ += sp.WIND_Z
+
+	// Apply air resistance
+	velocityX *= (1.0 - sp.AIR_RESISTANCE)
+	velocityY *= (1.0 - sp.AIR_RESISTANCE)
+	velocityZ *= (1.0 - sp.AIR_RESISTANCE)
+
+	// Calculate new speed (magnitude of velocity)
+	newSpeed := math.Sqrt(velocityX*velocityX + velocityY*velocityY + velocityZ*velocityZ)
+
+	// Update shell direction (normalized velocity)
+	if newSpeed > 0 {
+		shell.Direction.X = velocityX / newSpeed
+		shell.Direction.Y = velocityY / newSpeed
+		shell.Direction.Z = velocityZ / newSpeed
+		shell.Speed = newSpeed
+	}
+
+	// Log shell update occasionally to avoid spam
+	if time.Now().UnixNano()%1000 == 0 {
+		log.Debug("Shell physics update", 
+			"shellID", shell.ID, 
+			"position", shell.Position, 
+			"speed", shell.Speed)
+	}
+
+	// Update position
+	shell.Position.X += shell.Direction.X * shell.Speed
+	shell.Position.Y += shell.Direction.Y * shell.Speed
+	shell.Position.Z += shell.Direction.Z * shell.Speed
+
+	// Check if shell hit the ground
+	if shell.Position.Y <= 0 {
+		shell.Position.Y = -1 // Mark as hit (below ground)
+		log.Debug("Shell hit ground", "shellID", shell.ID, "position", shell.Position)
+		return false
+	}
+	
+	return true
+}
+
+// CheckShellCollisions checks for collisions between shells and obstacles
+func (sp *ShellPhysics) CheckShellCollisions(shells []game.ShellState, obstacles []ObstacleData) []game.HitData {
+	hits := make([]game.HitData, 0)
+
+	// Process each shell
+	for i := range shells {
+		// Make a copy to avoid issues with array references
+		shell := &shells[i]
+
+		// Skip shells that have already hit something
+		if shell.Position.Y < 0 {
+			continue
+		}
+
+		// Create a collider for the shell
+		shellCollider := Collider{
+			Position: shell.Position,
+			Radius:   sp.COLLISION_RADIUS,
+			Type:     ColliderShell,
+			ID:       shell.ID,
+		}
+
+		// Check for collisions with obstacles
+		for _, obstacle := range obstacles {
+			// Create a collider for the obstacle
+			obstacleCollider := Collider{
+				Position: obstacle.Position,
+				Radius:   obstacle.Radius,
+				Type:     obstacle.Type,
+				ID:       obstacle.ID,
+			}
+
+			// Check for collision using extended collision function
+			if ExtendedCheckCollision(&shellCollider, &obstacleCollider) {
+				log.Debug("Shell collision detected", 
+					"shellID", shell.ID, 
+					"obstacleType", obstacle.Type, 
+					"obstacleID", obstacle.ID)
+
+				// Mark shell as hit
+				shell.Position.Y = -1
+
+				// If obstacle is a tank, register a hit
+				if obstacle.Type == ColliderTank {
+					// Determine hit data
+					hitData := game.HitData{
+						SourceID:     shell.PlayerID,
+						TargetID:     obstacle.ID,
+						HitLocation:  "body", // Default hit location
+						DamageAmount: 30,     // Default damage
+						Timestamp:    shell.Timestamp,
+					}
+
+					hits = append(hits, hitData)
+					log.Info("Tank hit registered", 
+						"shellID", shell.ID, 
+						"sourceID", shell.PlayerID, 
+						"targetID", obstacle.ID, 
+						"damage", hitData.DamageAmount)
+				}
+
+				// Only register one hit per shell
+				break
+			}
+		}
+	}
+
+	return hits
+}
+
+// ObstacleData represents an obstacle for collision detection
+type ObstacleData struct {
+	Position game.Position
+	Radius   float64
+	Type     ColliderType
+	ID       string
+}
+
+// ExtendedCheckCollision checks if two colliders are intersecting with additional early-out
+func ExtendedCheckCollision(a, b *Collider) bool {
+	// Early out if either collider is marked as hit (Y < 0)
+	if a.Position.Y < 0 || b.Position.Y < 0 {
 		return false
 	}
 
-	// Log the current shell state before update
-	log.Printf("🚀 SHELL UPDATE: Shell %s at (%.2f,%.2f,%.2f) dir=(%.2f,%.2f,%.2f) speed=%.2f",
-		shell.ID,
-		shell.Position.X, shell.Position.Y, shell.Position.Z,
-		shell.Direction.X, shell.Direction.Y, shell.Direction.Z,
-		shell.Speed)
+	// Use the base collision check
+	isColliding := CheckCollision(a, b)
 
-	// Convert direction to a velocity vector (normalize and multiply by speed)
-	dirNorm := math.Sqrt(shell.Direction.X*shell.Direction.X +
-		shell.Direction.Y*shell.Direction.Y +
-		shell.Direction.Z*shell.Direction.Z)
-
-	// Avoid division by zero
-	if dirNorm == 0 {
-		dirNorm = 1
-		log.Printf("⚠️ WARNING: Shell %s has zero direction norm, correcting", shell.ID)
+	if isColliding {
+		log.Debug("Collision detected", 
+			"distance", math.Sqrt(
+				(a.Position.X-b.Position.X)*(a.Position.X-b.Position.X) + 
+				(a.Position.Y-b.Position.Y)*(a.Position.Y-b.Position.Y) + 
+				(a.Position.Z-b.Position.Z)*(a.Position.Z-b.Position.Z)), 
+			"sumRadii", a.Radius+b.Radius, 
+			"typeA", a.Type, 
+			"typeB", b.Type)
 	}
 
-	// Create velocity from direction and speed
-	velX := shell.Direction.X / dirNorm * shell.Speed
-	velY := shell.Direction.Y / dirNorm * shell.Speed
-	velZ := shell.Direction.Z / dirNorm * shell.Speed
-
-	// Apply gravity with more realistic effects (increases with velocity)
-	// Gravity increases slightly with velocity for more realistic arcs
-	velY -= sp.GRAVITY * (1 + math.Sqrt(velX*velX+velY*velY+velZ*velZ)*0.01)
-
-	// Apply air resistance proportional to velocity squared (realistic drag)
-	speedSquared := velX*velX + velY*velY + velZ*velZ
-	dragFactor := -sp.AIR_RESISTANCE * speedSquared
-
-	// Calculate normalized direction for drag
-	if speedSquared > 0 {
-		dragVelX := velX / math.Sqrt(speedSquared) * dragFactor
-		dragVelY := velY / math.Sqrt(speedSquared) * dragFactor
-		dragVelZ := velZ / math.Sqrt(speedSquared) * dragFactor
-
-		// Apply drag to velocity
-		velX += dragVelX
-		velY += dragVelY
-		velZ += dragVelZ
-	}
-
-	// Apply subtle wind effects
-	velX += sp.WIND_X
-	velZ += sp.WIND_Z
-
-	// Update position based on velocity
-	shell.Position.X += velX
-	shell.Position.Y += velY
-	shell.Position.Z += velZ
-
-	// Update direction in shell state (normalized)
-	totalVel := math.Sqrt(velX*velX + velY*velY + velZ*velZ)
-	if totalVel > 0 {
-		shell.Direction.X = velX / totalVel
-		shell.Direction.Y = velY / totalVel
-		shell.Direction.Z = velZ / totalVel
-	}
-
-	// Update speed
-	shell.Speed = totalVel
-
-	// Check if shell hit the ground (y <= 0)
-	if shell.Position.Y <= 0 {
-		shell.Position.Y = 0 // Clamp to ground
-		log.Printf("💥 GROUND HIT: Shell %s hit ground at (%.2f,%.2f,%.2f)",
-			shell.ID, shell.Position.X, 0.0, shell.Position.Z)
-		return false // Shell hit the ground, remove it
-	}
-
-	// Log the updated position
-	log.Printf("📍 SHELL MOVED: Shell %s now at (%.2f,%.2f,%.2f) speed=%.2f",
-		shell.ID, shell.Position.X, shell.Position.Y, shell.Position.Z, shell.Speed)
-
-	return true // Shell is still active
+	return isColliding
 }
 
-// DetailedCollisionCheck checks for detailed collision between a shell and a tank
-// Returns if there was a collision and additional info for damage calculation
+// DetailedCollisionCheck provides detailed collision detection for shells hitting tanks
+// Returns collision status, hit location (turret/body), and damage multiplier
 func (sp *ShellPhysics) DetailedCollisionCheck(shell game.ShellState, tank game.PlayerState) (bool, string, float64) {
-	// Basic collision check
-	dx := shell.Position.X - tank.Position.X
-	dy := shell.Position.Y - tank.Position.Y
-	dz := shell.Position.Z - tank.Position.Z
-
-	// Calculate actual distance for logging
-	distance := math.Sqrt(dx*dx + dy*dy + dz*dz)
-
-	// Use squared distance for efficiency in collision check
-	distanceSquared := dx*dx + dy*dy + dz*dz
-
-	// Tank collision radius - consistent with the value in collision.go (20.0)
-	// Client uses 2.0 but server scale is 100x larger
-	tankRadius := 20.0
-
-	// Calculate the squared sum of radii
-	sumRadiiSquared := (sp.COLLISION_RADIUS + tankRadius) * (sp.COLLISION_RADIUS + tankRadius)
-	sumRadii := sp.COLLISION_RADIUS + tankRadius
-
-	// Log detailed position info for debugging regardless of collision
-	log.Printf("🎯 VECTOR CHECK: Shell(%.2f,%.2f,%.2f) -> Tank %s(%.2f,%.2f,%.2f) = Distance: %.2f, Required: %.2f",
-		shell.Position.X, shell.Position.Y, shell.Position.Z,
-		tank.ID, tank.Position.X, tank.Position.Y, tank.Position.Z,
-		distance, sumRadii)
-
-	// Check for collision and log result
-	hasCollision := distanceSquared < sumRadiiSquared
-
-	// Log the collision decision with full details
-	if hasCollision {
-		log.Printf("✅ COLLISION DETECTED: Shell %s and Tank %s - Distance=%.2f (Required < %.2f)",
-			shell.ID, tank.ID, distance, sumRadii)
-	} else {
-		log.Printf("❌ NO COLLISION: Shell %s and Tank %s - Distance=%.2f (Required < %.2f)",
-			shell.ID, tank.ID, distance, sumRadii)
-
-		// No collision
-		return false, "", 0.0
+	// Tank collision radius (match with client) - 20.0 units
+	const tankRadius = 20.0
+	
+	// Create colliders
+	shellCollider := Collider{
+		Position: shell.Position,
+		Radius:   sp.COLLISION_RADIUS,
+		Type:     ColliderShell,
+		ID:       shell.ID,
 	}
-
-	// Determine hit location based on position relative to tank
-	// Use simplified collision model for hit location determination
-
-	// Normalize the hit position relative to tank center
-	hitHeight := shell.Position.Y - tank.Position.Y
-
-	// Default damage multiplier
-	damageMultiplier := 1.0
-	hitLocation := "body"
-
-	// Simple hit location detection - matches client-side hit detection in shell.ts
-	// Client uses different values but the same concept (height-based detection)
-	if hitHeight > 12.0 { // 1.2 * 10 for scale consistency
-		// Hit the turret - critical hit but not too extreme
-		hitLocation = "turret"
-		damageMultiplier = 1.25 // Reduced from 1.5 to prevent one-shot kills
-	} else if hitHeight < 5.0 { // 0.5 * 10 for scale consistency
-		// Hit the tracks - reduced damage
-		hitLocation = "tracks"
-		damageMultiplier = 0.75
-	} else {
-		// Hit the body - normal damage
-		hitLocation = "body"
-		damageMultiplier = 1.0
+	
+	tankCollider := Collider{
+		Position: tank.Position,
+		Radius:   tankRadius,
+		Type:     ColliderTank,
+		ID:       tank.ID,
 	}
-
-	// Safety check to ensure damage multiplier stays within reasonable bounds
-	if damageMultiplier > 2.0 {
-		damageMultiplier = 2.0
-		log.Printf("⚠️ PHYSICS: Capped damage multiplier at 2.0 for sanity")
+	
+	// Check for collision
+	collision := ExtendedCheckCollision(&shellCollider, &tankCollider)
+	
+	if collision {
+		// Determine hit location and damage multiplier
+		// For simplicity, assume body hit with standard damage
+		hitLocation := "body"
+		damageMultiplier := 1.0
+		
+		// Calculate height difference for turret hit detection
+		heightDiff := shell.Position.Y - tank.Position.Y
+		
+		// If shell is higher than tank + some offset, it could be a turret hit
+		if heightDiff > 10.0 {
+			hitLocation = "turret"
+			damageMultiplier = 1.5 // More damage for turret hits
+		}
+		
+		// Log hit details
+		log.Debug("Tank hit details", 
+			"tankID", tank.ID,
+			"shellID", shell.ID,
+			"hitLocation", hitLocation,
+			"damageMultiplier", damageMultiplier)
+			
+		return true, hitLocation, damageMultiplier
 	}
-
-	// Log detailed collision info
-	log.Printf("🎯 PHYSICS: Detailed collision - Shell vs Tank %s, hit on %s, damage multiplier: %.2f",
-		tank.ID, hitLocation, damageMultiplier)
-
-	return true, hitLocation, damageMultiplier
+	
+	return false, "", 0.0
 }

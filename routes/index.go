@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/mark3labs/pro-saaskit/game"
 	"github.com/mark3labs/pro-saaskit/middleware"
 	"github.com/mark3labs/pro-saaskit/views"
@@ -34,7 +34,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 	router.POST("/update", func(e *core.RequestEvent) error {
 		signals := &Signals{}
 		if err := datastar.ReadSignals(e.Request, signals); err != nil {
-			log.Println("Error reading signals:", err)
+			log.Error("Error reading signals", "error", err)
 			return e.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
 
@@ -43,7 +43,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 			var gameEvent game.GameEvent
 
 			if err := json.Unmarshal([]byte(signals.GameEvent), &gameEvent); err != nil {
-				log.Println("Error unmarshaling game event:", err)
+				log.Error("Error unmarshaling game event", "error", err)
 				return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid game event data"})
 			}
 
@@ -63,12 +63,12 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 				var playerUpdate game.PlayerState
 				playerData, err := json.Marshal(gameEvent.Data)
 				if err != nil {
-					log.Println("Error marshaling player data:", err)
+					log.Error("Error marshaling player data", "error", err)
 					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid player data"})
 				}
 
 				if err := json.Unmarshal(playerData, &playerUpdate); err != nil {
-					log.Println("Error unmarshaling player update:", err)
+					log.Error("Error unmarshaling player update", "error", err)
 					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid player update data"})
 				}
 
@@ -76,7 +76,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 				currentState := gameManager.GetState()
 				if currentPlayer, exists := currentState.Players[playerID]; exists && currentPlayer.IsDestroyed {
 					// Player is dead, ignore position updates from client
-					log.Printf("⚠️ Ignoring position update from destroyed player: %s", playerID)
+					log.Warn("Ignoring position update from destroyed player", "playerID", playerID)
 					break
 				}
 
@@ -85,7 +85,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 
 				// Update player with game manager
 				if err := gameManager.UpdatePlayer(playerUpdate, playerID, playerName); err != nil {
-					log.Println("Error updating player:", err)
+					log.Error("Error updating player", "error", err)
 				}
 
 			case game.EventShellFired:
@@ -93,31 +93,34 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 				var shellData game.ShellData
 				shellDataJson, err := json.Marshal(gameEvent.Data)
 				if err != nil {
-					log.Println("Error marshaling shell data:", err)
+					log.Error("Error marshaling shell data", "error", err)
 					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid shell data"})
 				}
 
 				if err := json.Unmarshal(shellDataJson, &shellData); err != nil {
-					log.Println("Error unmarshaling shell data:", err)
+					log.Error("Error unmarshaling shell data", "error", err)
 					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid shell data"})
 				}
 
 				// Fire shell with game manager and track it
 				shell, err := gameManager.FireShell(shellData, playerID)
 				if err != nil {
-					log.Println("Error firing shell:", err)
+					log.Error("Error firing shell", "error", err)
 				} else {
 					// Log detailed shell information
-					log.Printf("🚀 ROUTE: New shell registered with ID %s from player %s", shell.ID, playerID)
-					log.Printf("🔍 SHELL DATA: Pos=(%.2f,%.2f,%.2f), Dir=(%.2f,%.2f,%.2f), Speed=%.2f",
-						shell.Position.X, shell.Position.Y, shell.Position.Z,
-						shell.Direction.X, shell.Direction.Y, shell.Direction.Z,
-						shell.Speed)
+					log.Info("New shell registered", 
+						"shellID", shell.ID, 
+						"playerID", playerID)
+					log.Debug("Shell data", 
+						"position", fmt.Sprintf("(%.2f,%.2f,%.2f)", shell.Position.X, shell.Position.Y, shell.Position.Z),
+						"direction", fmt.Sprintf("(%.2f,%.2f,%.2f)", shell.Direction.X, shell.Direction.Y, shell.Direction.Z),
+						"speed", shell.Speed)
 
 					// Add more context about the shell for debugging
-					log.Printf("⏱️ SHELL TIMESTAMP: %d (Time of registration: %d, Diff: %dms)",
-						shell.Timestamp, time.Now().UnixMilli(),
-						time.Now().UnixMilli()-shell.Timestamp)
+					log.Debug("Shell timestamp", 
+						"timestamp", shell.Timestamp, 
+						"current", time.Now().UnixMilli(),
+						"diff", time.Now().UnixMilli()-shell.Timestamp)
 				}
 
 			case game.EventTankHit:
@@ -125,18 +128,18 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 				var hitData game.HitData
 				hitDataJson, err := json.Marshal(gameEvent.Data)
 				if err != nil {
-					log.Println("Error marshaling hit data:", err)
+					log.Error("Error marshaling hit data", "error", err)
 					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid hit data"})
 				}
 
 				if err := json.Unmarshal(hitDataJson, &hitData); err != nil {
-					log.Println("Error unmarshaling tank hit data:", err)
+					log.Error("Error unmarshaling tank hit data", "error", err)
 					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid tank hit data"})
 				}
 
 				// Process tank hit with game manager
 				if err := gameManager.ProcessTankHit(hitData); err != nil {
-					log.Println("Error processing tank hit:", err)
+					log.Error("Error processing tank hit", "error", err)
 				}
 
 			case game.EventTankDeath:
@@ -149,22 +152,22 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 				var respawnData game.RespawnData
 				respawnDataJson, err := json.Marshal(gameEvent.Data)
 				if err != nil {
-					log.Println("Error marshaling respawn data:", err)
+					log.Error("Error marshaling respawn data", "error", err)
 					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid respawn data"})
 				}
 
 				if err := json.Unmarshal(respawnDataJson, &respawnData); err != nil {
-					log.Println("Error unmarshaling tank respawn data:", err)
+					log.Error("Error unmarshaling tank respawn data", "error", err)
 					return e.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid tank respawn data"})
 				}
 
 				// Process tank respawn with game manager
 				if err := gameManager.RespawnTank(respawnData); err != nil {
-					log.Println("Error processing tank respawn:", err)
+					log.Error("Error processing tank respawn", "error", err)
 				}
 
 			default:
-				log.Printf("Unknown game event type: %s", gameEvent.Type)
+				log.Warn("Unknown game event type", "type", gameEvent.Type)
 			}
 		}
 
@@ -179,7 +182,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 		// Create a watcher for the gamestate KV
 		watcher, err := gameManager.WatchState(ctx)
 		if err != nil {
-			log.Printf("Error creating gamestate watcher: %v", err)
+			log.Error("Error creating gamestate watcher", "error", err)
 			return e.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to watch game state"})
 		}
 		defer watcher.Stop()
@@ -190,10 +193,11 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 		if err == nil {
 			err = sse.MergeSignals([]byte(fmt.Sprintf(`{"gameState": %q}`, string(latestStateJSON))))
 			if err != nil {
-				log.Printf("Error sending initial game state: %v", err)
+				log.Error("Error sending initial game state", "error", err)
 			} else {
-				log.Printf("Sent initial game state with %d players and %d shells",
-					len(latestState.Players), len(latestState.Shells))
+				log.Info("Sent initial game state", 
+					"players", len(latestState.Players), 
+					"shells", len(latestState.Shells))
 			}
 		}
 
@@ -205,9 +209,9 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 				playerID := e.Auth.Id
 				// Remove player from game state
 				if err := gameManager.RemovePlayer(playerID); err != nil {
-					log.Printf("Error removing player %s from game state: %v", playerID, err)
+					log.Error("Error removing player from game state", "playerID", playerID, "error", err)
 				} else {
-					log.Printf("Player %s removed from game state on connection close", playerID)
+					log.Info("Player removed from game state on connection close", "playerID", playerID)
 				}
 				return nil
 			case entry := <-watcher.Updates():
@@ -219,15 +223,15 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 				// Unmarshal the game state
 				var state game.GameState
 				if err := json.Unmarshal(entry.Value(), &state); err != nil {
-					log.Printf("Error unmarshaling game state: %v", err)
+					log.Error("Error unmarshaling game state", "error", err)
 					continue
 				}
 
 				// Log game state for debugging
-				log.Printf("Broadcasting game state update with %d players and %d shells (revision: %d)",
-					len(state.Players),
-					len(state.Shells),
-					entry.Revision())
+				log.Debug("Broadcasting game state update", 
+					"players", len(state.Players),
+					"shells", len(state.Shells),
+					"revision", entry.Revision())
 
 				// Check for notifications in player states
 				var notification string
@@ -242,7 +246,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 				// Send the game state to the client
 				stateJSON, err := json.Marshal(state)
 				if err != nil {
-					log.Println("Error marshaling game state:", err)
+					log.Error("Error marshaling game state", "error", err)
 					continue
 				}
 
@@ -250,14 +254,14 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 				var signalsJSON string
 				if notification != "" {
 					signalsJSON = fmt.Sprintf(`{"gameState": %q, "notification": %q}`, string(stateJSON), notification)
-					log.Printf("📢 Sending notification: %s", notification)
+					log.Info("Sending notification", "message", notification)
 				} else {
 					signalsJSON = fmt.Sprintf(`{"gameState": %q}`, string(stateJSON))
 				}
 
 				err = sse.MergeSignals([]byte(signalsJSON))
 				if err != nil {
-					log.Printf("Error sending game state: %v", err)
+					log.Error("Error sending game state", "error", err)
 				}
 			}
 		}
@@ -265,7 +269,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 
 	// Add routes to protected group
 	protected.GET("/", func(e *core.RequestEvent) error {
-		log.Println(e.Auth)
+		log.Debug("Auth record", "auth", e.Auth)
 		ctx := context.WithValue(context.Background(), "user", e.Auth)
 		ctx = context.WithValue(ctx, "app", e.App)
 		return views.Index().Render(ctx, e.Response)
@@ -290,7 +294,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 		}
 
 		if err := datastar.ReadSignals(e.Request, &callsignSignal); err != nil {
-			log.Println("Error reading callsign signal:", err)
+			log.Error("Error reading callsign signal", "error", err)
 			return e.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
 
@@ -304,7 +308,7 @@ func setupIndexRoutes(router *router.Router[*core.RequestEvent], gameManager *ga
 
 		// Validate and persist the record
 		if err := e.App.Save(e.Auth); err != nil {
-			log.Println("Error saving user record:", err)
+			log.Error("Error saving user record", "error", err)
 			return e.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update callsign"})
 		}
 

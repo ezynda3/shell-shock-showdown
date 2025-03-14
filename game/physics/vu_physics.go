@@ -1,16 +1,16 @@
 package physics
 
 import (
-	"log"
 	"math"
 
-	"github.com/gazed/vu/math/lin"
-	vuphysics "github.com/gazed/vu/physics"
+	"github.com/charmbracelet/log"
 	"github.com/mark3labs/pro-saaskit/game"
 	"github.com/mark3labs/pro-saaskit/game/shared"
 )
 
-// VuPhysicsManager is a physics manager that uses the vu/physics engine
+// Global physics manager instance is defined in physics.go
+
+// VuPhysicsManager is a physics manager that uses a simplified physics engine
 type VuPhysicsManager struct {
 	gameMap      *game.GameMap
 	tanks        map[string]*TankBody
@@ -19,33 +19,29 @@ type VuPhysicsManager struct {
 	hits         []game.HitData   // Shell hits to process
 	manager      *game.Manager    // Reference to game manager for callbacks
 	shellPhysics *ShellPhysics    // Shell physics calculator
-	bodies       []vuphysics.Body // All physics bodies for simulation
 }
 
 // TankBody represents a tank physics body
 type TankBody struct {
-	Body     *vuphysics.Body
 	State    *game.PlayerState
 	Collider *Collider
 }
 
 // ShellBody represents a shell physics body
 type ShellBody struct {
-	Body     *vuphysics.Body
 	State    game.ShellState
 	Collider *Collider
 }
 
 // ObstacleBody represents a static obstacle physics body (tree, rock)
 type ObstacleBody struct {
-	Body     *vuphysics.Body
 	Position game.Position
 	Radius   float64
 	Type     ColliderType
 	ID       string
 }
 
-// NewVuPhysicsManager creates a new physics manager using vu/physics
+// NewVuPhysicsManager creates a new physics manager using a simplified physics engine
 func NewVuPhysicsManager(gameMap *game.GameMap, gameManager *game.Manager) *VuPhysicsManager {
 	pm := &VuPhysicsManager{
 		gameMap:      gameMap,
@@ -55,470 +51,392 @@ func NewVuPhysicsManager(gameMap *game.GameMap, gameManager *game.Manager) *VuPh
 		hits:         make([]game.HitData, 0),
 		manager:      gameManager,
 		shellPhysics: NewShellPhysics(),
-		bodies:       make([]vuphysics.Body, 0),
 	}
 
-	// Initialize obstacles (trees and rocks)
-	pm.initializeObstacles()
+	// Initialize obstacle bodies for trees
+	for _, tree := range gameMap.Trees.Trees {
+		// Increased collision radius for trees to 1.5x the visual size
+		collisionRadius := tree.Radius * 1.2
+
+		// Add body to the list of obstacle bodies
+		pm.obstacles = append(pm.obstacles, &ObstacleBody{
+			Position: tree.Position,
+			Radius:   collisionRadius,
+			Type:     ColliderTree,
+			ID:       string(tree.Type),
+		})
+	}
+
+	// Initialize obstacle bodies for rocks
+	for _, rock := range gameMap.Rocks.Rocks {
+		// Increased collision radius for rocks
+		collisionRadius := rock.Radius * 1.2
+
+		// Add body to the list of obstacle bodies
+		pm.obstacles = append(pm.obstacles, &ObstacleBody{
+			Position: rock.Position,
+			Radius:   collisionRadius,
+			Type:     ColliderRock,
+			ID:       string(rock.Type),
+		})
+	}
+
+	log.Debug("Physics: Initialized obstacle bodies", "count", len(pm.obstacles))
+
+	// Set as global instance (using the one defined in physics.go)
+	PhysicsManagerInstance = pm
 
 	return pm
 }
 
-// initializeObstacles creates physics bodies for all static obstacles
-func (pm *VuPhysicsManager) initializeObstacles() {
-	// Add trees
-	for i, tree := range pm.gameMap.Trees.Trees {
-		treeBody := vuphysics.NewSphere(tree.Radius, true) // Static body
-
-		// Convert position to vu/physics format
-		pos := lin.NewV3()
-		pos.SetS(tree.Position.X, tree.Position.Y, tree.Position.Z)
-		treeBody.SetPosition(*pos)
-
-		// Create obstacle record
-		obstacle := &ObstacleBody{
-			Body:     treeBody,
-			Position: tree.Position,
-			Radius:   tree.Radius,
-			Type:     ColliderTree,
-			ID:       string(tree.Type) + "_" + string(rune(i)),
-		}
-
-		pm.obstacles = append(pm.obstacles, obstacle)
-		pm.bodies = append(pm.bodies, *treeBody)
-	}
-
-	// Add rocks
-	for i, rock := range pm.gameMap.Rocks.Rocks {
-		rockBody := vuphysics.NewSphere(rock.Radius, true) // Static body
-
-		// Convert position to vu/physics format
-		pos := lin.NewV3()
-		pos.SetS(rock.Position.X, rock.Position.Y, rock.Position.Z)
-		rockBody.SetPosition(*pos)
-
-		// Create obstacle record
-		obstacle := &ObstacleBody{
-			Body:     rockBody,
-			Position: rock.Position,
-			Radius:   rock.Radius,
-			Type:     ColliderRock,
-			ID:       string(rock.Type) + "_" + string(rune(i)),
-		}
-
-		pm.obstacles = append(pm.obstacles, obstacle)
-		pm.bodies = append(pm.bodies, *rockBody)
-	}
-
-	log.Printf("🔄 PHYSICS: Initialized %d obstacle bodies", len(pm.obstacles))
-}
-
-// RegisterTank registers a tank for physics simulation
+// RegisterTank registers a tank with the physics manager
 func (pm *VuPhysicsManager) RegisterTank(tank *game.PlayerState) {
-	// Create physics body
-	tankBody := vuphysics.NewSphere(1.5, false) // 1.5 = tank radius, not static
+	// If tank already exists, just update the state
+	if existingTank, ok := pm.tanks[tank.ID]; ok {
+		existingTank.State = tank
+		return
+	}
 
-	// Convert position to vu/physics format
-	pos := lin.NewV3()
-	pos.SetS(tank.Position.X, tank.Position.Y, tank.Position.Z)
-	tankBody.SetPosition(*pos)
+	// Create a collider
+	collider := &Collider{
+		Position: tank.Position,
+		Radius:   2.5, // increased from 1.5 for more forgiving collision detection
+		Type:     ColliderTank,
+		ID:       tank.ID,
+	}
 
-	// Create collider
-	collider := GetTankCollider(tank)
-
-	// Create tank record
-	tankRecord := &TankBody{
-		Body:     tankBody,
+	// Create the tank body
+	tankBody := &TankBody{
 		State:    tank,
 		Collider: collider,
 	}
 
 	// Add to tanks map
-	pm.tanks[tank.ID] = tankRecord
-	pm.bodies = append(pm.bodies, *tankBody)
+	pm.tanks[tank.ID] = tankBody
 
-	log.Printf("✅ PHYSICS: Registered tank %s (%s)", tank.ID, tank.Name)
+	log.Info("Registered tank", "id", tank.ID, "name", tank.Name)
 }
 
-// UnregisterTank removes a tank from physics simulation
+// UnregisterTank removes a tank from the physics manager
 func (pm *VuPhysicsManager) UnregisterTank(tankID string) {
-	// Find the tank
-	_, exists := pm.tanks[tankID]
-	if !exists {
+	if _, ok := pm.tanks[tankID]; !ok {
 		return
 	}
-
-	// For simplicity, rebuild the bodies list instead of trying to remove just one
-	// This avoids the need to compare body structs which can't be compared directly
-	newBodies := make([]vuphysics.Body, 0, len(pm.bodies)-1)
-
-	// Rebuild list excluding the tank being removed
-	for id, t := range pm.tanks {
-		if id != tankID { // Skip the tank we're removing
-			newBodies = append(newBodies, *t.Body)
-		}
-	}
-
-	// Add all obstacle bodies
-	for _, obs := range pm.obstacles {
-		newBodies = append(newBodies, *obs.Body)
-	}
-
-	// Add all shell bodies
-	for _, s := range pm.shells {
-		newBodies = append(newBodies, *s.Body)
-	}
-
-	// Replace bodies list
-	pm.bodies = newBodies
 
 	// Remove from tanks map
 	delete(pm.tanks, tankID)
 
-	log.Printf("🔄 PHYSICS: Unregistered tank %s", tankID)
+	log.Info("Unregistered tank", "id", tankID)
 }
 
-// UpdateTank updates a tank's position and checks for collisions
+// UpdateTank updates the physics state of a tank
 func (pm *VuPhysicsManager) UpdateTank(tank *game.PlayerState) {
-	// Skip collision detection if tank is destroyed
-	if tank.IsDestroyed {
+	// If tank doesn't exist, register it
+	if _, ok := pm.tanks[tank.ID]; !ok {
+		log.Warn("Tried to update unregistered tank", "id", tank.ID)
+		pm.RegisterTank(tank)
 		return
 	}
 
-	// Find the tank body
-	tankBody, exists := pm.tanks[tank.ID]
-	if !exists {
-		log.Printf("⚠️ PHYSICS WARNING: Tried to update unregistered tank %s", tank.ID)
-		return
-	}
+	// Update tank state
+	pm.tanks[tank.ID].State = tank
 
-	// Update the body's position with tank's latest position
-	pos := lin.NewV3()
-	pos.SetS(tank.Position.X, tank.Position.Y, tank.Position.Z)
-	tankBody.Body.SetPosition(*pos)
-
-	// If tank is moving, apply velocity
-	if tank.IsMoving && tank.Velocity > 0 {
-		// Calculate direction based on tank rotation
-		dirX := math.Sin(tank.TankRotation * math.Pi / 180)
-		dirZ := math.Cos(tank.TankRotation * math.Pi / 180)
-
-		// Apply force in that direction
-		force := tank.Velocity * 5.0 // Scale factor for reasonable force
-		tankBody.Body.Push(dirX*force, 0, dirZ*force)
-	}
-
-	// Update the collider's position to match
-	tankBody.Collider.Position = tank.Position
+	// Update collider
+	pm.tanks[tank.ID].Collider.Position = tank.Position
 }
 
-// UpdateShells updates the shells in the physics manager
+// UpdateShells updates the physics state of shells
 func (pm *VuPhysicsManager) UpdateShells(shells []game.ShellState) {
-	log.Printf("🔄 PHYSICS: UpdateShells called with %d shells", len(shells))
+	log.Debug("UpdateShells called", "count", len(shells))
 
-	// Track current shell IDs for cleanup
-	currentShellIDs := make(map[string]bool)
+	// Clear the existing shells map and recreate it
+	pm.shells = make(map[string]*ShellBody)
 
-	// Process incoming shells
-	for _, shell := range shells {
-		currentShellIDs[shell.ID] = true
+	// Add all the shells from the update
+	for i := range shells {
+		// Make a copy of the shell to avoid issues with array references
+		shell := shells[i]
 
-		// Check if shell already exists
-		shellBody, exists := pm.shells[shell.ID]
-		if !exists {
-			// Create new shell body
-			newShellBody := vuphysics.NewSphere(0.5, false) // 0.5 = shell radius, not static
-
-			// Set position
-			pos := lin.NewV3()
-			pos.SetS(shell.Position.X, shell.Position.Y, shell.Position.Z)
-			newShellBody.SetPosition(*pos)
-
-			// Create collider
-			collider := &Collider{
-				Position: shell.Position,
-				Radius:   0.5,
-				Type:     ColliderShell,
-				ID:       shell.ID,
-			}
-
-			// Create shell record
-			shellBody = &ShellBody{
-				Body:     newShellBody,
-				State:    shell,
-				Collider: collider,
-			}
-
-			// Add to shells map
-			pm.shells[shell.ID] = shellBody
-			pm.bodies = append(pm.bodies, *newShellBody)
-
-			// Apply initial velocity
-			speed := shell.Speed
-			newShellBody.Push(
-				shell.Direction.X*speed,
-				shell.Direction.Y*speed,
-				shell.Direction.Z*speed,
-			)
-		} else {
-			// Update existing shell
-			shellBody.State = shell
-
-			// Update position with correct lin.V3 usage
-			pos := lin.NewV3()
-			pos.SetS(shell.Position.X, shell.Position.Y, shell.Position.Z)
-			shellBody.Body.SetPosition(*pos)
-
-			shellBody.Collider.Position = shell.Position
+		// Create a collider
+		collider := &Collider{
+			Position: shell.Position,
+			Radius:   0.25, // 25cm radius
+			Type:     ColliderShell,
+			ID:       shell.ID,
 		}
-	}
 
-	// Remove shells that no longer exist
-	for id, _ := range pm.shells {
-		if !currentShellIDs[id] {
-			// Rebuild bodies list excluding this shell
-			newBodies := make([]vuphysics.Body, 0, len(pm.bodies)-1)
-
-			// Add all tanks
-			for _, t := range pm.tanks {
-				newBodies = append(newBodies, *t.Body)
-			}
-
-			// Add all obstacles
-			for _, obs := range pm.obstacles {
-				newBodies = append(newBodies, *obs.Body)
-			}
-
-			// Add all shells except the one being removed
-			for shellID, s := range pm.shells {
-				if shellID != id {
-					newBodies = append(newBodies, *s.Body)
-				}
-			}
-
-			// Replace bodies list
-			pm.bodies = newBodies
-
-			// Remove from shells map
-			delete(pm.shells, id)
+		// Create the shell body
+		shellBody := &ShellBody{
+			State:    shell,
+			Collider: collider,
 		}
-	}
 
-	// Check for collisions with tanks
-	pm.checkShellCollisions()
+		// Add to shells map
+		pm.shells[shell.ID] = shellBody
+
+		// Update shells in input array for feedback to game state
+		shells[i] = shell
+	}
 }
 
-// checkShellCollisions detects collisions between shells and tanks
-func (pm *VuPhysicsManager) checkShellCollisions() {
-	// Base damage amount
-	const baseDamage = 25 // Base damage per hit
-
+// Update runs the physics simulation for one step
+func (pm *VuPhysicsManager) Update() {
 	// Clear previous hits
-	pm.hits = pm.hits[:0]
+	pm.hits = make([]game.HitData, 0)
 
-	// Log shell and tank counts
-	log.Printf("🔍 PHYSICS: Checking %d shells against %d tanks", len(pm.shells), len(pm.tanks))
+	// Check for tank-shell collisions
+	pm.checkShellCollisions()
+
+	// Apply gravity and other forces
+	// Run the physics simulation
+	pm.applyGravityToShells()
+}
+
+// GetHits returns the hits detected during the last update
+func (pm *VuPhysicsManager) GetHits() []game.HitData {
+	return pm.hits
+}
+
+// CheckLineOfSight implements the PhysicsEngine interface for AI targeting
+func (pm *VuPhysicsManager) CheckLineOfSight(from, to shared.Position) bool {
+	// Convert to game.Position
+	fromPos := game.Position{X: from.X, Y: from.Y, Z: from.Z}
+	toPos := game.Position{X: to.X, Y: to.Y, Z: to.Z}
+
+	// Check if there's a clear line of sight between two positions
+	// by checking if the line intersects with any obstacles
+	// Simple implementation using direct ray to obstacles
+	for _, obstacle := range pm.obstacles {
+		// Check if the line from-to intersects with the obstacle
+		if lineSphereIntersection(fromPos, toPos, obstacle.Position, obstacle.Radius) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// checkShellCollisions checks for collisions between shells and tanks
+func (pm *VuPhysicsManager) checkShellCollisions() {
+	log.Debug("Checking shells against tanks", "shells", len(pm.shells), "tanks", len(pm.tanks))
 
 	// Check each shell against each tank
-	for shellID, shellBody := range pm.shells {
-		shell := shellBody.State
+	for shellID, shell := range pm.shells {
+		shellPos := shell.State.Position
 
-		// Update shell position based on physics
-		stillActive := pm.shellPhysics.UpdateShellPosition(&shell)
-		if !stillActive {
-			// Shell hit ground or expired
-			shellBody.State.Position.Y = 0 // Force to ground level
+		// Skip shells that are below ground level (already hit ground)
+		if shellPos.Y < 0 {
 			continue
 		}
 
-		// Update the shell position
-		shellBody.State = shell
-
-		// Update physics body position
-		pos := lin.NewV3()
-		pos.SetS(shell.Position.X, shell.Position.Y, shell.Position.Z)
-		shellBody.Body.SetPosition(*pos)
-
-		shellBody.Collider.Position = shell.Position
-
-		// Check for collisions with tanks
-		for tankID, tankBody := range pm.tanks {
-			tank := tankBody.State
-
-			// Skip destroyed tanks
-			if tank.IsDestroyed {
+		for tankID, tank := range pm.tanks {
+			// Skip if the shell belongs to this tank (don't hit self)
+			if shell.State.PlayerID == tankID {
 				continue
 			}
 
-			// Skip shells fired by this tank (can't hit yourself)
-			if shell.PlayerID == tankID {
+			// Skip if tank is already destroyed
+			if tank.State.IsDestroyed {
 				continue
 			}
 
-			// Use detailed collision detection
-			collision, hitLocation, damageMultiplier := pm.shellPhysics.DetailedCollisionCheck(shell, *tank)
+			tankPos := tank.State.Position
 
-			if collision {
-				// Calculate final damage based on multiplier
-				damageAmount := int(float64(baseDamage) * damageMultiplier)
+			// Check for collision
+			if CheckCollision(shell.Collider, tank.Collider) {
+				// Determine hit location (front, side, rear, top)
+				hitLocation := determineHitLocation(shellPos, tankPos, tank.State.TankRotation)
 
-				// Log hit detection
-				log.Printf("🎯 Shell hit detected: Shell %s from player %s hit tank %s (%s) on %s for %d damage",
-					shellID, shell.PlayerID, tankID, tank.Name, hitLocation, damageAmount)
+				// Calculate damage based on hit location and shell properties
+				damageAmount := calculateDamage(hitLocation)
 
-				// Create a hit record
+				log.Info("Shell hit detected", 
+					"shellID", shellID,
+					"sourceID", shell.State.PlayerID,
+					"targetID", tankID,
+					"targetName", tank.State.Name,
+					"hitLocation", hitLocation,
+					"damage", damageAmount)
+
+				// Create hit data
 				hit := game.HitData{
+					SourceID:     shell.State.PlayerID,
 					TargetID:     tankID,
-					SourceID:     shell.PlayerID,
+					HitLocation:  hitLocation,
 					DamageAmount: damageAmount,
+					Timestamp:    shell.State.Timestamp,
 				}
 
-				// Add to hits list
-				pm.hits = append(pm.hits, hit)
-
-				// Process hit immediately if game manager is available
+				// Immediately process the hit if we have a manager
 				if pm.manager != nil {
 					err := pm.manager.ProcessTankHit(hit)
 					if err != nil {
-						log.Printf("Error processing tank hit: %v", err)
+						log.Error("Error processing tank hit", "error", err)
 					} else {
-						log.Printf("✅ PHYSICS: Successfully processed hit on tank %s", hit.TargetID)
+						log.Debug("Successfully processed hit on tank", "targetID", hit.TargetID)
 					}
+				} else {
+					// Add to hits for later processing
+					pm.hits = append(pm.hits, hit)
 				}
 
-				// Mark shell for removal
-				shellBody.State.Position.Y = -1
-
-				// Shell can only hit one tank, so break after processing a hit
+				// Mark the shell as hit by setting its Y position negative
+				shell.State.Position.Y = -1
+				shell.Collider.Position.Y = -1
 				break
 			}
 		}
 	}
 }
 
-// Update performs a physics simulation step
-func (pm *VuPhysicsManager) Update() {
-	// Update tank-to-tank collisions
-	for _, tank := range pm.tanks {
-		pm.UpdateTank(tank.State)
-	}
-
-	// Run the vu/physics simulation
-	if len(pm.bodies) > 0 {
-		log.Printf("🔧 PHYSICS: Running vu/physics simulation with %d bodies", len(pm.bodies))
-		vuphysics.Simulate(pm.bodies, 1.0/60.0) // Assuming 60 FPS
-	}
-
-	// Update game objects with physics results
-	pm.syncPhysicsToGameObjects()
-}
-
-// syncPhysicsToGameObjects updates game objects with the results of physics simulation
-func (pm *VuPhysicsManager) syncPhysicsToGameObjects() {
-	// Update tanks
-	for _, tankBody := range pm.tanks {
-		// Skip destroyed tanks
-		if tankBody.State.IsDestroyed {
+// applyGravityToShells applies gravity to all shells
+func (pm *VuPhysicsManager) applyGravityToShells() {
+	for _, shell := range pm.shells {
+		// Skip shells that have already hit something
+		if shell.State.Position.Y < 0 {
 			continue
 		}
 
-		// Get position from physics body
-		pos := tankBody.Body.Position()
+		// Apply gravity - shells fall over time
+		const GRAVITY = 9.8 // m/s^2
 
-		// Update tank state
-		tankBody.State.Position.X = pos.X
-		tankBody.State.Position.Y = pos.Y
-		tankBody.State.Position.Z = pos.Z
+		// Adjust speed and direction based on gravity for 100ms
+		// In a real simulation, we'd use time delta
+		velocityY := shell.State.Direction.Y * shell.State.Speed
+		velocityY -= GRAVITY * 0.1 // Apply gravity for 100ms
 
-		// Update collider
-		tankBody.Collider.Position = tankBody.State.Position
+		// Calculate new speed (magnitude of velocity)
+		velocityX := shell.State.Direction.X * shell.State.Speed
+		velocityZ := shell.State.Direction.Z * shell.State.Speed
+		newSpeed := math.Sqrt(velocityX*velocityX + velocityY*velocityY + velocityZ*velocityZ)
 
-		// Get velocity
-		vel := tankBody.Body.Velocity()
+		// Calculate new normalized direction
+		if newSpeed > 0 {
+			shell.State.Direction.X = velocityX / newSpeed
+			shell.State.Direction.Y = velocityY / newSpeed
+			shell.State.Direction.Z = velocityZ / newSpeed
+			shell.State.Speed = newSpeed
+		}
 
-		// Update tank velocity (magnitude)
-		tankBody.State.Velocity = math.Sqrt(vel.X*vel.X + vel.Y*vel.Y + vel.Z*vel.Z)
+		// Update position based on velocity for 100ms
+		shell.State.Position.X += shell.State.Direction.X * shell.State.Speed * 0.1
+		shell.State.Position.Y += shell.State.Direction.Y * shell.State.Speed * 0.1
+		shell.State.Position.Z += shell.State.Direction.Z * shell.State.Speed * 0.1
 
-		// Update tank moving state
-		tankBody.State.IsMoving = tankBody.State.Velocity > 0.1
-	}
-
-	// Update shells
-	for _, shellBody := range pm.shells {
-		// Get position from physics body
-		pos := shellBody.Body.Position()
-
-		// Update shell state
-		shellBody.State.Position.X = pos.X
-		shellBody.State.Position.Y = pos.Y
-		shellBody.State.Position.Z = pos.Z
-
-		// Update collider
-		shellBody.Collider.Position = shellBody.State.Position
+		// Check if shell hit the ground
+		if shell.State.Position.Y <= 0 {
+			shell.State.Position.Y = 0 // Clamp to ground
+			// Shell hit the ground, mark it as hit
+			shell.Collider.Position = shell.State.Position
+		} else {
+			// Update shell collider position
+			shell.Collider.Position = shell.State.Position
+		}
 	}
 }
 
-// GetHits returns the detected hits since the last update
-func (pm *VuPhysicsManager) GetHits() []game.HitData {
-	return pm.hits
+// determineHitLocation determines where on the tank the shell hit
+func determineHitLocation(shellPos, tankPos game.Position, tankRotation float64) string {
+	// Convert tank rotation to radians
+	tankRotationRad := tankRotation * math.Pi / 180.0
+
+	// Calculate direction vector from tank to shell
+	dx := shellPos.X - tankPos.X
+	dz := shellPos.Z - tankPos.Z
+
+	// Calculate angle between tank forward direction and hit direction
+	tankDirX := math.Sin(tankRotationRad)
+	tankDirZ := math.Cos(tankRotationRad)
+
+	// Calculate dot product
+	dotProduct := tankDirX*dx + tankDirZ*dz
+
+	// Calculate magnitude of vectors
+	tankDirMag := math.Sqrt(tankDirX*tankDirX + tankDirZ*tankDirZ)
+	hitDirMag := math.Sqrt(dx*dx + dz*dz)
+
+	// Calculate angle
+	angleCos := dotProduct / (tankDirMag * hitDirMag)
+	angleRad := math.Acos(angleCos)
+	angleDeg := angleRad * 180.0 / math.Pi
+
+	// Special case for top hit
+	if shellPos.Y > tankPos.Y+1.0 {
+		return "top"
+	}
+
+	// Determine location based on angle
+	if angleDeg < 45 {
+		return "front"
+	} else if angleDeg > 135 {
+		return "rear"
+	} else {
+		return "side"
+	}
 }
 
-// CheckLineOfSight determines if there is a clear line of sight between two positions
-func (pm *VuPhysicsManager) CheckLineOfSight(fromPos, toPos shared.Position) bool {
-	// Convert shared.Position to game.Position
-	from := game.Position{X: fromPos.X, Y: fromPos.Y, Z: fromPos.Z}
-	to := game.Position{X: toPos.X, Y: toPos.Y, Z: toPos.Z}
+// calculateDamage calculates damage based on hit location
+func calculateDamage(hitLocation string) int {
+	// Different damage based on where the tank is hit
+	switch hitLocation {
+	case "rear":
+		return 40 // Most damage on rear hit (weak spot)
+	case "side":
+		return 30
+	case "top":
+		return 35 // Substantial damage on top hit
+	case "front":
+		return 25 // Least damage on front hit (armored)
+	default:
+		return 30 // Default damage
+	}
+}
 
-	// Calculate direction vector
-	dx := to.X - from.X
-	dy := to.Y - from.Y
-	dz := to.Z - from.Z
+// lineSphereIntersection checks if a line intersects with a sphere
+func lineSphereIntersection(start, end, center game.Position, radius float64) bool {
+	// Convert to a ray intersection problem
+	// Direction vector of the ray
+	dx := end.X - start.X
+	dy := end.Y - start.Y
+	dz := end.Z - start.Z
 
-	// Calculate distance
-	distance := math.Sqrt(dx*dx + dy*dy + dz*dz)
-
-	// Normalize direction vector
-	if distance > 0 {
-		dx /= distance
-		dy /= distance
-		dz /= distance
+	// Length of the ray
+	rayLength := math.Sqrt(dx*dx + dy*dy + dz*dz)
+	if rayLength < 0.001 {
+		// The ray has zero length, just check if start is inside the sphere
+		sx := start.X - center.X
+		sy := start.Y - center.Y
+		sz := start.Z - center.Z
+		return sx*sx+sy*sy+sz*sz <= radius*radius
 	}
 
-	// Check for obstacles along the line of sight
-	stepSize := 5.0
-	maxSteps := int(distance/stepSize) + 1
+	// Normalize the direction vector
+	dx /= rayLength
+	dy /= rayLength
+	dz /= rayLength
 
-	for step := 1; step < maxSteps; step++ {
-		checkDist := float64(step) * stepSize
-		if checkDist > distance {
-			checkDist = distance
-		}
+	// Vector from ray origin to sphere center
+	ox := start.X - center.X
+	oy := start.Y - center.Y
+	oz := start.Z - center.Z
 
-		// Calculate check position
-		checkPos := game.Position{
-			X: from.X + dx*checkDist,
-			Y: from.Y + dy*checkDist,
-			Z: from.Z + dz*checkDist,
-		}
+	// Calculate coefficients for quadratic equation
+	a := dx*dx + dy*dy + dz*dz // Always 1 for normalized ray
+	b := 2 * (ox*dx + oy*dy + oz*dz)
+	c := ox*ox + oy*oy + oz*oz - radius*radius
 
-		// Check for collisions with obstacles
-		for _, obstacle := range pm.obstacles {
-			obstaclePos := obstacle.Position
+	// Calculate discriminant
+	discriminant := b*b - 4*a*c
 
-			// Calculate distance to obstacle
-			obsDx := checkPos.X - obstaclePos.X
-			obsDy := checkPos.Y - obstaclePos.Y
-			obsDz := checkPos.Z - obstaclePos.Z
-			obsDistSquared := obsDx*obsDx + obsDy*obsDy + obsDz*obsDz
-
-			// Check if ray intersects with obstacle
-			if obsDistSquared < obstacle.Radius*obstacle.Radius {
-				// Obstacle blocks line of sight
-				return false
-			}
-		}
+	// If discriminant is negative, the ray doesn't intersect the sphere
+	if discriminant < 0 {
+		return false
 	}
 
-	// No obstacles found, there is line of sight
-	return true
+	// Calculate intersection points
+	t1 := (-b - math.Sqrt(discriminant)) / (2 * a)
+	t2 := (-b + math.Sqrt(discriminant)) / (2 * a)
+
+	// Check if any intersection point is within the line segment
+	return (t1 >= 0 && t1 <= rayLength) || (t2 >= 0 && t2 <= rayLength)
 }

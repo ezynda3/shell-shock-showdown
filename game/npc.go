@@ -2,13 +2,13 @@ package game
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"math/rand"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/mark3labs/pro-saaskit/game/shared"
 )
 
@@ -91,7 +91,7 @@ func (c *NPCController) Start() {
 	// Start the main NPC simulation loop
 	go c.runSimulation()
 
-	log.Println("🤖 NPC Controller started")
+	log.Info("NPC Controller started")
 }
 
 // Stop halts the NPC simulation
@@ -105,7 +105,7 @@ func (c *NPCController) Stop() {
 
 	close(c.quit)
 	c.isRunning = false
-	log.Println("🤖 NPC Controller stopped")
+	log.Info("NPC Controller stopped")
 }
 
 // NPCPersonality defines a set of personality parameters for an NPC tank
@@ -251,14 +251,14 @@ func (c *NPCController) SpawnCustomNPC(name string, movementPattern MovementPatt
 	personality := GetRandomizedPersonality(difficultyLevel)
 
 	// Log the NPC's personality traits
-	log.Printf("🤖 Bot '%s' personality: Accuracy=%.2f, MoveSpeed=%.2f, Aggressiveness=%.2f, FireRate=%.2f, TacticalIQ=%.2f, Cooldown=%v",
-		name,
-		personality.Accuracy,
-		personality.MoveSpeed,
-		personality.Aggressiveness,
-		personality.FireRate,
-		personality.TacticalIQ,
-		personality.Cooldown)
+	log.Info("Bot personality",
+		"name", name,
+		"accuracy", personality.Accuracy,
+		"moveSpeed", personality.MoveSpeed,
+		"aggressiveness", personality.Aggressiveness,
+		"fireRate", personality.FireRate,
+		"tacticalIQ", personality.TacticalIQ,
+		"cooldown", personality.Cooldown)
 
 	npc := &NPCTank{
 		ID:              npcID,
@@ -292,11 +292,15 @@ func (c *NPCController) SpawnCustomNPC(name string, movementPattern MovementPatt
 
 	// Register with game manager
 	if err := c.manager.UpdatePlayer(state, npcID, name); err != nil {
-		log.Printf("Error registering bot tank: %v", err)
+		log.Error("Error registering bot tank", "error", err)
 	}
 
-	log.Printf("🤖 Spawned bot tank '%s' (%s) at position (%f, %f, %f)",
-		npc.Name, npcID, offsetX, offsetZ, 0.0)
+	log.Info("Spawned bot tank",
+		"name", npc.Name,
+		"id", npcID,
+		"posX", offsetX,
+		"posZ", offsetZ,
+		"posY", 0.0)
 
 	return npc
 }
@@ -332,8 +336,13 @@ func (c *NPCController) updateNPCs() {
 		serverState, exists := gameState.Players[npc.ID]
 		if exists {
 			// Update local state with server state
-			log.Printf("Updating NPC %s from server state: health=%d, position=(%f,%f,%f), destroyed=%v",
-				npc.ID, serverState.Health, serverState.Position.X, serverState.Position.Y, serverState.Position.Z, serverState.IsDestroyed)
+			log.Debug("Updating NPC from server state", 
+				"id", npc.ID, 
+				"health", serverState.Health, 
+				"posX", serverState.Position.X, 
+				"posY", serverState.Position.Y, 
+				"posZ", serverState.Position.Z, 
+				"destroyed", serverState.IsDestroyed)
 
 			// Check if this is a respawn (destroyed -> not destroyed transition)
 			isRespawn := npc.State.IsDestroyed && !serverState.IsDestroyed
@@ -344,8 +353,11 @@ func (c *NPCController) updateNPCs() {
 
 			// Handle respawn: always take server position and reset movement
 			if isRespawn {
-				log.Printf("NPC %s respawned by server at position (%f,%f,%f)",
-					npc.ID, serverState.Position.X, serverState.Position.Y, serverState.Position.Z)
+				log.Info("NPC respawned by server", 
+					"id", npc.ID, 
+					"posX", serverState.Position.X, 
+					"posY", serverState.Position.Y, 
+					"posZ", serverState.Position.Z)
 
 				// Always take the server's position on respawn
 				npc.State.Position = serverState.Position
@@ -363,17 +375,21 @@ func (c *NPCController) updateNPCs() {
 				dz := npc.State.Position.Z - serverState.Position.Z
 				dist := math.Sqrt(dx*dx + dz*dz)
 				if dist > 5.0 {
-					log.Printf("NPC %s position corrected by server from (%f,%f) to (%f,%f)",
-						npc.ID, npc.State.Position.X, npc.State.Position.Z, serverState.Position.X, serverState.Position.Z)
+					log.Debug("NPC position corrected by server", 
+						"id", npc.ID, 
+						"oldX", npc.State.Position.X, 
+						"oldZ", npc.State.Position.Z, 
+						"newX", serverState.Position.X, 
+						"newZ", serverState.Position.Z)
 					npc.State.Position = serverState.Position
 				}
 			}
 		} else {
-			log.Printf("NPC %s not found in server state, re-registering", npc.ID)
+			log.Info("NPC not found in server state, re-registering", "id", npc.ID)
 			// Re-register the NPC with the game manager
 			c.mutex.Unlock()
 			if err := c.manager.UpdatePlayer(npc.State, npc.ID, npc.Name); err != nil {
-				log.Printf("Error re-registering NPC: %v", err)
+				log.Error("Error re-registering NPC", "id", npc.ID, "error", err)
 			}
 			c.mutex.Lock()
 		}
@@ -386,7 +402,7 @@ func (c *NPCController) updateNPCs() {
 
 			// Log status occasionally but not too frequently
 			if time.Since(npc.LastUpdate) > 1*time.Second {
-				log.Printf("NPC %s is destroyed, waiting for manager respawn", npc.ID)
+				log.Debug("NPC is destroyed, waiting for manager respawn", "id", npc.ID)
 				npc.LastUpdate = time.Now()
 			}
 			continue
@@ -394,7 +410,8 @@ func (c *NPCController) updateNPCs() {
 
 		// Force movement for stationary NPCs
 		if time.Since(npc.LastUpdate) > 3*time.Second && !npc.State.IsMoving {
-			log.Printf("NPC %s has been stationary for too long, forcing movement", npc.ID)
+			log.Info("NPC has been stationary for too long, forcing movement", 
+				"id", npc.ID)
 			npc.State.IsMoving = true
 			npc.State.Velocity = 0.5 + rand.Float64()*0.5
 
@@ -438,7 +455,7 @@ func (c *NPCController) updateNPCAI(npc *NPCTank, gameState GameState) {
 	// Update the state in game manager
 	c.mutex.Unlock() // Unlock before calling manager
 	if err := c.manager.UpdatePlayer(state, npc.ID, npc.Name); err != nil {
-		log.Printf("Error updating NPC state: %v", err)
+		log.Error("Error updating NPC state", "id", npc.ID, "error", err)
 	}
 	c.mutex.Lock() // Lock again to continue processing
 
@@ -532,8 +549,12 @@ func (c *NPCController) pursueTarget(npc *NPCTank, state *PlayerState, gameState
 
 	// Log pursuit behavior occasionally
 	if rand.Float64() < 0.01 {
-		log.Printf("NPC %s pursuing target %s: distance=%.2f, idealDistance=%.2f, moving=%v",
-			npc.ID, npc.TargetID, distToTarget, idealDistance, state.IsMoving)
+		log.Debug("NPC pursuing target", 
+			"id", npc.ID, 
+			"targetId", npc.TargetID, 
+			"distance", distToTarget, 
+			"idealDistance", idealDistance, 
+			"moving", state.IsMoving)
 	}
 }
 
@@ -621,8 +642,12 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Printf("NPC tank %s moving in circle: pos=(%.2f,%.2f), rotation=%.2f, velocity=%.2f",
-			npc.ID, state.Position.X, state.Position.Z, state.TankRotation, state.Velocity)
+		log.Debug("NPC tank moving in circle", 
+			"id", npc.ID, 
+			"posX", state.Position.X, 
+			"posZ", state.Position.Z, 
+			"rotation", state.TankRotation, 
+			"velocity", state.Velocity)
 	}
 }
 
@@ -670,8 +695,12 @@ func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
 
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Printf("NPC tank %s moving in zigzag: pos=(%.2f,%.2f), rotation=%.2f, oscillation=%.2f",
-			npc.ID, state.Position.X, state.Position.Z, state.TankRotation, oscillation)
+		log.Debug("NPC tank moving in zigzag", 
+			"id", npc.ID, 
+			"posX", state.Position.X, 
+			"posZ", state.Position.Z, 
+			"rotation", state.TankRotation, 
+			"oscillation", oscillation)
 	}
 }
 
@@ -720,8 +749,9 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 	if dist < arrivalDistance {
 		// Move to next patrol point
 		npc.CurrentPoint = (npc.CurrentPoint + 1) % len(npc.PatrolPoints)
-		log.Printf("NPC tank %s reached patrol point, moving to next point %d",
-			npc.ID, npc.CurrentPoint)
+		log.Debug("NPC tank reached patrol point, moving to next point", 
+			"id", npc.ID, 
+			"nextPoint", npc.CurrentPoint)
 	}
 
 	// Calculate angle to target
@@ -793,9 +823,15 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Printf("NPC tank %s patrolling: pos=(%.2f,%.2f), rotation=%.2f, target=(%.2f,%.2f), dist=%.2f, speed=%.2f",
-			npc.ID, state.Position.X, state.Position.Z, state.TankRotation,
-			target.X, target.Z, dist, state.Velocity)
+		log.Debug("NPC tank patrolling", 
+			"id", npc.ID, 
+			"posX", state.Position.X, 
+			"posZ", state.Position.Z, 
+			"rotation", state.TankRotation, 
+			"targetX", target.X, 
+			"targetZ", target.Z, 
+			"distance", dist, 
+			"speed", state.Velocity)
 	}
 }
 
@@ -825,8 +861,11 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 
 		// Log direction changes occasionally
 		if rand.Float64() < 0.1 {
-			log.Printf("NPC %s changing direction: current=%.2f, target=%.2f, change=%.2f",
-				npc.ID, state.TankRotation, npc.TargetRotation, rotationChange)
+			log.Debug("NPC changing direction", 
+				"id", npc.ID, 
+				"current", state.TankRotation, 
+				"target", npc.TargetRotation, 
+				"change", rotationChange)
 		}
 	}
 
@@ -903,14 +942,19 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 		npc.TargetRotation = centerAngle
 
 		// Log boundary correction
-		log.Printf("NPC %s reached map boundary (dist=%.2f), turning back toward center",
-			npc.ID, distFromCenter)
+		log.Info("NPC reached map boundary, turning back toward center", 
+			"id", npc.ID, 
+			"distance", distFromCenter)
 	}
 
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Printf("NPC %s moving randomly: pos=(%.2f,%.2f), rotation=%.2f, velocity=%.2f",
-			npc.ID, state.Position.X, state.Position.Z, state.TankRotation, state.Velocity)
+		log.Debug("NPC moving randomly", 
+			"id", npc.ID, 
+			"posX", state.Position.X, 
+			"posZ", state.Position.Z, 
+			"rotation", state.TankRotation, 
+			"velocity", state.Velocity)
 	}
 }
 
@@ -990,8 +1034,12 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 
 				// Log target selection for high-value targets (debug info)
 				if player.Health < 30 || !isBot {
-					log.Printf("NPC %s found strategic target %s: distance=%.1f, health=%d, score=%.2f",
-						npc.ID, playerID, dist, player.Health, targetScore)
+					log.Debug("NPC found strategic target", 
+						"id", npc.ID, 
+						"targetId", playerID, 
+						"distance", dist, 
+						"health", player.Health, 
+						"score", targetScore)
 				}
 			}
 		}
@@ -1048,8 +1096,14 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 
 			// Log prediction occasionally
 			if rand.Float64() < 0.05 {
-				log.Printf("NPC %s leading target %s: current=(%0.1f,%0.1f), predicted=(%0.1f,%0.1f), lead=%.2f",
-					npc.ID, npc.TargetID, targetPos.X, targetPos.Z, predictedX, predictedZ, leadFactor)
+				log.Debug("NPC leading target", 
+					"id", npc.ID, 
+					"targetId", npc.TargetID, 
+					"currentX", targetPos.X, 
+					"currentZ", targetPos.Z, 
+					"predictedX", predictedX, 
+					"predictedZ", predictedZ, 
+					"lead", leadFactor)
 			}
 		}
 
@@ -1222,8 +1276,13 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 			}
 
 			// Log firing attempt
-			log.Printf("NPC %s firing at target %s: distance=%.1f, accuracy=%.2f, inaccuracy=%.3f, shellSpeed=%.1f",
-				npc.ID, npc.TargetID, bestDistance, npc.FiringAccuracy, inaccuracy, shellSpeed)
+			log.Info("NPC firing at target", 
+				"id", npc.ID, 
+				"targetId", npc.TargetID, 
+				"distance", bestDistance, 
+				"accuracy", npc.FiringAccuracy, 
+				"inaccuracy", inaccuracy, 
+				"shellSpeed", shellSpeed)
 
 			// Fire the shell using the helper method
 			c.mutex.Unlock() // Unlock before calling manager
@@ -1304,7 +1363,7 @@ func (c *NPCController) FireNPCShell(npc *NPCTank, shellData ShellData) bool {
 
 	// If there was an error (like debounce rejection), return false
 	if err != nil {
-		log.Printf("Error firing NPC shell: %v", err)
+		log.Error("Error firing NPC shell", "id", npc.ID, "error", err)
 		return false
 	}
 
@@ -1332,7 +1391,7 @@ func (c *NPCController) RemoveNPC(id string) {
 	npc, exists := c.npcs[id]
 	if exists {
 		npc.IsActive = false
-		log.Printf("🤖 Removing NPC tank %s", id)
+		log.Info("Removing NPC tank", "id", id)
 	}
 	c.mutex.Unlock()
 }
@@ -1342,7 +1401,7 @@ func (c *NPCController) RemoveAllNPCs() {
 	c.mutex.Lock()
 	for id, npc := range c.npcs {
 		npc.IsActive = false
-		log.Printf("🤖 Removing NPC tank %s", id)
+		log.Info("Removing NPC tank", "id", id)
 	}
 	c.mutex.Unlock()
 }

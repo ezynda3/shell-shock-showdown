@@ -3,12 +3,13 @@ package physics
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/mark3labs/pro-saaskit/game"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -64,62 +65,64 @@ func (pi *PhysicsIntegration) Start() {
 
 	// Get initial game state for debugging
 	initialState := pi.gameManager.GetState()
-	log.Printf("Initial game state has %d players and %d shells",
-		len(initialState.Players), len(initialState.Shells))
+	log.Debug("Initial game state", 
+		"players", len(initialState.Players), 
+		"shells", len(initialState.Shells))
 
 	// Debug: Verify the game map has trees and rocks loaded
 	if pi.gameMap == nil {
-		log.Println("❌❌❌ CRITICAL ERROR: Game map is nil! Initializing now...")
+		log.Error("Critical error: Game map is nil, initializing now")
 		pi.gameMap = game.GetGameMap()
 	}
 
 	// Log tree info
 	treeCount := len(pi.gameMap.Trees.Trees)
-	log.Printf("🌲 PHYSICS DEBUG: Found %d trees in game map", treeCount)
+	log.Debug("Physics: trees in game map", "count", treeCount)
 	if treeCount > 0 {
-		log.Println("\n==================================================")
-		log.Println("🌲 TREE DATA SAMPLE:")
 		for i := 0; i < 5 && i < treeCount; i++ {
 			tree := pi.gameMap.Trees.Trees[i]
-			log.Printf("  - Tree #%d: Type=%s, Position=(%.2f, %.2f, %.2f), Radius=%.2f",
-				i, tree.Type, tree.Position.X, tree.Position.Y, tree.Position.Z, tree.Radius)
+			log.Debug("Tree data sample", 
+				"index", i, 
+				"type", tree.Type, 
+				"position", fmt.Sprintf("(%.2f, %.2f, %.2f)", tree.Position.X, tree.Position.Y, tree.Position.Z), 
+				"radius", tree.Radius)
 		}
-		log.Println("==================================================\n")
 	} else {
-		log.Println("❌ PHYSICS ERROR: No trees found in game map!")
+		log.Error("Physics: No trees found in game map")
 		// Attempt to reinitialize game map
-		log.Println("Attempting to initialize game map...")
+		log.Info("Attempting to initialize game map")
 		game.InitGameMap()
 		pi.gameMap = game.GetGameMap()
-		log.Printf("After reinitialization: Trees=%d, Rocks=%d",
-			len(pi.gameMap.Trees.Trees), len(pi.gameMap.Rocks.Rocks))
+		log.Info("Game map reinitialized", 
+			"trees", len(pi.gameMap.Trees.Trees), 
+			"rocks", len(pi.gameMap.Rocks.Rocks))
 	}
 
 	// Log rock info
 	rockCount := len(pi.gameMap.Rocks.Rocks)
-	log.Printf("🪨 PHYSICS DEBUG: Found %d rocks in game map", rockCount)
+	log.Debug("Physics: rocks in game map", "count", rockCount)
 	if rockCount > 0 {
-		log.Println("\n==================================================")
-		log.Println("🪨 ROCK DATA SAMPLE:")
 		for i := 0; i < 5 && i < rockCount; i++ {
 			rock := pi.gameMap.Rocks.Rocks[i]
-			log.Printf("  - Rock #%d: Type=%s, Position=(%.2f, %.2f, %.2f), Radius=%.2f",
-				i, rock.Type, rock.Position.X, rock.Position.Y, rock.Position.Z, rock.Radius)
+			log.Debug("Rock data sample", 
+				"index", i, 
+				"type", rock.Type, 
+				"position", fmt.Sprintf("(%.2f, %.2f, %.2f)", rock.Position.X, rock.Position.Y, rock.Position.Z), 
+				"radius", rock.Radius)
 		}
-		log.Println("==================================================\n")
 	} else {
-		log.Println("❌ PHYSICS ERROR: No rocks found in game map!")
+		log.Error("Physics: No rocks found in game map")
 	}
 
 	// Create watcher to listen for game state changes
 	var err error
-	log.Println("Creating KV watcher for game state changes...")
+	log.Info("Creating KV watcher for game state changes")
 	pi.watcher, err = pi.gameManager.WatchState(pi.ctx)
 	if err != nil {
-		log.Printf("Error creating KV watcher: %v", err)
+		log.Error("Failed to create KV watcher", "error", err)
 		return
 	}
-	log.Println("KV watcher created successfully")
+	log.Info("KV watcher created successfully")
 
 	// Run watcher loop in background
 	go pi.watchLoop()
@@ -127,15 +130,12 @@ func (pi *PhysicsIntegration) Start() {
 	// Run physics updates in a separate goroutine
 	go pi.runPhysicsLoop()
 
-	log.Println("\n\n==================================================")
-	log.Println("✅ PHYSICS SYSTEM STARTED SUCCESSFULLY")
-	log.Println("==================================================")
-	log.Println("🌲 Monitoring Trees:", len(pi.gameMap.Trees.Trees))
-	log.Println("🪨 Monitoring Rocks:", len(pi.gameMap.Rocks.Rocks))
-	log.Println("👋 Tank collision radius: 2.5 units (⬆️ INCREASED FROM 1.5)")
-	log.Println("🎮 Movement detection threshold:", 0.01)
-	log.Println("🔍 Now detecting collisions up to 0.5 units away")
-	log.Println("==================================================\n\n")
+	log.Info("Physics system started successfully", 
+		"trees", len(pi.gameMap.Trees.Trees),
+		"rocks", len(pi.gameMap.Rocks.Rocks),
+		"tankCollisionRadius", 2.5,
+		"movementThreshold", 0.01,
+		"collisionDistance", 0.5)
 }
 
 // Stop stops the physics simulation
@@ -154,56 +154,54 @@ func (pi *PhysicsIntegration) Stop() {
 		pi.watcher.Stop()
 	}
 
-	log.Println("Physics integration stopped")
+	log.Info("Physics integration stopped")
 }
 
 // watchLoop processes game state updates from the KV store
 func (pi *PhysicsIntegration) watchLoop() {
-	log.Println("\n\n==================================================")
-	log.Println("🔄 PHYSICS: Starting physics watch loop for game state changes")
-	log.Println("==================================================\n")
+	log.Info("Starting physics watch loop for game state changes")
 
 	// Read the first few updates to handle initial nil or empty states
-	log.Println("⏳ PHYSICS: Waiting for initial update from KV watcher...")
+	log.Info("Waiting for initial update from KV watcher")
 
 	// Try up to 3 times to get a non-nil update
 	var gotValidUpdate bool
 	for i := 0; i < 3; i++ {
-		log.Printf("🔄 PHYSICS: Waiting for update %d/3...", i+1)
+		log.Info("Waiting for physics update", "attempt", fmt.Sprintf("%d/3", i+1))
 		initialUpdate := <-pi.watcher.Updates()
 
 		if initialUpdate == nil {
-			log.Println("⚠️ PHYSICS: Got nil update, continuing...")
+			log.Warn("Got nil update, continuing")
 			continue
 		}
 
-		log.Println("\n\n==================================================")
-		log.Printf("✅ PHYSICS: Received initial game state update #%d!", i+1)
-		log.Println("==================================================\n")
+		log.Info("Received initial game state update", "attempt", i+1)
 
 		// Check the payload size
 		payloadSize := len(initialUpdate.Value())
-		log.Printf("📦 PHYSICS: Update payload size: %d bytes", payloadSize)
+		log.Debug("Update payload size", "bytes", payloadSize)
 
 		if payloadSize == 0 {
-			log.Println("⚠️ PHYSICS: Empty payload received, continuing...")
+			log.Warn("Empty payload received, continuing")
 			continue
 		}
 
 		var initialState game.GameState
 		if err := json.Unmarshal(initialUpdate.Value(), &initialState); err != nil {
-			log.Printf("❌ PHYSICS: Error unmarshaling initial state: %v", err)
+			log.Error("Error unmarshaling initial state", "error", err)
 			continue
 		}
 
-		log.Printf("📊 PHYSICS: Initial state has %d players", len(initialState.Players))
+		log.Debug("Initial state players", "count", len(initialState.Players))
 
 		// Store initial positions without triggering collision checks
 		pi.mutex.Lock()
 		for id, player := range initialState.Players {
 			pi.previousPositions[id] = player.Position
-			log.Printf("📍 PHYSICS: Saved initial position for tank %s (%s): (%.2f, %.2f, %.2f)",
-				id, player.Name, player.Position.X, player.Position.Y, player.Position.Z)
+			log.Debug("Saved initial position for tank", 
+				"id", id, 
+				"name", player.Name, 
+				"position", fmt.Sprintf("(%.2f, %.2f, %.2f)", player.Position.X, player.Position.Y, player.Position.Z))
 		}
 		pi.mutex.Unlock()
 
@@ -212,51 +210,51 @@ func (pi *PhysicsIntegration) watchLoop() {
 	}
 
 	if !gotValidUpdate {
-		log.Println("⚠️ PHYSICS: No valid initial update received after 3 attempts!")
+		log.Warn("No valid initial update received after 3 attempts")
 	}
 
-	log.Println("\n==================================================")
-	log.Println("🚀 PHYSICS: Watch loop ready to process state changes")
-	log.Println("==================================================\n")
+	log.Info("Watch loop ready to process state changes")
 
 	updateCount := 0
 
 	for update := range pi.watcher.Updates() {
 		updateCount++
 
-		log.Println("\n\n==================================================")
-		log.Printf("🔔 PHYSICS: UPDATE #%d RECEIVED", updateCount)
-		log.Println("==================================================\n")
+		log.Debug("Update received", "number", updateCount)
 
 		if update == nil {
-			log.Println("⚠️ PHYSICS: Received nil update from KV watcher, skipping")
+			log.Warn("Received nil update from KV watcher, skipping")
 			continue
 		}
 
-		log.Printf("📝 PHYSICS: Received game state update (revision: %d)", update.Revision())
-		log.Printf("🔍 PHYSICS: Update payload size: %d bytes", len(update.Value()))
+		log.Debug("Game state update details", 
+			"revision", update.Revision(), 
+			"size", len(update.Value()))
 
 		// Parse game state
 		var gameState game.GameState
 		err := json.Unmarshal(update.Value(), &gameState)
 		if err != nil {
-			log.Printf("❌ PHYSICS: Error unmarshaling game state: %v", err)
+			log.Error("Error unmarshaling game state", "error", err)
 			continue
 		}
 
-		log.Printf("🎮 PHYSICS: Processing game state with %d players and %d shells",
-			len(gameState.Players), len(gameState.Shells))
+		log.Debug("Processing game state", 
+			"players", len(gameState.Players), 
+			"shells", len(gameState.Shells))
 
 		// Log all player positions for debugging
 		if len(gameState.Players) > 0 {
-			log.Println("\n📍 PHYSICS: Current player positions:")
+			log.Debug("Current player positions:")
 			for id, player := range gameState.Players {
-				log.Printf("  - Tank %s (%s): (%.2f, %.2f, %.2f) Health: %d Destroyed: %v, Status: %s",
-					id, player.Name,
-					player.Position.X, player.Position.Y, player.Position.Z,
-					player.Health, player.IsDestroyed)
+				log.Debug("Tank position", 
+					"id", id, 
+					"name", player.Name,
+					"position", fmt.Sprintf("(%.2f, %.2f, %.2f)", player.Position.X, player.Position.Y, player.Position.Z),
+					"health", player.Health, 
+					"destroyed", player.IsDestroyed,
+					"status", player.Status)
 			}
-			log.Println()
 
 			// Get tank positions for proximity checks
 			var tankPositions []game.Position
@@ -270,7 +268,7 @@ func (pi *PhysicsIntegration) watchLoop() {
 			pi.logEnvironmentProximity(tankPositions)
 
 			// Check for collisions on every update regardless of movement
-			log.Println("🔍 PHYSICS: Checking all tanks for collisions on update...")
+			log.Debug("Checking all tanks for collisions on update")
 			for _, player := range gameState.Players {
 				if !player.IsDestroyed {
 					pi.checkCollisionsForced(&player)
@@ -282,9 +280,7 @@ func (pi *PhysicsIntegration) watchLoop() {
 		pi.processUpdatedState(gameState)
 	}
 
-	log.Println("\n\n==================================================")
-	log.Println("⛔ PHYSICS: Watch loop exited")
-	log.Println("==================================================\n")
+	log.Info("Watch loop exited")
 }
 
 // processUpdatedState handles updates to the game state
@@ -295,14 +291,14 @@ func (pi *PhysicsIntegration) processUpdatedState(state game.GameState) {
 	movingTanks := 0
 	totalTanks := 0
 
-	log.Println("\n🔍 PHYSICS: Checking for tank movements and collisions...")
+	log.Debug("Checking for tank movements and collisions")
 
 	// Check each player for position changes
 	for id, player := range state.Players {
 		totalTanks++
 
 		if player.IsDestroyed {
-			log.Printf("💀 PHYSICS: Skipping destroyed tank %s (%s)", id, player.Name)
+			log.Debug("Skipping destroyed tank", "id", id, "name", player.Name)
 			continue
 		}
 
@@ -311,8 +307,10 @@ func (pi *PhysicsIntegration) processUpdatedState(state game.GameState) {
 
 		// Skip if this is the first time we've seen this player
 		if !hasPrevious {
-			log.Printf("🆕 PHYSICS: New tank detected: %s (%s) at position (%.2f, %.2f, %.2f)",
-				id, player.Name, player.Position.X, player.Position.Y, player.Position.Z)
+			log.Info("New tank detected", 
+				"id", id, 
+				"name", player.Name, 
+				"position", fmt.Sprintf("(%.2f, %.2f, %.2f)", player.Position.X, player.Position.Y, player.Position.Z))
 			pi.previousPositions[id] = player.Position
 			continue
 		}
@@ -325,12 +323,12 @@ func (pi *PhysicsIntegration) processUpdatedState(state game.GameState) {
 			dz := prevPos.Z - player.Position.Z
 			moveDistance := math.Sqrt(dx*dx + dz*dz)
 
-			log.Println("\n--------------------------------------------------")
-			log.Printf("🚚 PHYSICS: TANK MOVED: %s (%s)", id, player.Name)
-			log.Printf("   From: (%.2f, %.2f, %.2f)", prevPos.X, prevPos.Y, prevPos.Z)
-			log.Printf("   To:   (%.2f, %.2f, %.2f)", player.Position.X, player.Position.Y, player.Position.Z)
-			log.Printf("   Distance: %.2f units", moveDistance)
-			log.Println("--------------------------------------------------\n")
+			log.Debug("Tank moved", 
+				"id", id, 
+				"name", player.Name,
+				"from", fmt.Sprintf("(%.2f, %.2f, %.2f)", prevPos.X, prevPos.Y, prevPos.Z),
+				"to", fmt.Sprintf("(%.2f, %.2f, %.2f)", player.Position.X, player.Position.Y, player.Position.Z),
+				"distance", fmt.Sprintf("%.2f units", moveDistance))
 
 			// Check for collisions with environment
 			pi.checkTankCollisions(&player)
@@ -345,12 +343,12 @@ func (pi *PhysicsIntegration) processUpdatedState(state game.GameState) {
 
 	if totalTanks > 0 {
 		if movingTanks > 0 {
-			log.Printf("✅ PHYSICS: Processed %d moving tanks out of %d total tanks", movingTanks, totalTanks)
+			log.Debug("Processed moving tanks", "moving", movingTanks, "total", totalTanks)
 		} else {
-			log.Printf("ℹ️ PHYSICS: No tank movement detected (total tanks: %d)", totalTanks)
+			log.Debug("No tank movement detected", "total", totalTanks)
 		}
 	} else {
-		log.Println("⚠️ PHYSICS: No tanks in game state!")
+		log.Warn("No tanks in game state")
 	}
 }
 
@@ -369,8 +367,10 @@ func hasMoved(prev, current game.Position) bool {
 
 // checkTankCollisions checks for collisions when tank movement is detected
 func (pi *PhysicsIntegration) checkTankCollisions(tank *game.PlayerState) {
-	log.Printf("🔎 PHYSICS: Checking collisions for tank %s (%s) at (%.2f, %.2f, %.2f)",
-		tank.ID, tank.Name, tank.Position.X, tank.Position.Y, tank.Position.Z)
+	log.Debug("Checking collisions for tank", 
+		"id", tank.ID, 
+		"name", tank.Name, 
+		"position", fmt.Sprintf("(%.2f, %.2f, %.2f)", tank.Position.X, tank.Position.Y, tank.Position.Z))
 
 	collisionsFound := 0
 
@@ -403,14 +403,12 @@ func (pi *PhysicsIntegration) checkTankCollisions(tank *game.PlayerState) {
 			collisionX := (tank.Position.X + tree.Position.X) / 2
 			collisionZ := (tank.Position.Z + tree.Position.Z) / 2
 
-			log.Println("\n\n==================================================")
-			log.Printf("💥 PHYSICS: COLLISION DETECTED! 💥")
-			log.Println("==================================================")
-			log.Printf("🚜 Tank: %s (%s)", tank.ID, tank.Name)
-			log.Printf("🌲 Tree: %s (%.2f scale)", tree.Type, tree.Scale)
-			log.Printf("📍 Collision at approximately: (%.2f, %.2f)", collisionX, collisionZ)
-			log.Printf("🔄 Tank radius: 1.5, Tree radius: %.2f", tree.Radius)
-			log.Println("==================================================\n")
+			log.Info("Tree collision detected", 
+				"tank", fmt.Sprintf("%s (%s)", tank.ID, tank.Name),
+				"tree", fmt.Sprintf("%s (scale: %.2f)", tree.Type, tree.Scale),
+				"collisionPoint", fmt.Sprintf("(%.2f, %.2f)", collisionX, collisionZ),
+				"tankRadius", 1.5,
+				"treeRadius", tree.Radius)
 		}
 	}
 
@@ -423,21 +421,19 @@ func (pi *PhysicsIntegration) checkTankCollisions(tank *game.PlayerState) {
 			collisionX := (tank.Position.X + rock.Position.X) / 2
 			collisionZ := (tank.Position.Z + rock.Position.Z) / 2
 
-			log.Println("\n\n==================================================")
-			log.Printf("💥 PHYSICS: COLLISION DETECTED! 💥")
-			log.Println("==================================================")
-			log.Printf("🚜 Tank: %s (%s)", tank.ID, tank.Name)
-			log.Printf("🪨 Rock: %s (size %.2f)", rock.Type, rock.Size)
-			log.Printf("📍 Collision at approximately: (%.2f, %.2f)", collisionX, collisionZ)
-			log.Printf("🔄 Tank radius: 1.5, Rock radius: %.2f", rock.Radius)
-			log.Println("==================================================\n")
+			log.Info("Rock collision detected", 
+				"tank", fmt.Sprintf("%s (%s)", tank.ID, tank.Name),
+				"rock", fmt.Sprintf("%s (size: %.2f)", rock.Type, rock.Size),
+				"collisionPoint", fmt.Sprintf("(%.2f, %.2f)", collisionX, collisionZ),
+				"tankRadius", 1.5,
+				"rockRadius", rock.Radius)
 		}
 	}
 
 	if collisionsFound == 0 {
-		log.Printf("✅ PHYSICS: No collisions detected for tank %s", tank.Name)
+		log.Debug("No collisions detected", "tank", tank.Name)
 	} else {
-		log.Printf("⚠️ PHYSICS: Found %d collisions for tank %s", collisionsFound, tank.Name)
+		log.Debug("Collisions found", "count", collisionsFound, "tank", tank.Name)
 	}
 
 	// Check for collisions with other tanks is done in the runPhysicsLoop
@@ -446,8 +442,10 @@ func (pi *PhysicsIntegration) checkTankCollisions(tank *game.PlayerState) {
 // checkCollisionsForced checks for collisions on every update regardless of movement
 func (pi *PhysicsIntegration) checkCollisionsForced(tank *game.PlayerState) {
 	// Log detailed tank position for debugging
-	log.Printf("🔎 PHYSICS: Checking tank %s at (%.2f, %.2f, %.2f) with radius 1.5",
-		tank.Name, tank.Position.X, tank.Position.Y, tank.Position.Z)
+	log.Debug("Checking tank position", 
+		"name", tank.Name, 
+		"position", fmt.Sprintf("(%.2f, %.2f, %.2f)", tank.Position.X, tank.Position.Y, tank.Position.Z), 
+		"radius", 1.5)
 
 	// Function to check collision based on physics manager type
 	checkCollision := func(pos1 game.Position, radius1 float64, pos2 game.Position, radius2 float64) bool {
@@ -492,24 +490,12 @@ func (pi *PhysicsIntegration) checkCollisionsForced(tank *game.PlayerState) {
 			collisionZ := (tank.Position.Z + tree.Position.Z) / 2
 
 			// Super prominent collision alert
-			log.Println("\n\n==================================================")
-			log.Println("🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴")
-			log.Println("💥💥💥 TREE COLLISION DETECTED 💥💥💥")
-			log.Println("🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴")
-			log.Println("==================================================")
-			log.Printf("🚜 Tank: %s (%s) at (%.2f, %.2f, %.2f)",
-				tank.ID, tank.Name, tank.Position.X, tank.Position.Y, tank.Position.Z)
-			log.Printf("🌲 Tree: %s (scale: %.2f) at (%.2f, %.2f, %.2f)",
-				tree.Type, tree.Scale, tree.Position.X, tree.Position.Y, tree.Position.Z)
-			log.Printf("📍 Collision at: (%.2f, %.2f)", collisionX, collisionZ)
-			log.Printf("📏 Distance: %.2f, Combined radius: %.2f",
-				dist, 1.5+tree.Radius)
-			log.Printf("⚠️ Distance < Combined radius: %.2f < %.2f",
-				dist, 1.5+tree.Radius)
-			log.Println("🚨 TREE COLLISION CONFIRMED 🚨")
-			log.Println("==================================================")
-			log.Println("🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴")
-			log.Println("==================================================\n\n")
+			log.Warn("Tree collision detected", 
+				"tank", fmt.Sprintf("%s (%s) at (%.2f, %.2f, %.2f)", tank.ID, tank.Name, tank.Position.X, tank.Position.Y, tank.Position.Z),
+				"tree", fmt.Sprintf("%s (scale: %.2f) at (%.2f, %.2f, %.2f)", tree.Type, tree.Scale, tree.Position.X, tree.Position.Y, tree.Position.Z),
+				"collisionPoint", fmt.Sprintf("(%.2f, %.2f)", collisionX, collisionZ),
+				"distance", dist,
+				"combinedRadius", 1.5+tree.Radius)
 
 			// Only report one collision at a time to avoid log spam
 			return
@@ -520,11 +506,12 @@ func (pi *PhysicsIntegration) checkCollisionsForced(tank *game.PlayerState) {
 	if closestTreeIndex >= 0 {
 		tree := pi.gameMap.Trees.Trees[closestTreeIndex]
 		combinedRadius := 1.5 + tree.Radius
-		log.Printf("ℹ️ PHYSICS: Closest tree: %.2f units away (combined radius: %.2f)",
-			closestTreeDist, combinedRadius)
-		log.Printf("   Tree #%d: Type=%s at (%.2f, %.2f, %.2f) with radius %.2f",
-			closestTreeIndex, tree.Type, tree.Position.X, tree.Position.Y, tree.Position.Z, tree.Radius)
-		log.Printf("   No collision detected: %.2f > %.2f", closestTreeDist, combinedRadius)
+		log.Debug("Closest tree info", 
+			"distance", fmt.Sprintf("%.2f units", closestTreeDist), 
+			"combinedRadius", combinedRadius,
+			"tree", fmt.Sprintf("#%d: Type=%s at (%.2f, %.2f, %.2f) with radius %.2f",
+				closestTreeIndex, tree.Type, tree.Position.X, tree.Position.Y, tree.Position.Z, tree.Radius),
+			"noCollision", fmt.Sprintf("%.2f > %.2f", closestTreeDist, combinedRadius))
 	}
 
 	closestRockDist := 1000.0
@@ -550,24 +537,12 @@ func (pi *PhysicsIntegration) checkCollisionsForced(tank *game.PlayerState) {
 			collisionZ := (tank.Position.Z + rock.Position.Z) / 2
 
 			// Super prominent collision alert
-			log.Println("\n\n==================================================")
-			log.Println("🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴")
-			log.Println("💥💥💥 ROCK COLLISION DETECTED 💥💥💥")
-			log.Println("🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴")
-			log.Println("==================================================")
-			log.Printf("🚜 Tank: %s (%s) at (%.2f, %.2f, %.2f)",
-				tank.ID, tank.Name, tank.Position.X, tank.Position.Y, tank.Position.Z)
-			log.Printf("🪨 Rock: %s (size: %.2f) at (%.2f, %.2f, %.2f)",
-				rock.Type, rock.Size, rock.Position.X, rock.Position.Y, rock.Position.Z)
-			log.Printf("📍 Collision at: (%.2f, %.2f)", collisionX, collisionZ)
-			log.Printf("📏 Distance: %.2f, Combined radius: %.2f",
-				dist, 1.5+rock.Radius)
-			log.Printf("⚠️ Distance < Combined radius: %.2f < %.2f",
-				dist, 1.5+rock.Radius)
-			log.Println("🚨 ROCK COLLISION CONFIRMED 🚨")
-			log.Println("==================================================")
-			log.Println("🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴")
-			log.Println("==================================================\n\n")
+			log.Warn("Rock collision detected", 
+				"tank", fmt.Sprintf("%s (%s) at (%.2f, %.2f, %.2f)", tank.ID, tank.Name, tank.Position.X, tank.Position.Y, tank.Position.Z),
+				"rock", fmt.Sprintf("%s (size: %.2f) at (%.2f, %.2f, %.2f)", rock.Type, rock.Size, rock.Position.X, rock.Position.Y, rock.Position.Z),
+				"collisionPoint", fmt.Sprintf("(%.2f, %.2f)", collisionX, collisionZ),
+				"distance", dist,
+				"combinedRadius", 1.5+rock.Radius)
 
 			// Only report one collision at a time to avoid log spam
 			return
@@ -578,11 +553,12 @@ func (pi *PhysicsIntegration) checkCollisionsForced(tank *game.PlayerState) {
 	if closestRockIndex >= 0 {
 		rock := pi.gameMap.Rocks.Rocks[closestRockIndex]
 		combinedRadius := 1.5 + rock.Radius
-		log.Printf("ℹ️ PHYSICS: Closest rock: %.2f units away (combined radius: %.2f)",
-			closestRockDist, combinedRadius)
-		log.Printf("   Rock #%d: Type=%s at (%.2f, %.2f, %.2f) with radius %.2f",
-			closestRockIndex, rock.Type, rock.Position.X, rock.Position.Y, rock.Position.Z, rock.Radius)
-		log.Printf("   No collision detected: %.2f > %.2f", closestRockDist, combinedRadius)
+		log.Debug("Closest rock info", 
+			"distance", fmt.Sprintf("%.2f units", closestRockDist), 
+			"combinedRadius", combinedRadius,
+			"rock", fmt.Sprintf("#%d: Type=%s at (%.2f, %.2f, %.2f) with radius %.2f",
+				closestRockIndex, rock.Type, rock.Position.X, rock.Position.Y, rock.Position.Z, rock.Radius),
+			"noCollision", fmt.Sprintf("%.2f > %.2f", closestRockDist, combinedRadius))
 	}
 }
 
@@ -592,7 +568,7 @@ func (pi *PhysicsIntegration) logEnvironmentProximity(tankPositions []game.Posit
 		return
 	}
 
-	log.Println("\n🔭 PHYSICS: ENVIRONMENT PROXIMITY REPORT 🔭")
+	log.Debug("Environment proximity report")
 
 	// Find the 5 closest trees to any tank
 	type proximityInfo struct {
@@ -662,35 +638,32 @@ func (pi *PhysicsIntegration) logEnvironmentProximity(tankPositions []game.Posit
 		count = len(allProximities)
 	}
 
-	log.Printf("🏆 TOP %d CLOSEST TANK-ENVIRONMENT PAIRS:", count)
+	log.Debug("Top closest tank-environment pairs", "count", count)
 	for i := 0; i < count; i++ {
 		p := allProximities[i]
 		combinedRadius := p.objRadius + p.tankRadius
-		log.Printf("  %d. %s #%d to Tank #%d: Distance=%.2f, Combined radius=%.2f, Difference=%.2f",
-			i+1,
-			p.objType,
-			p.objIndex,
-			p.tankIndex,
-			p.distance,
-			combinedRadius,
-			p.distance-combinedRadius)
+		log.Debug("Proximity data", 
+			"rank", i+1,
+			"objectType", p.objType,
+			"objectIndex", p.objIndex,
+			"tankIndex", p.tankIndex,
+			"distance", p.distance,
+			"combinedRadius", combinedRadius,
+			"difference", p.distance-combinedRadius)
 
 		// If there's a potential collision, highlight it
 		if p.distance <= combinedRadius {
-			log.Printf("   ⚠️⚠️⚠️ POTENTIAL COLLISION: Tank at (%.2f, %.2f) with %s at (%.2f, %.2f) ⚠️⚠️⚠️",
-				p.tankPos.X, p.tankPos.Z,
-				p.objType,
-				p.objPos.X, p.objPos.Z)
+			log.Warn("Potential collision detected", 
+				"tank", fmt.Sprintf("(%.2f, %.2f)", p.tankPos.X, p.tankPos.Z),
+				"object", p.objType,
+				"objectPos", fmt.Sprintf("(%.2f, %.2f)", p.objPos.X, p.objPos.Z))
 		}
 	}
-	log.Println()
 }
 
 // runPhysicsLoop is the main physics update loop
 func (pi *PhysicsIntegration) runPhysicsLoop() {
-	log.Println("\n==================================================")
-	log.Println("⚙️ PHYSICS: Tank-to-tank collision detection loop started")
-	log.Println("==================================================\n")
+	log.Info("Tank-to-tank collision detection loop started")
 
 	updateCount := 0
 
@@ -700,15 +673,13 @@ func (pi *PhysicsIntegration) runPhysicsLoop() {
 		pi.mutex.RUnlock()
 
 		if !running {
-			log.Println("\n==================================================")
-			log.Println("⛔ PHYSICS: Physics simulation stopped")
-			log.Println("==================================================\n")
+			log.Info("Physics simulation stopped")
 			return
 		}
 
 		updateCount++
 		if updateCount%50 == 0 {
-			log.Printf("⏱️ PHYSICS: Tank collision loop heartbeat - %d updates processed", updateCount)
+			log.Debug("Physics loop heartbeat", "updates", updateCount)
 		}
 
 		// Update physics
@@ -739,7 +710,7 @@ func (pi *PhysicsIntegration) updatePhysics() {
 	if len(gameState.Shells) > 0 {
 		// Only log occasionally to reduce spam
 		if time.Now().UnixNano()%50 == 0 {
-			log.Printf("🚀 PHYSICS: Processing %d shells for collisions", len(gameState.Shells))
+			log.Debug("Processing shells for collisions", "count", len(gameState.Shells))
 		}
 
 		// Make a copy of shells to avoid modifying the original state
@@ -748,11 +719,12 @@ func (pi *PhysicsIntegration) updatePhysics() {
 
 		// Log shell positions before physics update
 		if len(shellsCopy) > 0 {
-			log.Printf("📷 BEFORE PHYSICS: First shell %s at (%.2f,%.2f,%.2f)",
-				shellsCopy[0].ID,
-				shellsCopy[0].Position.X,
-				shellsCopy[0].Position.Y,
-				shellsCopy[0].Position.Z)
+			log.Debug("Shell position before physics", 
+				"shellID", shellsCopy[0].ID, 
+				"position", fmt.Sprintf("(%.2f,%.2f,%.2f)", 
+					shellsCopy[0].Position.X, 
+					shellsCopy[0].Position.Y, 
+					shellsCopy[0].Position.Z))
 		}
 
 		// Update shells with physics simulation
@@ -760,11 +732,12 @@ func (pi *PhysicsIntegration) updatePhysics() {
 
 		// Log shell positions after physics update to see if they changed
 		if len(shellsCopy) > 0 {
-			log.Printf("📷 AFTER PHYSICS: First shell %s at (%.2f,%.2f,%.2f)",
-				shellsCopy[0].ID,
-				shellsCopy[0].Position.X,
-				shellsCopy[0].Position.Y,
-				shellsCopy[0].Position.Z)
+			log.Debug("Shell position after physics", 
+				"shellID", shellsCopy[0].ID, 
+				"position", fmt.Sprintf("(%.2f,%.2f,%.2f)", 
+					shellsCopy[0].Position.X, 
+					shellsCopy[0].Position.Y, 
+					shellsCopy[0].Position.Z))
 		}
 
 		// Check if any shells were modified by physics (hit ground or expired)
@@ -774,7 +747,7 @@ func (pi *PhysicsIntegration) updatePhysics() {
 			// Check if the shell hit ground (Y <= 0) or was marked as collided (Y < 0)
 			if shell.Position.Y <= 0 {
 				shellsToRemove = append(shellsToRemove, shell.ID)
-				log.Printf("💥 PHYSICS: Shell %s marked for removal (hit ground or collision)", shell.ID)
+				log.Debug("Shell marked for removal", "shellID", shell.ID, "reason", "hit ground or collision")
 			} else {
 				// Update the shell position in game state for next frame
 				gameState.Shells[i] = shell
@@ -787,8 +760,10 @@ func (pi *PhysicsIntegration) updatePhysics() {
 		}
 
 		// Log the results of processing shells
-		log.Printf("📊 PHYSICS CYCLE: Processed %d shells - %d removed, %d active",
-			len(gameState.Shells), len(shellsToRemove), len(gameState.Shells)-len(shellsToRemove))
+		log.Debug("Physics cycle results", 
+			"total", len(gameState.Shells), 
+			"removed", len(shellsToRemove), 
+			"active", len(gameState.Shells)-len(shellsToRemove))
 	}
 
 	// Run physics update for tank-to-tank collisions
