@@ -41,6 +41,8 @@ type NPCTank struct {
 	State           PlayerState
 	MovementPattern MovementPattern
 	TargetID        string // ID of player this NPC is targeting
+	LastAttackerID  string // ID of player who last attacked this NPC (for grudge tracking)
+	LastAttackTime  time.Time // When the NPC was last attacked
 	PatrolPoints    []Position
 	CurrentPoint    int
 	LastUpdate      time.Time
@@ -51,6 +53,7 @@ type NPCTank struct {
 	AimingAt        *shared.Position // Current position the NPC is aiming at (using shared.Position)
 	CanSeeTarget    bool             // Whether NPC has line of sight to target
 	TargetRotation  float64          // Target rotation for smooth turning (matches client behavior)
+	MovingBackward  bool             // Whether the tank is currently moving backward
 
 	// NPC personality traits (0.0 to 1.0 scale)
 	FiringAccuracy float64 // How accurate this NPC's shots are (higher is more accurate)
@@ -58,6 +61,7 @@ type NPCTank struct {
 	Aggressiveness float64 // How aggressively it pursues targets (higher is more aggressive)
 	FireRate       float64 // How frequently it fires (higher means more frequent firing)
 	TacticalIQ     float64 // How smart it is tactically (higher means smarter decisions)
+	GrudgeFactor   float64 // How likely to pursue tanks that attack it (auto-generated from personality)
 
 	// Visual traits
 	TankColor   string // Color of the tank
@@ -284,6 +288,10 @@ func (c *NPCController) SpawnCustomNPC(name string, movementPattern MovementPatt
 		"tacticalIQ", personality.TacticalIQ,
 		"cooldown", personality.Cooldown)
 
+	// Calculate grudge factor - how likely to remember and pursue attackers
+	// Based on aggressiveness and tactical IQ
+	grudgeFactor := personality.Aggressiveness*0.7 + personality.TacticalIQ*0.3
+	
 	npc := &NPCTank{
 		ID:              npcID,
 		Name:            name,
@@ -293,11 +301,14 @@ func (c *NPCController) SpawnCustomNPC(name string, movementPattern MovementPatt
 		CurrentPoint:    0,
 		LastUpdate:      time.Now(),
 		LastFire:        time.Now(),
+		LastAttackerID:  "", // No attacker initially
+		LastAttackTime:  time.Time{}, // Zero time
 		FireCooldown:    personality.Cooldown,
 		ScanRadius:      500.0 + (personality.Aggressiveness * 250.0), // More aggressive = larger scan radius - increased for larger map
 		IsActive:        true,
 		AimingAt:        nil, // No target initially
 		CanSeeTarget:    false,
+		MovingBackward:  false, // Start moving forward
 
 		// Personality traits
 		FiringAccuracy: personality.Accuracy,
@@ -305,6 +316,7 @@ func (c *NPCController) SpawnCustomNPC(name string, movementPattern MovementPatt
 		Aggressiveness: personality.Aggressiveness,
 		FireRate:       personality.FireRate,
 		TacticalIQ:     personality.TacticalIQ,
+		GrudgeFactor:   grudgeFactor,
 
 		// Visual traits
 		TankColor:   colorScheme.PrimaryColor,
@@ -367,6 +379,46 @@ func (c *NPCController) updateNPCs() {
 				"posY", serverState.Position.Y, 
 				"posZ", serverState.Position.Z, 
 				"destroyed", serverState.IsDestroyed)
+			
+			// Check for health reduction since last update (we've been hit!)
+			if serverState.Health < npc.State.Health && !serverState.IsDestroyed {
+				// Determine who might have attacked us
+				// Look for shells (which are tracked in game state)
+				var mostLikelyAttacker string
+				var closestShellDist float64 = 50.0 // Maximum distance to consider
+				
+				// Scan for recent shells that might have hit us
+				for _, shell := range gameState.Shells {
+					// Skip shells fired by this NPC
+					if shell.PlayerID == npc.ID {
+						continue
+					}
+					
+					// Calculate distance from shell to this NPC
+					dx := shell.Position.X - serverState.Position.X
+					dz := shell.Position.Z - serverState.Position.Z
+					shellDist := math.Sqrt(dx*dx + dz*dz)
+					
+					// If shell is close enough, consider it a potential hit
+					if shellDist < closestShellDist {
+						closestShellDist = shellDist
+						mostLikelyAttacker = shell.PlayerID
+					}
+				}
+				
+				// If we identified an attacker, remember them
+				if mostLikelyAttacker != "" {
+					// This player attacked us! Hold a grudge
+					npc.LastAttackerID = mostLikelyAttacker
+					npc.LastAttackTime = time.Now()
+					
+					log.Info("NPC was attacked!", 
+						"id", npc.ID, 
+						"attackerId", mostLikelyAttacker, 
+						"oldHealth", npc.State.Health, 
+						"newHealth", serverState.Health)
+				}
+			}
 
 			// Check if this is a respawn (destroyed -> not destroyed transition)
 			isRespawn := npc.State.IsDestroyed && !serverState.IsDestroyed
@@ -389,10 +441,15 @@ func (c *NPCController) updateNPCs() {
 				// Reset movement state to prevent erratic movement
 				npc.State.IsMoving = false
 				npc.State.Velocity = 0.0
+				npc.MovingBackward = false
 
 				// Randomize tank rotation on respawn to avoid all NPCs facing same direction
 				npc.State.TankRotation = rand.Float64() * 2 * math.Pi
 				npc.State.TurretRotation = npc.State.TankRotation
+				
+				// Reset grudges on respawn
+				npc.LastAttackerID = ""
+				npc.LastAttackTime = time.Time{}
 			} else {
 				// For normal updates: Only update position if significant movement happened on server side
 				dx := npc.State.Position.X - serverState.Position.X
@@ -462,11 +519,39 @@ func (c *NPCController) updateNPCAI(npc *NPCTank, gameState GameState) {
 
 	// Decide whether to pursue target or follow movement pattern
 	// Higher TacticalIQ NPCs make smarter decisions about when to pursue vs patrol
-	if npc.TargetID != "" && npc.Aggressiveness > 0.6 && (npc.TacticalIQ < 0.7 || rand.Float64() < npc.Aggressiveness) {
-		// Pursue target if aggressive enough
-		c.pursueTarget(npc, &state, gameState)
+	if npc.TargetID != "" {
+		// Calculate pursuit likelihood based on multiple factors
+		pursuitLikelihood := npc.Aggressiveness
+		
+		// If this is a player who attacked us, we're more likely to pursue them (hold a grudge)
+		if npc.LastAttackerID == npc.TargetID && !npc.LastAttackTime.IsZero() {
+			timeSinceAttack := time.Since(npc.LastAttackTime)
+			if timeSinceAttack < 30*time.Second { // Grudge lasts 30 seconds
+				// Increase pursuit likelihood based on grudge factor and recency
+				grudgeBoost := npc.GrudgeFactor * (1.0 - (float64(timeSinceAttack) / float64(30*time.Second)))
+				pursuitLikelihood += grudgeBoost * 0.5 // Significant boost to pursuit likelihood
+				
+				// Log grudge pursuit occasionally
+				if rand.Float64() < 0.02 {
+					log.Info("NPC pursuing attacker based on grudge",
+						"id", npc.ID,
+						"attackerId", npc.LastAttackerID,
+						"timeSinceAttack", timeSinceAttack.Seconds(),
+						"pursuitBoost", grudgeBoost)
+				}
+			}
+		}
+		
+		// Pursue based on calculated likelihood
+		if pursuitLikelihood > 0.6 && (npc.TacticalIQ < 0.7 || rand.Float64() < pursuitLikelihood) {
+			// Pursue target if aggressive enough or holding a grudge
+			c.pursueTarget(npc, &state, gameState)
+		} else {
+			// Otherwise follow normal movement pattern
+			c.updateMovement(npc, &state)
+		}
 	} else {
-		// Otherwise follow normal movement pattern
+		// No target, follow normal movement pattern
 		c.updateMovement(npc, &state)
 	}
 
@@ -518,28 +603,49 @@ func (c *NPCController) pursueTarget(npc *NPCTank, state *PlayerState, gameState
 
 	// If we're too close, move away while still facing target
 	if distToTarget < idealDistance*0.7 && npc.TacticalIQ > 0.4 {
-		// Move away from target but maintain facing
-		state.TankRotation = normalizeAngle(targetAngle + math.Pi)
-
-		// Smart NPCs circle strafe instead of just backing up
-		if npc.TacticalIQ > 0.7 {
-			// Add a perpendicular component for circling
-			circleOffset := math.Pi / 2
-			if rand.Float64() < 0.5 {
-				circleOffset = -math.Pi / 2 // Choose direction randomly
-			}
-			state.TankRotation = normalizeAngle(targetAngle + circleOffset)
-		}
+		// Need to back up - tanks can only move forward or backward along their facing direction
+		// So we face the target but move backward
+		state.TankRotation = targetAngle // Face the target
+		npc.MovingBackward = true // Move backward
+		
+		// Set negative velocity for proper movement calculation
+		state.Velocity = -math.Abs(state.Velocity)
 	} else if distToTarget > idealDistance*1.3 {
 		// If we're too far, move towards target
-		state.TankRotation = targetAngle
+		state.TankRotation = targetAngle // Face the target  
+		npc.MovingBackward = false // Move forward
+		
+		// Use positive velocity
+		state.Velocity = math.Abs(state.Velocity)
 	} else {
-		// At good distance, circle strafe
-		circleDir := math.Pi / 2
-		if rand.Float64() < 0.5 {
-			circleDir = -math.Pi / 2
+		// At good distance, use realistic tank maneuvers
+		// Smarter tanks use flanking tactics when possible
+		if npc.TacticalIQ > 0.7 {
+			// Attempt to get to the side of target for flank shot
+			// This is realistic tank positioning - flanking for side armor hits
+			circleOffset := math.Pi / 3 // 60 degree offset for flanking
+			if rand.Float64() < 0.5 {
+				circleOffset = -math.Pi / 3 // Random direction
+			}
+			
+			// Face in flanking direction
+			state.TankRotation = normalizeAngle(targetAngle + circleOffset)
+			npc.MovingBackward = false // Move forward in flanking direction
+			state.Velocity = math.Abs(state.Velocity)
+		} else {
+			// Less tactical tanks just face target directly
+			state.TankRotation = targetAngle
+			
+			// Occasionally reverse direction to be less predictable
+			if rand.Float64() < 0.03 {
+				npc.MovingBackward = !npc.MovingBackward
+				if npc.MovingBackward {
+					state.Velocity = -math.Abs(state.Velocity)
+				} else {
+					state.Velocity = math.Abs(state.Velocity)
+				}
+			}
 		}
-		state.TankRotation = normalizeAngle(targetAngle + circleDir)
 	}
 
 	// Adjust speed based on situation - with player-matching speed
@@ -549,13 +655,31 @@ func (c *NPCController) pursueTarget(npc *NPCTank, state *PlayerState, gameState
 	// Tactical adjustments to speed - with smoother transitions
 	if distToTarget < idealDistance*0.5 {
 		// If very close, move faster to get away, but not too fast
-		state.Velocity = baseSpeed * npc.MoveSpeed * 1.2
+		speed := baseSpeed * npc.MoveSpeed * 1.2
+		// If backing up, use negative velocity
+		if npc.MovingBackward {
+			state.Velocity = -speed
+		} else {
+			state.Velocity = speed
+		}
 	} else if math.Abs(distToTarget-idealDistance) < 20.0 {
 		// If at good combat distance, slow down for better aiming
-		state.Velocity = baseSpeed * npc.MoveSpeed * 0.6
+		speed := baseSpeed * npc.MoveSpeed * 0.6
+		// If backing up, use negative velocity
+		if npc.MovingBackward {
+			state.Velocity = -speed
+		} else {
+			state.Velocity = speed
+		}
 	} else {
 		// Normal pursuit speed
-		state.Velocity = baseSpeed * npc.MoveSpeed
+		speed := baseSpeed * npc.MoveSpeed
+		// If backing up, use negative velocity
+		if npc.MovingBackward {
+			state.Velocity = -speed
+		} else {
+			state.Velocity = speed
+		}
 	}
 
 	// Advanced tanks occasionally use stop-and-shoot tactics - adjusted for 60fps update rate
@@ -582,14 +706,18 @@ func (c *NPCController) pursueTarget(npc *NPCTank, state *PlayerState, gameState
 	}
 }
 
-// findTarget looks for the nearest player to target
+// findTarget looks for the best player to target, prioritizing recent attackers
 func (c *NPCController) findTarget(npc *NPCTank, gameState GameState) {
-	var nearestDist float64 = npc.ScanRadius
-	var nearestID string
-
-	// Find closest non-NPC player tank
+	var bestTargetID string
+	var bestTargetScore float64 = -1.0
+	var bestTargetDist float64 = npc.ScanRadius + 1.0 // Initialize larger than scan radius
+	
+	// Check if we have line of sight to potential targets
+	hasLineOfSight := map[string]bool{}
+	
+	// Find best target considering multiple factors
 	for playerID, player := range gameState.Players {
-		// Skip other NPCs and destroyed tanks
+		// Skip self, other NPCs, and destroyed tanks
 		if playerID == npc.ID || strings.HasPrefix(playerID, "bot_") || player.IsDestroyed {
 			continue
 		}
@@ -599,15 +727,89 @@ func (c *NPCController) findTarget(npc *NPCTank, gameState GameState) {
 		dz := player.Position.Z - npc.State.Position.Z
 		dist := math.Sqrt(dx*dx + dz*dz)
 
-		// Check if this is the closest player so far
-		if dist < nearestDist {
-			nearestDist = dist
-			nearestID = playerID
+		// Skip if outside scan radius
+		if dist > npc.ScanRadius {
+			continue
+		}
+		
+		// Check line of sight if we have physics manager
+		canSee := true
+		if c.physicsManager != nil {
+			fromPos := shared.Position{X: npc.State.Position.X, Y: npc.State.Position.Y + 1.2, Z: npc.State.Position.Z}
+			toPos := shared.Position{X: player.Position.X, Y: player.Position.Y, Z: player.Position.Z}
+			canSee = c.physicsManager.CheckLineOfSight(fromPos, toPos)
+			hasLineOfSight[playerID] = canSee
+		}
+		
+		// Base score on distance (closer is better)
+		distanceScore := 1.0 - (dist / npc.ScanRadius)
+		
+		// If this player recently attacked us, greatly increase score (tank holds a grudge)
+		recentAttackerBonus := 0.0
+		if playerID == npc.LastAttackerID && !npc.LastAttackTime.IsZero() {
+			timeSinceAttack := time.Since(npc.LastAttackTime)
+			if timeSinceAttack < 30*time.Second { // Grudge lasts 30 seconds
+				// Higher grudge bonus the more recent the attack
+				recentFactor := 1.0 - (float64(timeSinceAttack) / float64(30*time.Second))
+				recentAttackerBonus = 2.0 * recentFactor * npc.GrudgeFactor
+				
+				// Log grudge targeting
+				if rand.Float64() < 0.1 {
+					log.Debug("NPC holding grudge against attacker", 
+						"id", npc.ID, 
+						"attackerId", playerID,
+						"timeSince", timeSinceAttack.Seconds(),
+						"bonus", recentAttackerBonus)
+				}
+			}
+		}
+		
+		// Lower-health targets are better targets for tactical NPCs
+		healthScore := 0.0
+		if npc.TacticalIQ > 0.5 && player.Health < 100 {
+			healthScore = (100.0 - float64(player.Health)) / 100.0 * npc.TacticalIQ * 0.5
+		}
+		
+		// Line of sight bonus - heavily prioritize targets we can actually see
+		lineOfSightMultiplier := 1.0
+		if !canSee {
+			// Can't see target, greatly reduce score unless tactical IQ is very low
+			lineOfSightMultiplier = 0.2 + (0.3 * (1.0 - npc.TacticalIQ))
+		}
+		
+		// Calculate final score combining all factors
+		totalScore := (distanceScore + healthScore + recentAttackerBonus) * lineOfSightMultiplier
+		
+		// Current target persistence bonus to avoid frequent switching
+		if playerID == npc.TargetID && npc.TacticalIQ > 0.4 {
+			// Add bonus to current target to reduce erratic switching
+			totalScore *= 1.2
+		}
+		
+		// Check if this is our best target so far
+		if totalScore > bestTargetScore {
+			bestTargetScore = totalScore
+			bestTargetID = playerID
+			bestTargetDist = dist
 		}
 	}
 
-	// Update target
-	npc.TargetID = nearestID
+	// Update target if we found one within range
+	if bestTargetID != "" {
+		// If changing targets, log the change
+		if bestTargetID != npc.TargetID {
+			log.Debug("NPC changing target", 
+				"id", npc.ID, 
+				"oldTarget", npc.TargetID, 
+				"newTarget", bestTargetID, 
+				"distance", bestTargetDist,
+				"canSee", hasLineOfSight[bestTargetID])
+		}
+		npc.TargetID = bestTargetID
+	} else {
+		// No valid target found
+		npc.TargetID = ""
+	}
 }
 
 // updateMovement handles NPC movement patterns
@@ -1482,21 +1684,48 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 		cooledDown := timeSinceLastFire > npc.FireCooldown
 
 		// Firing range is affected by the NPC's aggressiveness - increased for larger map
-		firingRange := 500.0 + (npc.Aggressiveness * 250.0)
+		firingRange := 800.0 + (npc.Aggressiveness * 300.0) // Realistic modern tank engagement range
 
 		// Calculate firing readiness based on aiming parameters
 		aimingPrecision := math.Abs(normalizedDifference) // Lower value means better aim
+		
+		// Make sure we have line of sight to target
+		if c.physicsManager != nil {
+			// Convert positions for physics check
+			fromPos := shared.Position{X: state.Position.X, Y: state.Position.Y + 1.2, Z: state.Position.Z} // Realistic tank turret height
+			toPos := shared.Position{X: targetPos.X, Y: targetPos.Y, Z: targetPos.Z}
+			
+			// Update line of sight status
+			npc.CanSeeTarget = c.physicsManager.CheckLineOfSight(fromPos, toPos)
+		}
 
 		// High TacticalIQ NPCs wait for a good shot rather than firing immediately
 		readyToFire := true
-		if npc.TacticalIQ > 0.7 {
+		if npc.TacticalIQ > 0.6 {
 			// Only fire when aim is relatively precise (turret fairly aligned with target)
-			maxAllowedError := (1.0 - npc.FiringAccuracy) * 0.3 // Precision threshold
-			readyToFire = aimingPrecision < maxAllowedError
-
-			// Even high IQ NPCs will eventually fire if they've been aiming for too long
-			if timeSinceLastFire > npc.FireCooldown*3 {
+			maxAllowedError := (1.0 - npc.FiringAccuracy) * 0.2 // Tighter precision threshold
+			
+			// Check if we're aligned well enough to fire
+			readyToFire = aimingPrecision < maxAllowedError && 
+						  math.Abs(elevationDifference) < 0.1 && // Check barrel elevation alignment
+						  npc.CanSeeTarget // Make sure we can see target
+			
+			// Stationary targets are easier to hit
+			if bestTarget != nil && !bestTarget.IsMoving && aimingPrecision < maxAllowedError*1.5 {
 				readyToFire = true
+			}
+
+			// Even high IQ NPCs will eventually fire if they've been aiming for too long and close enough
+			if timeSinceLastFire > time.Duration(float64(npc.FireCooldown)*2.5) && aimingPrecision < 0.15 && npc.CanSeeTarget {
+				readyToFire = true
+				
+				// Log decision to fire
+				if rand.Float64() < 0.3 {
+					log.Debug("NPC firing after extended aiming", 
+						"id", npc.ID, 
+						"precision", aimingPrecision,
+						"timeSinceLastFire", timeSinceLastFire)
+				}
 			}
 		}
 
@@ -1504,14 +1733,14 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 		// 1. Cooldown has expired
 		// 2. Target is in range
 		// 3. NPC is ready to fire (aim is good enough)
-		// No longer checking CanSeeTarget which was causing hit registration problems at long distances
-		if cooledDown && bestDistance < firingRange && readyToFire {
-			// Prepare shell data with a bit of randomness
-			// More aggressive NPCs fire faster shells
-			shellSpeed := 5.0 + (npc.Aggressiveness * 0.5)
+		// Only fire if we have line of sight (except for very low TacticalIQ NPCs that might blindly fire)
+		if cooledDown && bestDistance < firingRange && readyToFire && (npc.CanSeeTarget || npc.TacticalIQ < 0.3) {
+			// Prepare shell data with realistic parameters
+			// More aggressive NPCs fire faster shells (reflecting different ammunition types)
+			shellSpeed := 7.0 + (npc.Aggressiveness * 1.0) // Increased shell speed for more realistic ballistics
 
 			// Calculate barrel end position (like client's fireShell method)
-			barrelLength := 1.5 // BARREL_END_OFFSET from client code
+			barrelLength := 2.0 // Increased barrel length for more realistic tank proportions
 
 			// Calculate barrel tip position using barrel elevation and turret rotation
 			// This matches the client-side calculation in fireShell method
@@ -1538,17 +1767,17 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 			// Apply same calculation to get barrel tip position
 			// NEW: Starting shell position must be at the barrel tip to match client behavior
 			barrelTipX := state.Position.X + (firingDirX * barrelLength)
-			barrelTipY := state.Position.Y + 1.0 + (firingDirY * barrelLength) // Y offset for tank height
+			barrelTipY := state.Position.Y + 1.2 + (firingDirY * barrelLength) // Y offset for realistic tank turret height
 			barrelTipZ := state.Position.Z + (firingDirZ * barrelLength)
 
 			shellData := ShellData{
-				// NEW: Start shell exactly at barrel tip position - matching client behavior
+				// Start shell exactly at barrel tip position for realistic firing
 				Position: Position{
 					X: barrelTipX,
 					Y: barrelTipY,
 					Z: barrelTipZ,
 				},
-				// NEW: Direction must match the barrel direction exactly
+				// Direction matches the barrel direction exactly for ballistic accuracy
 				Direction: Position{
 					X: firingDirX,
 					Y: firingDirY,
