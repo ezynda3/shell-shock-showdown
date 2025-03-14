@@ -1,6 +1,8 @@
 package game
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/mark3labs/pro-saaskit/game/shared"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // NPCController manages NPC tanks
@@ -18,10 +21,10 @@ type NPCController struct {
 	npcs           map[string]*NPCTank
 	mutex          sync.RWMutex
 	gameMap        *GameMap
-	physicsDelay   time.Duration
 	isRunning      bool
 	quit           chan struct{}                  // Channel to signal shutdown
 	physicsManager shared.PhysicsManagerInterface // Reference to physics manager for targeting
+	watcher        jetstream.KeyWatcher           // KV watcher for game state changes
 }
 
 // Movement patterns
@@ -40,8 +43,8 @@ type NPCTank struct {
 	Name            string
 	State           PlayerState
 	MovementPattern MovementPattern
-	TargetID        string // ID of player this NPC is targeting
-	LastAttackerID  string // ID of player who last attacked this NPC (for grudge tracking)
+	TargetID        string    // ID of player this NPC is targeting
+	LastAttackerID  string    // ID of player who last attacked this NPC (for grudge tracking)
 	LastAttackTime  time.Time // When the NPC was last attacked
 	PatrolPoints    []Position
 	CurrentPoint    int
@@ -75,7 +78,6 @@ func NewNPCController(manager *Manager, gameMap *GameMap, physicsManager shared.
 		npcs:           make(map[string]*NPCTank),
 		mutex:          sync.RWMutex{},
 		gameMap:        gameMap,
-		physicsDelay:   16 * time.Millisecond, // ~60fps to match the game's rendering frequency
 		isRunning:      false,
 		quit:           make(chan struct{}),
 		physicsManager: physicsManager,
@@ -92,10 +94,22 @@ func (c *NPCController) Start() {
 	c.isRunning = true
 	c.mutex.Unlock()
 
+	// Set up KV watcher for game state changes
+	var err error
+	ctx := context.Background()
+	c.watcher, err = c.manager.WatchState(ctx)
+	if err != nil {
+		log.Error("Failed to create KV watcher for NPCs", "error", err)
+		c.mutex.Lock()
+		c.isRunning = false
+		c.mutex.Unlock()
+		return
+	}
+
 	// Start the main NPC simulation loop
 	go c.runSimulation()
 
-	log.Info("NPC Controller started")
+	log.Info("NPC Controller started with KV watcher")
 }
 
 // Stop halts the NPC simulation
@@ -105,6 +119,11 @@ func (c *NPCController) Stop() {
 
 	if !c.isRunning {
 		return
+	}
+
+	// Close watcher if it exists
+	if c.watcher != nil {
+		c.watcher.Stop()
 	}
 
 	close(c.quit)
@@ -215,10 +234,14 @@ func (c *NPCController) SpawnCustomNPC(name string, movementPattern MovementPatt
 	// Generate an NPC ID without NPC prefix but still distinguishable from players
 	npcID := fmt.Sprintf("bot_%d", time.Now().UnixNano())
 
-	// Create tank position using much wider area to match 5000x5000 map dimensions
-	// Use a larger spawn area but keep tanks within playable bounds
-	offsetX := -2000.0 + rand.Float64()*4000.0
-	offsetZ := -2000.0 + rand.Float64()*4000.0
+	// Bias NPC spawning toward center, within 1000 unit radius
+	// Use polar coordinates to ensure even distribution within circle
+	radius := rand.Float64() * 1000.0     // Random radius up to 1000 units
+	angle := rand.Float64() * 2 * math.Pi // Random angle 0-2π
+
+	// Convert polar to cartesian coordinates
+	offsetX := math.Cos(angle) * radius
+	offsetZ := math.Sin(angle) * radius
 
 	// Select a random color scheme
 	colorScheme := DefaultNPCColorSchemes[rand.Intn(len(DefaultNPCColorSchemes))]
@@ -243,20 +266,20 @@ func (c *NPCController) SpawnCustomNPC(name string, movementPattern MovementPatt
 	if movementPattern == PatrolMovement {
 		// Calculate distance from center
 		distFromCenter := math.Sqrt(offsetX*offsetX + offsetZ*offsetZ)
-		
+
 		// For spawns very far from center, make one patrol point near center
 		if distFromCenter > 1000 {
 			// Calculate angle toward center
 			centerAngle := math.Atan2(-offsetZ, -offsetX)
-			
+
 			// Create patrol points with one near center and others around spawn
 			size := 100.0 + rand.Float64()*200.0
-			
+
 			// Calculate a point that's closer to the center
 			moveTowardCenterDist := distFromCenter * 0.6 // Move 60% toward center
-			centerX := offsetX + math.Cos(centerAngle) * moveTowardCenterDist
-			centerZ := offsetZ + math.Sin(centerAngle) * moveTowardCenterDist
-			
+			centerX := offsetX + math.Cos(centerAngle)*moveTowardCenterDist
+			centerZ := offsetZ + math.Sin(centerAngle)*moveTowardCenterDist
+
 			patrolPoints = []Position{
 				{X: offsetX + size, Y: 0, Z: offsetZ + size},
 				{X: centerX, Y: 0, Z: centerZ}, // This point is closer to center
@@ -291,7 +314,7 @@ func (c *NPCController) SpawnCustomNPC(name string, movementPattern MovementPatt
 	// Calculate grudge factor - how likely to remember and pursue attackers
 	// Based on aggressiveness and tactical IQ
 	grudgeFactor := personality.Aggressiveness*0.7 + personality.TacticalIQ*0.3
-	
+
 	npc := &NPCTank{
 		ID:              npcID,
 		Name:            name,
@@ -301,7 +324,7 @@ func (c *NPCController) SpawnCustomNPC(name string, movementPattern MovementPatt
 		CurrentPoint:    0,
 		LastUpdate:      time.Now(),
 		LastFire:        time.Now(),
-		LastAttackerID:  "", // No attacker initially
+		LastAttackerID:  "",          // No attacker initially
 		LastAttackTime:  time.Time{}, // Zero time
 		FireCooldown:    personality.Cooldown,
 		ScanRadius:      500.0 + (personality.Aggressiveness * 250.0), // More aggressive = larger scan radius - increased for larger map
@@ -343,26 +366,52 @@ func (c *NPCController) SpawnCustomNPC(name string, movementPattern MovementPatt
 
 // runSimulation is the main NPC simulation loop
 func (c *NPCController) runSimulation() {
-	ticker := time.NewTicker(c.physicsDelay)
-	defer ticker.Stop()
+	// Create a fallback ticker that runs occasionally to ensure NPCs stay responsive
+	// even if KV updates are infrequent
+	fallbackTicker := time.NewTicker(1 * time.Second)
+	defer fallbackTicker.Stop()
+
+	// Process state updates using KV watcher
+	updates := c.watcher.Updates()
+	lastProcessed := time.Now()
+
+	// Only update NPCs if they have real targets or it's been a while
+	minUpdateInterval := 100 * time.Millisecond
 
 	for {
 		select {
 		case <-c.quit:
 			return
-		case <-ticker.C:
-			c.updateNPCs()
+		case update := <-updates:
+			// Process KV update
+			if update.Operation() != jetstream.KeyValueDelete { // Skip delete operations
+				var gameState GameState
+				if err := json.Unmarshal(update.Value(), &gameState); err != nil {
+					log.Error("Error unmarshaling game state from KV", "error", err)
+					continue
+				}
+
+				// Only process updates at a reasonable rate
+				if time.Since(lastProcessed) > minUpdateInterval {
+					c.processGameState(gameState)
+					lastProcessed = time.Now()
+				}
+			}
+		case <-fallbackTicker.C:
+			// Fallback update in case KV updates are infrequent
+			// This ensures NPCs keep moving even if no state changes happen
+			gameState := c.manager.GetState()
+			c.processGameState(gameState)
 		}
 	}
 }
 
-// updateNPCs processes all active NPCs
-func (c *NPCController) updateNPCs() {
-	// Get current game state for NPC decision making
-	gameState := c.manager.GetState()
-
+// processGameState updates NPCs based on current game state
+func (c *NPCController) processGameState(gameState GameState) {
 	// Process each NPC
 	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
 	for _, npc := range c.npcs {
 		if !npc.IsActive {
 			continue
@@ -372,50 +421,50 @@ func (c *NPCController) updateNPCs() {
 		serverState, exists := gameState.Players[npc.ID]
 		if exists {
 			// Update local state with server state
-			log.Debug("Updating NPC from server state", 
-				"id", npc.ID, 
-				"health", serverState.Health, 
-				"posX", serverState.Position.X, 
-				"posY", serverState.Position.Y, 
-				"posZ", serverState.Position.Z, 
+			log.Debug("Updating NPC from server state",
+				"id", npc.ID,
+				"health", serverState.Health,
+				"posX", serverState.Position.X,
+				"posY", serverState.Position.Y,
+				"posZ", serverState.Position.Z,
 				"destroyed", serverState.IsDestroyed)
-			
+
 			// Check for health reduction since last update (we've been hit!)
 			if serverState.Health < npc.State.Health && !serverState.IsDestroyed {
 				// Determine who might have attacked us
 				// Look for shells (which are tracked in game state)
 				var mostLikelyAttacker string
 				var closestShellDist float64 = 50.0 // Maximum distance to consider
-				
+
 				// Scan for recent shells that might have hit us
 				for _, shell := range gameState.Shells {
 					// Skip shells fired by this NPC
 					if shell.PlayerID == npc.ID {
 						continue
 					}
-					
+
 					// Calculate distance from shell to this NPC
 					dx := shell.Position.X - serverState.Position.X
 					dz := shell.Position.Z - serverState.Position.Z
 					shellDist := math.Sqrt(dx*dx + dz*dz)
-					
+
 					// If shell is close enough, consider it a potential hit
 					if shellDist < closestShellDist {
 						closestShellDist = shellDist
 						mostLikelyAttacker = shell.PlayerID
 					}
 				}
-				
+
 				// If we identified an attacker, remember them
 				if mostLikelyAttacker != "" {
 					// This player attacked us! Hold a grudge
 					npc.LastAttackerID = mostLikelyAttacker
 					npc.LastAttackTime = time.Now()
-					
-					log.Info("NPC was attacked!", 
-						"id", npc.ID, 
-						"attackerId", mostLikelyAttacker, 
-						"oldHealth", npc.State.Health, 
+
+					log.Info("NPC was attacked!",
+						"id", npc.ID,
+						"attackerId", mostLikelyAttacker,
+						"oldHealth", npc.State.Health,
 						"newHealth", serverState.Health)
 				}
 			}
@@ -429,15 +478,36 @@ func (c *NPCController) updateNPCs() {
 
 			// Handle respawn: always take server position and reset movement
 			if isRespawn {
-				log.Info("NPC respawned by server", 
-					"id", npc.ID, 
-					"posX", serverState.Position.X, 
-					"posY", serverState.Position.Y, 
+				log.Info("NPC respawned by server",
+					"id", npc.ID,
+					"posX", serverState.Position.X,
+					"posY", serverState.Position.Y,
 					"posZ", serverState.Position.Z)
 
-				// Always take the server's position on respawn
+				// First, take the server's position on respawn
 				npc.State.Position = serverState.Position
 
+				// Check if respawn position is outside the desired 1000 unit center radius
+				distFromCenter := math.Sqrt(
+					npc.State.Position.X*npc.State.Position.X +
+						npc.State.Position.Z*npc.State.Position.Z)
+
+				// If respawned outside our desired 1000 unit radius, override with centered position
+				if distFromCenter > 1000.0 {
+					// Generate a position within 1000 unit radius of center
+					radius := rand.Float64() * 1000.0     // Random radius up to 1000 units
+					angle := rand.Float64() * 2 * math.Pi // Random angle 0-2π
+
+					// Override server position to keep NPC in center area
+					npc.State.Position.X = math.Cos(angle) * radius
+					npc.State.Position.Z = math.Sin(angle) * radius
+
+					log.Info("Overriding NPC respawn position to stay within center radius",
+						"id", npc.ID,
+						"serverDist", distFromCenter,
+						"newX", npc.State.Position.X,
+						"newZ", npc.State.Position.Z)
+				}
 				// Reset movement state to prevent erratic movement
 				npc.State.IsMoving = false
 				npc.State.Velocity = 0.0
@@ -446,7 +516,7 @@ func (c *NPCController) updateNPCs() {
 				// Randomize tank rotation on respawn to avoid all NPCs facing same direction
 				npc.State.TankRotation = rand.Float64() * 2 * math.Pi
 				npc.State.TurretRotation = npc.State.TankRotation
-				
+
 				// Reset grudges on respawn
 				npc.LastAttackerID = ""
 				npc.LastAttackTime = time.Time{}
@@ -456,11 +526,11 @@ func (c *NPCController) updateNPCs() {
 				dz := npc.State.Position.Z - serverState.Position.Z
 				dist := math.Sqrt(dx*dx + dz*dz)
 				if dist > 5.0 {
-					log.Debug("NPC position corrected by server", 
-						"id", npc.ID, 
-						"oldX", npc.State.Position.X, 
-						"oldZ", npc.State.Position.Z, 
-						"newX", serverState.Position.X, 
+					log.Debug("NPC position corrected by server",
+						"id", npc.ID,
+						"oldX", npc.State.Position.X,
+						"oldZ", npc.State.Position.Z,
+						"newX", serverState.Position.X,
 						"newZ", serverState.Position.Z)
 					npc.State.Position = serverState.Position
 				}
@@ -491,7 +561,7 @@ func (c *NPCController) updateNPCs() {
 
 		// Force movement for stationary NPCs
 		if time.Since(npc.LastUpdate) > 3*time.Second && !npc.State.IsMoving {
-			log.Info("NPC has been stationary for too long, forcing movement", 
+			log.Info("NPC has been stationary for too long, forcing movement",
 				"id", npc.ID)
 			npc.State.IsMoving = true
 			npc.State.Velocity = 0.5 + rand.Float64()*0.5
@@ -506,7 +576,6 @@ func (c *NPCController) updateNPCs() {
 		// Save last update time
 		npc.LastUpdate = time.Now()
 	}
-	c.mutex.Unlock()
 }
 
 // updateNPCAI handles movement and firing for an NPC
@@ -522,7 +591,7 @@ func (c *NPCController) updateNPCAI(npc *NPCTank, gameState GameState) {
 	if npc.TargetID != "" {
 		// Calculate pursuit likelihood based on multiple factors
 		pursuitLikelihood := npc.Aggressiveness
-		
+
 		// If this is a player who attacked us, we're more likely to pursue them (hold a grudge)
 		if npc.LastAttackerID == npc.TargetID && !npc.LastAttackTime.IsZero() {
 			timeSinceAttack := time.Since(npc.LastAttackTime)
@@ -530,7 +599,7 @@ func (c *NPCController) updateNPCAI(npc *NPCTank, gameState GameState) {
 				// Increase pursuit likelihood based on grudge factor and recency
 				grudgeBoost := npc.GrudgeFactor * (1.0 - (float64(timeSinceAttack) / float64(30*time.Second)))
 				pursuitLikelihood += grudgeBoost * 0.5 // Significant boost to pursuit likelihood
-				
+
 				// Log grudge pursuit occasionally
 				if rand.Float64() < 0.02 {
 					log.Info("NPC pursuing attacker based on grudge",
@@ -541,7 +610,7 @@ func (c *NPCController) updateNPCAI(npc *NPCTank, gameState GameState) {
 				}
 			}
 		}
-		
+
 		// Pursue based on calculated likelihood
 		if pursuitLikelihood > 0.6 && (npc.TacticalIQ < 0.7 || rand.Float64() < pursuitLikelihood) {
 			// Pursue target if aggressive enough or holding a grudge
@@ -561,7 +630,8 @@ func (c *NPCController) updateNPCAI(npc *NPCTank, gameState GameState) {
 	// Set timestamp for this update
 	state.Timestamp = time.Now().UnixMilli()
 
-	// Update the state in game manager
+	// Update the state in game manager - note that our caller (processGameState) holds the mutex
+	// We need to temporarily release it while calling the manager
 	c.mutex.Unlock() // Unlock before calling manager
 	if err := c.manager.UpdatePlayer(state, npc.ID, npc.Name); err != nil {
 		log.Error("Error updating NPC state", "id", npc.ID, "error", err)
@@ -606,15 +676,15 @@ func (c *NPCController) pursueTarget(npc *NPCTank, state *PlayerState, gameState
 		// Need to back up - tanks can only move forward or backward along their facing direction
 		// So we face the target but move backward
 		state.TankRotation = targetAngle // Face the target
-		npc.MovingBackward = true // Move backward
-		
+		npc.MovingBackward = true        // Move backward
+
 		// Set negative velocity for proper movement calculation
 		state.Velocity = -math.Abs(state.Velocity)
 	} else if distToTarget > idealDistance*1.3 {
 		// If we're too far, move towards target
-		state.TankRotation = targetAngle // Face the target  
-		npc.MovingBackward = false // Move forward
-		
+		state.TankRotation = targetAngle // Face the target
+		npc.MovingBackward = false       // Move forward
+
 		// Use positive velocity
 		state.Velocity = math.Abs(state.Velocity)
 	} else {
@@ -627,7 +697,7 @@ func (c *NPCController) pursueTarget(npc *NPCTank, state *PlayerState, gameState
 			if rand.Float64() < 0.5 {
 				circleOffset = -math.Pi / 3 // Random direction
 			}
-			
+
 			// Face in flanking direction
 			state.TankRotation = normalizeAngle(targetAngle + circleOffset)
 			npc.MovingBackward = false // Move forward in flanking direction
@@ -635,7 +705,7 @@ func (c *NPCController) pursueTarget(npc *NPCTank, state *PlayerState, gameState
 		} else {
 			// Less tactical tanks just face target directly
 			state.TankRotation = targetAngle
-			
+
 			// Occasionally reverse direction to be less predictable
 			if rand.Float64() < 0.03 {
 				npc.MovingBackward = !npc.MovingBackward
@@ -697,11 +767,11 @@ func (c *NPCController) pursueTarget(npc *NPCTank, state *PlayerState, gameState
 
 	// Log pursuit behavior occasionally
 	if rand.Float64() < 0.01 {
-		log.Debug("NPC pursuing target", 
-			"id", npc.ID, 
-			"targetId", npc.TargetID, 
-			"distance", distToTarget, 
-			"idealDistance", idealDistance, 
+		log.Debug("NPC pursuing target",
+			"id", npc.ID,
+			"targetId", npc.TargetID,
+			"distance", distToTarget,
+			"idealDistance", idealDistance,
 			"moving", state.IsMoving)
 	}
 }
@@ -711,10 +781,10 @@ func (c *NPCController) findTarget(npc *NPCTank, gameState GameState) {
 	var bestTargetID string
 	var bestTargetScore float64 = -1.0
 	var bestTargetDist float64 = npc.ScanRadius + 1.0 // Initialize larger than scan radius
-	
+
 	// Check if we have line of sight to potential targets
 	hasLineOfSight := map[string]bool{}
-	
+
 	// Find best target considering multiple factors
 	for playerID, player := range gameState.Players {
 		// Skip self, other NPCs, and destroyed tanks
@@ -731,7 +801,7 @@ func (c *NPCController) findTarget(npc *NPCTank, gameState GameState) {
 		if dist > npc.ScanRadius {
 			continue
 		}
-		
+
 		// Check line of sight if we have physics manager
 		canSee := true
 		if c.physicsManager != nil {
@@ -740,10 +810,10 @@ func (c *NPCController) findTarget(npc *NPCTank, gameState GameState) {
 			canSee = c.physicsManager.CheckLineOfSight(fromPos, toPos)
 			hasLineOfSight[playerID] = canSee
 		}
-		
+
 		// Base score on distance (closer is better)
 		distanceScore := 1.0 - (dist / npc.ScanRadius)
-		
+
 		// If this player recently attacked us, greatly increase score (tank holds a grudge)
 		recentAttackerBonus := 0.0
 		if playerID == npc.LastAttackerID && !npc.LastAttackTime.IsZero() {
@@ -752,40 +822,40 @@ func (c *NPCController) findTarget(npc *NPCTank, gameState GameState) {
 				// Higher grudge bonus the more recent the attack
 				recentFactor := 1.0 - (float64(timeSinceAttack) / float64(30*time.Second))
 				recentAttackerBonus = 2.0 * recentFactor * npc.GrudgeFactor
-				
+
 				// Log grudge targeting
 				if rand.Float64() < 0.1 {
-					log.Debug("NPC holding grudge against attacker", 
-						"id", npc.ID, 
+					log.Debug("NPC holding grudge against attacker",
+						"id", npc.ID,
 						"attackerId", playerID,
 						"timeSince", timeSinceAttack.Seconds(),
 						"bonus", recentAttackerBonus)
 				}
 			}
 		}
-		
+
 		// Lower-health targets are better targets for tactical NPCs
 		healthScore := 0.0
 		if npc.TacticalIQ > 0.5 && player.Health < 100 {
 			healthScore = (100.0 - float64(player.Health)) / 100.0 * npc.TacticalIQ * 0.5
 		}
-		
+
 		// Line of sight bonus - heavily prioritize targets we can actually see
 		lineOfSightMultiplier := 1.0
 		if !canSee {
 			// Can't see target, greatly reduce score unless tactical IQ is very low
 			lineOfSightMultiplier = 0.2 + (0.3 * (1.0 - npc.TacticalIQ))
 		}
-		
+
 		// Calculate final score combining all factors
 		totalScore := (distanceScore + healthScore + recentAttackerBonus) * lineOfSightMultiplier
-		
+
 		// Current target persistence bonus to avoid frequent switching
 		if playerID == npc.TargetID && npc.TacticalIQ > 0.4 {
 			// Add bonus to current target to reduce erratic switching
 			totalScore *= 1.2
 		}
-		
+
 		// Check if this is our best target so far
 		if totalScore > bestTargetScore {
 			bestTargetScore = totalScore
@@ -798,10 +868,10 @@ func (c *NPCController) findTarget(npc *NPCTank, gameState GameState) {
 	if bestTargetID != "" {
 		// If changing targets, log the change
 		if bestTargetID != npc.TargetID {
-			log.Debug("NPC changing target", 
-				"id", npc.ID, 
-				"oldTarget", npc.TargetID, 
-				"newTarget", bestTargetID, 
+			log.Debug("NPC changing target",
+				"id", npc.ID,
+				"oldTarget", npc.TargetID,
+				"newTarget", bestTargetID,
 				"distance", bestTargetDist,
 				"canSee", hasLineOfSight[bestTargetID])
 		}
@@ -834,44 +904,44 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 
 	// Get current time for time-based oscillations (like client-side)
 	now := float64(time.Now().UnixNano()) / 1e9
-	
+
 	// Calculate distance from center for center-gravity effect
 	distFromCenter := math.Sqrt(state.Position.X*state.Position.X + state.Position.Z*state.Position.Z)
-	
+
 	// Create a center gravity effect that increases with distance
 	centerBias := 0.0
 	if distFromCenter > 1000 { // Begin center bias at 1000 units from center
 		// Exponentially increases with distance
 		centerBias = math.Min(0.85, (distFromCenter-1000)/2500)
 	}
-	
+
 	// Check if we need to override circular pattern and move toward center
 	if centerBias > 0.3 && rand.Float64() < centerBias*0.4 { // Higher chance the further away
 		// Calculate angle toward center
 		centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
-		
+
 		// Turn toward center with smooth interpolation
 		angleDiff := normalizeAngle(centerAngle - state.TankRotation)
 		turnRate := 0.02 + (centerBias * 0.03) // Faster turning when far from center
-		
+
 		rotationAmount := math.Copysign(
 			math.Min(math.Abs(angleDiff), turnRate),
 			angleDiff,
 		)
-		
+
 		// Apply rotation with tiny wobble for natural movement
 		wobble := (rand.Float64() - 0.5) * 0.002
 		state.TankRotation += rotationAmount + wobble
 		state.TankRotation = normalizeAngle(state.TankRotation)
-		
+
 		// Move faster when far from center
 		speedBoost := 1.0 + (centerBias * 0.7) // Up to 70% speed boost
 		state.Velocity = speed * speedBoost
-		
+
 		// Log center movement
 		if rand.Float64() < 0.05 {
-			log.Debug("Circle NPC gravitating toward center", 
-				"id", npc.ID, 
+			log.Debug("Circle NPC gravitating toward center",
+				"id", npc.ID,
 				"distance", distFromCenter,
 				"centerBias", centerBias,
 				"boostedSpeed", state.Velocity)
@@ -881,15 +951,15 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 		// Use sine wave for more natural turning like client-side tank movement
 		// Add time-based oscillation for more natural motion
 		turnMultiplier := 0.5 + (math.Sin(now*0.3) * 0.5) // Oscillate between 0.0 and 1.0
-		
+
 		// For distant NPCs, gradually bias the turning direction toward center
 		if centerBias > 0 {
 			// Calculate angle toward center
 			centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
-			
+
 			// Calculate angle difference to determine if we're turning toward or away from center
 			angleDiff := normalizeAngle(centerAngle - state.TankRotation)
-			
+
 			// If the turn would move us away from center, reduce turn amount
 			// If the turn would move us toward center, increase turn amount
 			turnBiasMultiplier := 1.0
@@ -900,25 +970,25 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 				// We're generally facing away from center, decrease turning
 				turnBiasMultiplier = 1.0 + (centerBias * 0.6) // Increase turning up to 60%
 			}
-			
+
 			turnMultiplier *= turnBiasMultiplier
 		}
-		
+
 		// Smoother, more gradual turning with time-based variation
 		turnAmount := 0.001 * speed * turnMultiplier // For smoother 60fps motion
 		state.TankRotation += turnAmount
-		
+
 		// Normalize angle
 		state.TankRotation = normalizeAngle(state.TankRotation)
-		
+
 		// Add slight speed variation for more natural movement (like client)
 		speedVariation := 1.0 + (math.Sin(now*0.2) * 0.1) // ±10% speed variation
-		
+
 		// Apply small speed boost if far from center
 		centerSpeedBoost := 1.0 + (centerBias * 0.3) // Up to 30% boost
 		state.Velocity = speed * speedVariation * centerSpeedBoost
 	}
-	
+
 	// Always be moving
 	state.IsMoving = true
 
@@ -937,11 +1007,11 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Debug("NPC tank moving in circle", 
-			"id", npc.ID, 
-			"posX", state.Position.X, 
-			"posZ", state.Position.Z, 
-			"rotation", state.TankRotation, 
+		log.Debug("NPC tank moving in circle",
+			"id", npc.ID,
+			"posX", state.Position.X,
+			"posZ", state.Position.Z,
+			"rotation", state.TankRotation,
 			"velocity", state.Velocity,
 			"distFromCenter", distFromCenter,
 			"centerBias", centerBias)
@@ -952,96 +1022,96 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
 	// Get current time for oscillation - matches client-side time-based animation
 	now := float64(time.Now().UnixNano()) / 1e9
-	
+
 	// Calculate distance from center for center-gravity effect
 	distFromCenter := math.Sqrt(state.Position.X*state.Position.X + state.Position.Z*state.Position.Z)
-	
+
 	// Create a center gravity effect that increases with distance
 	centerBias := 0.0
 	if distFromCenter > 800 { // Lower threshold for zigzag pattern
 		// Exponentially increases with distance
 		centerBias = math.Min(0.9, (distFromCenter-800)/2200)
 	}
-	
+
 	// Check if we need to override zigzag pattern and move toward center
 	if centerBias > 0.25 && rand.Float64() < centerBias*0.5 { // Higher chance the further away
 		// Calculate angle toward center
 		centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
-		
+
 		// Turn toward center with smooth interpolation
 		angleDiff := normalizeAngle(centerAngle - state.TankRotation)
 		turnRate := 0.025 + (centerBias * 0.035) // Faster turning when far from center
-		
+
 		rotationAmount := math.Copysign(
 			math.Min(math.Abs(angleDiff), turnRate),
 			angleDiff,
 		)
-		
+
 		// Apply rotation with tiny wobble for natural movement
 		wobble := (rand.Float64() - 0.5) * 0.003
 		state.TankRotation += rotationAmount + wobble
 		state.TankRotation = normalizeAngle(state.TankRotation)
-		
+
 		// Move faster when far from center
-		baseSpeed := 0.2 // Base speed value (matching player tank speed)
+		baseSpeed := 0.2                       // Base speed value (matching player tank speed)
 		speedBoost := 1.0 + (centerBias * 0.8) // Up to 80% speed boost
 		state.Velocity = baseSpeed * npc.MoveSpeed * speedBoost
-		
+
 		// Log center movement
 		if rand.Float64() < 0.05 {
-			log.Debug("Zigzag NPC gravitating toward center", 
-				"id", npc.ID, 
+			log.Debug("Zigzag NPC gravitating toward center",
+				"id", npc.ID,
 				"distance", distFromCenter,
 				"centerBias", centerBias,
 				"boostedSpeed", state.Velocity)
 		}
 	} else {
 		// Normal zigzag movement but biased toward center when far away
-		
+
 		// Calculate zigzag pattern with more natural motion like client-side
 		// Use sine wave with variable amplitude based on tactical IQ
 		oscillationFrequency := 0.2 + (npc.TacticalIQ * 0.3)      // Higher IQ = faster zigzag
 		oscillationAmplitude := 0.02 * (1.0 - npc.TacticalIQ*0.5) // Higher IQ = more controlled zigzag
-		
+
 		// For distant NPCs, gradually bias the zigzag direction toward center
 		if centerBias > 0 {
 			// Calculate angle toward center
 			centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
-			
+
 			// Calculate angle difference to determine if we're heading toward or away from center
 			angleDiff := normalizeAngle(centerAngle - state.TankRotation)
-			
+
 			// Add subtle correction to zigzag that increases with distance from center
 			centerCorrection := angleDiff * centerBias * 0.006
-			
+
 			// Apply the center correction to the tank's rotation
 			state.TankRotation += centerCorrection
 		}
-		
+
 		// Create more dynamic and natural zigzag pattern using time
 		oscillation := math.Sin(now*oscillationFrequency) * oscillationAmplitude
-		
+
 		// Add second harmonic for more natural and less predictable motion
 		oscillation += math.Sin(now*oscillationFrequency*2.7) * oscillationAmplitude * 0.3
-		
+
 		// Apply the oscillation to the tank's rotation
 		state.TankRotation += oscillation
-		
+
 		// Normalize angle
 		state.TankRotation = normalizeAngle(state.TankRotation)
-		
+
 		// Always be moving
 		state.IsMoving = true
 		baseSpeed := 0.2 // Base speed value (matching player tank speed)
-		
+
 		// Vary speed slightly based on zigzag phase for more natural movement
 		speedVariation := 1.0 + (math.Cos(now*oscillationFrequency*2) * 0.1) // ±10% speed variation
-		
+
 		// Apply small speed boost if far from center
 		centerSpeedBoost := 1.0 + (centerBias * 0.4) // Up to 40% boost when far from center
 		state.Velocity = baseSpeed * npc.MoveSpeed * speedVariation * centerSpeedBoost
 	}
-	
+
 	// Always be moving
 	state.IsMoving = true
 
@@ -1059,11 +1129,11 @@ func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
 
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Debug("NPC tank moving in zigzag", 
-			"id", npc.ID, 
-			"posX", state.Position.X, 
-			"posZ", state.Position.Z, 
-			"rotation", state.TankRotation, 
+		log.Debug("NPC tank moving in zigzag",
+			"id", npc.ID,
+			"posX", state.Position.X,
+			"posZ", state.Position.Z,
+			"rotation", state.TankRotation,
 			"distFromCenter", distFromCenter,
 			"centerBias", centerBias,
 			"velocity", state.Velocity)
@@ -1077,11 +1147,11 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 
 	// Calculate distance from center for center-gravity effect
 	distFromCenter := math.Sqrt(state.Position.X*state.Position.X + state.Position.Z*state.Position.Z)
-	
+
 	// Create a center gravity bias that increases with distance
 	centerBias := 0.0
 	if distFromCenter > 1500 { // Higher threshold for patrol tanks than random movement
-		// Exponentially increases with distance 
+		// Exponentially increases with distance
 		centerBias = math.Min(0.8, (distFromCenter-1500)/2000)
 	}
 
@@ -1098,7 +1168,7 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 		if centerBias > 0 && rand.Float64() < centerBias {
 			// Calculate angle toward center
 			centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
-			
+
 			// Turn toward center with smooth interpolation
 			angleDiff := normalizeAngle(centerAngle - state.TankRotation)
 			rotationAmount := math.Copysign(
@@ -1106,10 +1176,10 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 				angleDiff,
 			)
 			state.TankRotation += rotationAmount
-			
+
 			// Log center correction
-			log.Debug("Patrol NPC (without points) gravitating toward center", 
-				"id", npc.ID, 
+			log.Debug("Patrol NPC (without points) gravitating toward center",
+				"id", npc.ID,
 				"distance", distFromCenter,
 				"centerBias", centerBias)
 		} else {
@@ -1117,7 +1187,7 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 			oscillation := math.Sin(now*0.3) * 0.005
 			state.TankRotation += oscillation
 		}
-		
+
 		state.TankRotation = normalizeAngle(state.TankRotation)
 
 		// IMPORTANT: Actually update the position based on rotation and velocity
@@ -1136,57 +1206,57 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 	if centerBias > 0 && rand.Float64() < centerBias*0.3 { // 30% chance when at maximum bias
 		// Calculate angle toward center
 		centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
-		
+
 		// Create temporary target point toward center
 		moveTowardCenterDist := distFromCenter * 0.4 // Move 40% toward center in one go
-		centerX := state.Position.X + math.Cos(centerAngle) * moveTowardCenterDist
-		centerZ := state.Position.Z + math.Sin(centerAngle) * moveTowardCenterDist
-		
+		centerX := state.Position.X + math.Cos(centerAngle)*moveTowardCenterDist
+		centerZ := state.Position.Z + math.Sin(centerAngle)*moveTowardCenterDist
+
 		tempTarget := Position{X: centerX, Y: 0, Z: centerZ}
-		
+
 		// Calculate direction to center temp target
 		dx := tempTarget.X - state.Position.X
 		dz := tempTarget.Z - state.Position.Z
-		
+
 		targetAngle := math.Atan2(dz, dx)
-		
-		log.Info("Patrol NPC temporarily moving toward center", 
-			"id", npc.ID, 
+
+		log.Info("Patrol NPC temporarily moving toward center",
+			"id", npc.ID,
 			"distance", distFromCenter,
 			"centerBias", centerBias,
 			"targetX", centerX,
 			"targetZ", centerZ)
-		
+
 		// Turn toward center
 		currentAngle := state.TankRotation
 		angleDiff := normalizeAngle(targetAngle - currentAngle)
-		
+
 		// Faster rotation for center correction
 		rotationSpeed := 0.03
 		rotationAmount := math.Copysign(
 			math.Min(math.Abs(angleDiff), rotationSpeed),
 			angleDiff,
 		)
-		
+
 		// Apply rotation with slight wobble
 		wobble := (rand.Float64() - 0.5) * 0.001
 		state.TankRotation = normalizeAngle(currentAngle + rotationAmount + wobble)
-		
+
 		// Move faster toward center
 		baseSpeed := 0.2
 		speedBoost := 1.0 + (centerBias * 0.6) // Up to 60% speed boost
 		state.Velocity = baseSpeed * npc.MoveSpeed * speedBoost
-		
+
 		// Update position
 		moveX := math.Cos(state.TankRotation) * state.Velocity
 		moveZ := math.Sin(state.TankRotation) * state.Velocity
-		
+
 		state.Position.X += moveX
 		state.Position.Z += moveZ
-		
+
 		// Update track animation
 		state.TrackRotation = state.Velocity * 5.0
-		
+
 		return
 	}
 
@@ -1204,8 +1274,8 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 	if dist < arrivalDistance {
 		// Move to next patrol point
 		npc.CurrentPoint = (npc.CurrentPoint + 1) % len(npc.PatrolPoints)
-		log.Debug("NPC tank reached patrol point, moving to next point", 
-			"id", npc.ID, 
+		log.Debug("NPC tank reached patrol point, moving to next point",
+			"id", npc.ID,
 			"nextPoint", npc.CurrentPoint)
 	}
 
@@ -1280,14 +1350,14 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Debug("NPC tank patrolling", 
-			"id", npc.ID, 
-			"posX", state.Position.X, 
-			"posZ", state.Position.Z, 
-			"rotation", state.TankRotation, 
-			"targetX", target.X, 
-			"targetZ", target.Z, 
-			"distance", dist, 
+		log.Debug("NPC tank patrolling",
+			"id", npc.ID,
+			"posX", state.Position.X,
+			"posZ", state.Position.Z,
+			"rotation", state.TankRotation,
+			"targetX", target.X,
+			"targetZ", target.Z,
+			"distance", dist,
 			"distFromCenter", distFromCenter,
 			"centerBias", centerBias,
 			"speed", state.Velocity)
@@ -1306,7 +1376,7 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 
 	// Calculate distance from center and bias NPCs to move toward center when far away
 	distFromCenter := math.Sqrt(state.Position.X*state.Position.X + state.Position.Z*state.Position.Z)
-	
+
 	// Create a gravity effect that increases with distance from center
 	// The further away, the higher the chance of turning toward center
 	centerBias := 0.0
@@ -1324,23 +1394,23 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 	changeProbability *= 0.8 + math.Abs(math.Sin(now*0.5))*0.4
 
 	// Occasionally change direction with a natural pattern
-	if rand.Float64() < changeProbability || distFromCenter > MAP_BOUND * 0.8 {
+	if rand.Float64() < changeProbability || distFromCenter > MAP_BOUND*0.8 {
 		// Calculate angle toward center
 		centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
-		
+
 		// Blend between random direction and center direction based on distance
 		if rand.Float64() < centerBias || distFromCenter > MAP_BOUND {
 			// Move directly toward center if too far from map bounds or based on center bias
 			npc.TargetRotation = centerAngle
-			
+
 			// Log boundary correction
 			if distFromCenter > MAP_BOUND {
-				log.Info("NPC reached map boundary, turning back toward center", 
-					"id", npc.ID, 
+				log.Info("NPC reached map boundary, turning back toward center",
+					"id", npc.ID,
 					"distance", distFromCenter)
 			} else {
-				log.Debug("NPC gravitating toward center", 
-					"id", npc.ID, 
+				log.Debug("NPC gravitating toward center",
+					"id", npc.ID,
 					"distance", distFromCenter,
 					"centerBias", centerBias)
 			}
@@ -1355,10 +1425,10 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 
 			// Log direction changes occasionally
 			if rand.Float64() < 0.1 {
-				log.Debug("NPC changing direction", 
-					"id", npc.ID, 
-					"current", state.TankRotation, 
-					"target", npc.TargetRotation, 
+				log.Debug("NPC changing direction",
+					"id", npc.ID,
+					"current", state.TankRotation,
+					"target", npc.TargetRotation,
 					"change", rotationChange)
 			}
 		}
@@ -1413,7 +1483,7 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 	// Add smooth speed variations like client-side
 	// Higher TacticalIQ = more consistent speed
 	speedVariation := 1.0 + (math.Sin(now*0.7) * 0.1 * (1.0 - npc.TacticalIQ*0.5))
-	
+
 	// Increase speed when far from center to help NPCs get back to playable area faster
 	centerSpeedBoost := 1.0 + (centerBias * 0.5) // Up to 50% speed boost
 	state.Velocity = baseSpeed * npc.MoveSpeed * speedVariation * centerSpeedBoost
@@ -1431,11 +1501,11 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
-		log.Debug("NPC moving randomly", 
-			"id", npc.ID, 
-			"posX", state.Position.X, 
-			"posZ", state.Position.Z, 
-			"rotation", state.TankRotation, 
+		log.Debug("NPC moving randomly",
+			"id", npc.ID,
+			"posX", state.Position.X,
+			"posZ", state.Position.Z,
+			"rotation", state.TankRotation,
 			"velocity", state.Velocity,
 			"distFromCenter", distFromCenter,
 			"centerBias", centerBias)
@@ -1518,11 +1588,11 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 
 				// Log target selection for high-value targets (debug info)
 				if player.Health < 30 || !isBot {
-					log.Debug("NPC found strategic target", 
-						"id", npc.ID, 
-						"targetId", playerID, 
-						"distance", dist, 
-						"health", player.Health, 
+					log.Debug("NPC found strategic target",
+						"id", npc.ID,
+						"targetId", playerID,
+						"distance", dist,
+						"health", player.Health,
 						"score", targetScore)
 				}
 			}
@@ -1580,13 +1650,13 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 
 			// Log prediction occasionally
 			if rand.Float64() < 0.05 {
-				log.Debug("NPC leading target", 
-					"id", npc.ID, 
-					"targetId", npc.TargetID, 
-					"currentX", targetPos.X, 
-					"currentZ", targetPos.Z, 
-					"predictedX", predictedX, 
-					"predictedZ", predictedZ, 
+				log.Debug("NPC leading target",
+					"id", npc.ID,
+					"targetId", npc.TargetID,
+					"currentX", targetPos.X,
+					"currentZ", targetPos.Z,
+					"predictedX", predictedX,
+					"predictedZ", predictedZ,
 					"lead", leadFactor)
 			}
 		}
@@ -1688,13 +1758,13 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 
 		// Calculate firing readiness based on aiming parameters
 		aimingPrecision := math.Abs(normalizedDifference) // Lower value means better aim
-		
+
 		// Make sure we have line of sight to target
 		if c.physicsManager != nil {
 			// Convert positions for physics check
 			fromPos := shared.Position{X: state.Position.X, Y: state.Position.Y + 1.2, Z: state.Position.Z} // Realistic tank turret height
 			toPos := shared.Position{X: targetPos.X, Y: targetPos.Y, Z: targetPos.Z}
-			
+
 			// Update line of sight status
 			npc.CanSeeTarget = c.physicsManager.CheckLineOfSight(fromPos, toPos)
 		}
@@ -1704,12 +1774,12 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 		if npc.TacticalIQ > 0.6 {
 			// Only fire when aim is relatively precise (turret fairly aligned with target)
 			maxAllowedError := (1.0 - npc.FiringAccuracy) * 0.2 // Tighter precision threshold
-			
+
 			// Check if we're aligned well enough to fire
-			readyToFire = aimingPrecision < maxAllowedError && 
-						  math.Abs(elevationDifference) < 0.1 && // Check barrel elevation alignment
-						  npc.CanSeeTarget // Make sure we can see target
-			
+			readyToFire = aimingPrecision < maxAllowedError &&
+				math.Abs(elevationDifference) < 0.1 && // Check barrel elevation alignment
+				npc.CanSeeTarget // Make sure we can see target
+
 			// Stationary targets are easier to hit
 			if bestTarget != nil && !bestTarget.IsMoving && aimingPrecision < maxAllowedError*1.5 {
 				readyToFire = true
@@ -1718,11 +1788,11 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 			// Even high IQ NPCs will eventually fire if they've been aiming for too long and close enough
 			if timeSinceLastFire > time.Duration(float64(npc.FireCooldown)*2.5) && aimingPrecision < 0.15 && npc.CanSeeTarget {
 				readyToFire = true
-				
+
 				// Log decision to fire
 				if rand.Float64() < 0.3 {
-					log.Debug("NPC firing after extended aiming", 
-						"id", npc.ID, 
+					log.Debug("NPC firing after extended aiming",
+						"id", npc.ID,
 						"precision", aimingPrecision,
 						"timeSinceLastFire", timeSinceLastFire)
 				}
@@ -1787,12 +1857,12 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 			}
 
 			// Log firing attempt
-			log.Info("NPC firing at target", 
-				"id", npc.ID, 
-				"targetId", npc.TargetID, 
-				"distance", bestDistance, 
-				"accuracy", npc.FiringAccuracy, 
-				"inaccuracy", inaccuracy, 
+			log.Info("NPC firing at target",
+				"id", npc.ID,
+				"targetId", npc.TargetID,
+				"distance", bestDistance,
+				"accuracy", npc.FiringAccuracy,
+				"inaccuracy", inaccuracy,
 				"shellSpeed", shellSpeed)
 
 			// Fire the shell using the helper method
@@ -1869,6 +1939,9 @@ func (c *NPCController) updateAimingAndFiring(npc *NPCTank, state *PlayerState, 
 
 // FireNPCShell handles firing a shell with proper debouncing
 func (c *NPCController) FireNPCShell(npc *NPCTank, shellData ShellData) bool {
+	// Note: this function is called from updateAimingAndFiring, which is called from updateNPCAI
+	// The calling function already handles temporarily releasing and re-acquiring the mutex
+
 	// Fire the shell through the manager (which has its own debouncing)
 	_, err := c.manager.FireShell(shellData, npc.ID)
 
