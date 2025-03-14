@@ -6,3 +6,4 @@ bin/
 tmp/
 node_modules/
 bin/
+build_errors.txt

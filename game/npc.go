@@ -237,13 +237,37 @@ func (c *NPCController) SpawnCustomNPC(name string, movementPattern MovementPatt
 	// Create patrol points if using patrol pattern
 	var patrolPoints []Position
 	if movementPattern == PatrolMovement {
-		// Create a square patrol route - larger patrol areas for the 5000x5000 map
-		size := 100.0 + rand.Float64()*200.0
-		patrolPoints = []Position{
-			{X: offsetX + size, Y: 0, Z: offsetZ + size},
-			{X: offsetX + size, Y: 0, Z: offsetZ - size},
-			{X: offsetX - size, Y: 0, Z: offsetZ - size},
-			{X: offsetX - size, Y: 0, Z: offsetZ + size},
+		// Calculate distance from center
+		distFromCenter := math.Sqrt(offsetX*offsetX + offsetZ*offsetZ)
+		
+		// For spawns very far from center, make one patrol point near center
+		if distFromCenter > 1000 {
+			// Calculate angle toward center
+			centerAngle := math.Atan2(-offsetZ, -offsetX)
+			
+			// Create patrol points with one near center and others around spawn
+			size := 100.0 + rand.Float64()*200.0
+			
+			// Calculate a point that's closer to the center
+			moveTowardCenterDist := distFromCenter * 0.6 // Move 60% toward center
+			centerX := offsetX + math.Cos(centerAngle) * moveTowardCenterDist
+			centerZ := offsetZ + math.Sin(centerAngle) * moveTowardCenterDist
+			
+			patrolPoints = []Position{
+				{X: offsetX + size, Y: 0, Z: offsetZ + size},
+				{X: centerX, Y: 0, Z: centerZ}, // This point is closer to center
+				{X: offsetX - size, Y: 0, Z: offsetZ - size},
+				{X: offsetX - size, Y: 0, Z: offsetZ + size},
+			}
+		} else {
+			// Regular patrol route for tanks already near center
+			size := 100.0 + rand.Float64()*200.0
+			patrolPoints = []Position{
+				{X: offsetX + size, Y: 0, Z: offsetZ + size},
+				{X: offsetX + size, Y: 0, Z: offsetZ - size},
+				{X: offsetX - size, Y: 0, Z: offsetZ - size},
+				{X: offsetX - size, Y: 0, Z: offsetZ + size},
+			}
 		}
 	}
 
@@ -608,24 +632,93 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 
 	// Get current time for time-based oscillations (like client-side)
 	now := float64(time.Now().UnixNano()) / 1e9
-
-	// Use sine wave for more natural turning like client-side tank movement
-	// Add time-based oscillation for more natural motion
-	turnMultiplier := 0.5 + (math.Sin(now*0.3) * 0.5) // Oscillate between 0.0 and 1.0
-
-	// Smoother, more gradual turning with time-based variation
-	turnAmount := 0.001 * speed * turnMultiplier // For smoother 60fps motion
-	state.TankRotation += turnAmount
-
-	// Normalize angle
-	state.TankRotation = normalizeAngle(state.TankRotation)
-
+	
+	// Calculate distance from center for center-gravity effect
+	distFromCenter := math.Sqrt(state.Position.X*state.Position.X + state.Position.Z*state.Position.Z)
+	
+	// Create a center gravity effect that increases with distance
+	centerBias := 0.0
+	if distFromCenter > 1000 { // Begin center bias at 1000 units from center
+		// Exponentially increases with distance
+		centerBias = math.Min(0.85, (distFromCenter-1000)/2500)
+	}
+	
+	// Check if we need to override circular pattern and move toward center
+	if centerBias > 0.3 && rand.Float64() < centerBias*0.4 { // Higher chance the further away
+		// Calculate angle toward center
+		centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
+		
+		// Turn toward center with smooth interpolation
+		angleDiff := normalizeAngle(centerAngle - state.TankRotation)
+		turnRate := 0.02 + (centerBias * 0.03) // Faster turning when far from center
+		
+		rotationAmount := math.Copysign(
+			math.Min(math.Abs(angleDiff), turnRate),
+			angleDiff,
+		)
+		
+		// Apply rotation with tiny wobble for natural movement
+		wobble := (rand.Float64() - 0.5) * 0.002
+		state.TankRotation += rotationAmount + wobble
+		state.TankRotation = normalizeAngle(state.TankRotation)
+		
+		// Move faster when far from center
+		speedBoost := 1.0 + (centerBias * 0.7) // Up to 70% speed boost
+		state.Velocity = speed * speedBoost
+		
+		// Log center movement
+		if rand.Float64() < 0.05 {
+			log.Debug("Circle NPC gravitating toward center", 
+				"id", npc.ID, 
+				"distance", distFromCenter,
+				"centerBias", centerBias,
+				"boostedSpeed", state.Velocity)
+		}
+	} else {
+		// Normal circular movement with slight center bias
+		// Use sine wave for more natural turning like client-side tank movement
+		// Add time-based oscillation for more natural motion
+		turnMultiplier := 0.5 + (math.Sin(now*0.3) * 0.5) // Oscillate between 0.0 and 1.0
+		
+		// For distant NPCs, gradually bias the turning direction toward center
+		if centerBias > 0 {
+			// Calculate angle toward center
+			centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
+			
+			// Calculate angle difference to determine if we're turning toward or away from center
+			angleDiff := normalizeAngle(centerAngle - state.TankRotation)
+			
+			// If the turn would move us away from center, reduce turn amount
+			// If the turn would move us toward center, increase turn amount
+			turnBiasMultiplier := 1.0
+			if math.Abs(angleDiff) < math.Pi/2 {
+				// We're generally facing toward center, increase turning slightly
+				turnBiasMultiplier = 1.0 - (centerBias * 0.4) // Reduce turning up to 40%
+			} else {
+				// We're generally facing away from center, decrease turning
+				turnBiasMultiplier = 1.0 + (centerBias * 0.6) // Increase turning up to 60%
+			}
+			
+			turnMultiplier *= turnBiasMultiplier
+		}
+		
+		// Smoother, more gradual turning with time-based variation
+		turnAmount := 0.001 * speed * turnMultiplier // For smoother 60fps motion
+		state.TankRotation += turnAmount
+		
+		// Normalize angle
+		state.TankRotation = normalizeAngle(state.TankRotation)
+		
+		// Add slight speed variation for more natural movement (like client)
+		speedVariation := 1.0 + (math.Sin(now*0.2) * 0.1) // ±10% speed variation
+		
+		// Apply small speed boost if far from center
+		centerSpeedBoost := 1.0 + (centerBias * 0.3) // Up to 30% boost
+		state.Velocity = speed * speedVariation * centerSpeedBoost
+	}
+	
 	// Always be moving
 	state.IsMoving = true
-
-	// Add slight speed variation for more natural movement (like client)
-	speedVariation := 1.0 + (math.Sin(now*0.2) * 0.1) // ±10% speed variation
-	state.Velocity = speed * speedVariation
 
 	// IMPORTANT: Actually update the position based on rotation and velocity
 	// Calculate movement vector based on tank rotation
@@ -647,7 +740,9 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 			"posX", state.Position.X, 
 			"posZ", state.Position.Z, 
 			"rotation", state.TankRotation, 
-			"velocity", state.Velocity)
+			"velocity", state.Velocity,
+			"distFromCenter", distFromCenter,
+			"centerBias", centerBias)
 	}
 }
 
@@ -655,31 +750,98 @@ func (c *NPCController) moveInCircle(npc *NPCTank, state *PlayerState) {
 func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
 	// Get current time for oscillation - matches client-side time-based animation
 	now := float64(time.Now().UnixNano()) / 1e9
-
-	// Calculate zigzag pattern with more natural motion like client-side
-	// Use sine wave with variable amplitude based on tactical IQ
-	oscillationFrequency := 0.2 + (npc.TacticalIQ * 0.3)      // Higher IQ = faster zigzag
-	oscillationAmplitude := 0.02 * (1.0 - npc.TacticalIQ*0.5) // Higher IQ = more controlled zigzag
-
-	// Create more dynamic and natural zigzag pattern using time
-	oscillation := math.Sin(now*oscillationFrequency) * oscillationAmplitude
-
-	// Add second harmonic for more natural and less predictable motion
-	oscillation += math.Sin(now*oscillationFrequency*2.7) * oscillationAmplitude * 0.3
-
-	// Apply the oscillation to the tank's rotation
-	state.TankRotation += oscillation
-
-	// Normalize angle
-	state.TankRotation = normalizeAngle(state.TankRotation)
-
+	
+	// Calculate distance from center for center-gravity effect
+	distFromCenter := math.Sqrt(state.Position.X*state.Position.X + state.Position.Z*state.Position.Z)
+	
+	// Create a center gravity effect that increases with distance
+	centerBias := 0.0
+	if distFromCenter > 800 { // Lower threshold for zigzag pattern
+		// Exponentially increases with distance
+		centerBias = math.Min(0.9, (distFromCenter-800)/2200)
+	}
+	
+	// Check if we need to override zigzag pattern and move toward center
+	if centerBias > 0.25 && rand.Float64() < centerBias*0.5 { // Higher chance the further away
+		// Calculate angle toward center
+		centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
+		
+		// Turn toward center with smooth interpolation
+		angleDiff := normalizeAngle(centerAngle - state.TankRotation)
+		turnRate := 0.025 + (centerBias * 0.035) // Faster turning when far from center
+		
+		rotationAmount := math.Copysign(
+			math.Min(math.Abs(angleDiff), turnRate),
+			angleDiff,
+		)
+		
+		// Apply rotation with tiny wobble for natural movement
+		wobble := (rand.Float64() - 0.5) * 0.003
+		state.TankRotation += rotationAmount + wobble
+		state.TankRotation = normalizeAngle(state.TankRotation)
+		
+		// Move faster when far from center
+		baseSpeed := 0.2 // Base speed value (matching player tank speed)
+		speedBoost := 1.0 + (centerBias * 0.8) // Up to 80% speed boost
+		state.Velocity = baseSpeed * npc.MoveSpeed * speedBoost
+		
+		// Log center movement
+		if rand.Float64() < 0.05 {
+			log.Debug("Zigzag NPC gravitating toward center", 
+				"id", npc.ID, 
+				"distance", distFromCenter,
+				"centerBias", centerBias,
+				"boostedSpeed", state.Velocity)
+		}
+	} else {
+		// Normal zigzag movement but biased toward center when far away
+		
+		// Calculate zigzag pattern with more natural motion like client-side
+		// Use sine wave with variable amplitude based on tactical IQ
+		oscillationFrequency := 0.2 + (npc.TacticalIQ * 0.3)      // Higher IQ = faster zigzag
+		oscillationAmplitude := 0.02 * (1.0 - npc.TacticalIQ*0.5) // Higher IQ = more controlled zigzag
+		
+		// For distant NPCs, gradually bias the zigzag direction toward center
+		if centerBias > 0 {
+			// Calculate angle toward center
+			centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
+			
+			// Calculate angle difference to determine if we're heading toward or away from center
+			angleDiff := normalizeAngle(centerAngle - state.TankRotation)
+			
+			// Add subtle correction to zigzag that increases with distance from center
+			centerCorrection := angleDiff * centerBias * 0.006
+			
+			// Apply the center correction to the tank's rotation
+			state.TankRotation += centerCorrection
+		}
+		
+		// Create more dynamic and natural zigzag pattern using time
+		oscillation := math.Sin(now*oscillationFrequency) * oscillationAmplitude
+		
+		// Add second harmonic for more natural and less predictable motion
+		oscillation += math.Sin(now*oscillationFrequency*2.7) * oscillationAmplitude * 0.3
+		
+		// Apply the oscillation to the tank's rotation
+		state.TankRotation += oscillation
+		
+		// Normalize angle
+		state.TankRotation = normalizeAngle(state.TankRotation)
+		
+		// Always be moving
+		state.IsMoving = true
+		baseSpeed := 0.2 // Base speed value (matching player tank speed)
+		
+		// Vary speed slightly based on zigzag phase for more natural movement
+		speedVariation := 1.0 + (math.Cos(now*oscillationFrequency*2) * 0.1) // ±10% speed variation
+		
+		// Apply small speed boost if far from center
+		centerSpeedBoost := 1.0 + (centerBias * 0.4) // Up to 40% boost when far from center
+		state.Velocity = baseSpeed * npc.MoveSpeed * speedVariation * centerSpeedBoost
+	}
+	
 	// Always be moving
 	state.IsMoving = true
-	baseSpeed := 0.2 // Base speed value (matching player tank speed)
-
-	// Vary speed slightly based on zigzag phase for more natural movement
-	speedVariation := 1.0 + (math.Cos(now*oscillationFrequency*2) * 0.1) // ±10% speed variation
-	state.Velocity = baseSpeed * npc.MoveSpeed * speedVariation
 
 	// IMPORTANT: Actually update the position based on rotation and velocity
 	moveX := math.Cos(state.TankRotation) * state.Velocity
@@ -700,7 +862,9 @@ func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
 			"posX", state.Position.X, 
 			"posZ", state.Position.Z, 
 			"rotation", state.TankRotation, 
-			"oscillation", oscillation)
+			"distFromCenter", distFromCenter,
+			"centerBias", centerBias,
+			"velocity", state.Velocity)
 	}
 }
 
@@ -708,6 +872,16 @@ func (c *NPCController) moveInZigzag(npc *NPCTank, state *PlayerState) {
 func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 	// Get current time for time-based animation (matching client)
 	now := float64(time.Now().UnixNano()) / 1e9
+
+	// Calculate distance from center for center-gravity effect
+	distFromCenter := math.Sqrt(state.Position.X*state.Position.X + state.Position.Z*state.Position.Z)
+	
+	// Create a center gravity bias that increases with distance
+	centerBias := 0.0
+	if distFromCenter > 1500 { // Higher threshold for patrol tanks than random movement
+		// Exponentially increases with distance 
+		centerBias = math.Min(0.8, (distFromCenter-1500)/2000)
+	}
 
 	if len(npc.PatrolPoints) == 0 {
 		// If no patrol points, just move forward with slight oscillation
@@ -718,9 +892,30 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 		speedVariation := 1.0 + (math.Sin(now*0.5) * 0.1) // ±10% variation
 		state.Velocity = baseSpeed * npc.MoveSpeed * speedVariation
 
-		// Add slight directional oscillation
-		oscillation := math.Sin(now*0.3) * 0.005
-		state.TankRotation += oscillation
+		// If far from center, turn toward center occasionally
+		if centerBias > 0 && rand.Float64() < centerBias {
+			// Calculate angle toward center
+			centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
+			
+			// Turn toward center with smooth interpolation
+			angleDiff := normalizeAngle(centerAngle - state.TankRotation)
+			rotationAmount := math.Copysign(
+				math.Min(math.Abs(angleDiff), 0.02),
+				angleDiff,
+			)
+			state.TankRotation += rotationAmount
+			
+			// Log center correction
+			log.Debug("Patrol NPC (without points) gravitating toward center", 
+				"id", npc.ID, 
+				"distance", distFromCenter,
+				"centerBias", centerBias)
+		} else {
+			// Normal oscillation for tanks already near center
+			oscillation := math.Sin(now*0.3) * 0.005
+			state.TankRotation += oscillation
+		}
+		
 		state.TankRotation = normalizeAngle(state.TankRotation)
 
 		// IMPORTANT: Actually update the position based on rotation and velocity
@@ -735,7 +930,65 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 		return
 	}
 
-	// Get current target point
+	// Check if we should override patrol and move toward center
+	if centerBias > 0 && rand.Float64() < centerBias*0.3 { // 30% chance when at maximum bias
+		// Calculate angle toward center
+		centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
+		
+		// Create temporary target point toward center
+		moveTowardCenterDist := distFromCenter * 0.4 // Move 40% toward center in one go
+		centerX := state.Position.X + math.Cos(centerAngle) * moveTowardCenterDist
+		centerZ := state.Position.Z + math.Sin(centerAngle) * moveTowardCenterDist
+		
+		tempTarget := Position{X: centerX, Y: 0, Z: centerZ}
+		
+		// Calculate direction to center temp target
+		dx := tempTarget.X - state.Position.X
+		dz := tempTarget.Z - state.Position.Z
+		
+		targetAngle := math.Atan2(dz, dx)
+		
+		log.Info("Patrol NPC temporarily moving toward center", 
+			"id", npc.ID, 
+			"distance", distFromCenter,
+			"centerBias", centerBias,
+			"targetX", centerX,
+			"targetZ", centerZ)
+		
+		// Turn toward center
+		currentAngle := state.TankRotation
+		angleDiff := normalizeAngle(targetAngle - currentAngle)
+		
+		// Faster rotation for center correction
+		rotationSpeed := 0.03
+		rotationAmount := math.Copysign(
+			math.Min(math.Abs(angleDiff), rotationSpeed),
+			angleDiff,
+		)
+		
+		// Apply rotation with slight wobble
+		wobble := (rand.Float64() - 0.5) * 0.001
+		state.TankRotation = normalizeAngle(currentAngle + rotationAmount + wobble)
+		
+		// Move faster toward center
+		baseSpeed := 0.2
+		speedBoost := 1.0 + (centerBias * 0.6) // Up to 60% speed boost
+		state.Velocity = baseSpeed * npc.MoveSpeed * speedBoost
+		
+		// Update position
+		moveX := math.Cos(state.TankRotation) * state.Velocity
+		moveZ := math.Sin(state.TankRotation) * state.Velocity
+		
+		state.Position.X += moveX
+		state.Position.Z += moveZ
+		
+		// Update track animation
+		state.TrackRotation = state.Velocity * 5.0
+		
+		return
+	}
+
+	// Normal patrol behavior - Get current target point
 	target := npc.PatrolPoints[npc.CurrentPoint]
 
 	// Calculate direction to target
@@ -803,9 +1056,11 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 
 	// Calculate final speed - scale by turn factor and approach factor
 	// High TacticalIQ NPCs slow less in turns (better driving)
+	// Apply center bias speed boost if far from center
+	speedBoost := 1.0 + (centerBias * 0.4) // Up to 40% speed boost
 	state.Velocity = baseSpeed * npc.MoveSpeed *
 		(turnFactor*tacticFactor + (1.0 - tacticFactor)) *
-		approachFactor * speedOscillation
+		approachFactor * speedOscillation * speedBoost
 
 	// Always be moving
 	state.IsMoving = true
@@ -831,6 +1086,8 @@ func (c *NPCController) moveInPatrol(npc *NPCTank, state *PlayerState) {
 			"targetX", target.X, 
 			"targetZ", target.Z, 
 			"distance", dist, 
+			"distFromCenter", distFromCenter,
+			"centerBias", centerBias,
 			"speed", state.Velocity)
 	}
 }
@@ -842,6 +1099,21 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 
 	// Use time directly for animations instead of a movement timer counter
 
+	// Boundary checking - keep NPCs within reasonable game area
+	const MAP_BOUND = 2400.0 // 2400 unit radius around center for 5000x5000 map
+
+	// Calculate distance from center and bias NPCs to move toward center when far away
+	distFromCenter := math.Sqrt(state.Position.X*state.Position.X + state.Position.Z*state.Position.Z)
+	
+	// Create a gravity effect that increases with distance from center
+	// The further away, the higher the chance of turning toward center
+	centerBias := 0.0
+	if distFromCenter > 500 {
+		// Start applying center bias when beyond 500 units from center
+		// Exponentially increases with distance
+		centerBias = math.Min(0.9, (distFromCenter-500)/3000)
+	}
+
 	// Use nonlinear time-based probability to change direction (like client)
 	// Higher TacticalIQ = more purposeful movement with fewer random changes
 	changeProbability := 0.01 * (1.0 - npc.TacticalIQ*0.5)
@@ -850,22 +1122,43 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 	changeProbability *= 0.8 + math.Abs(math.Sin(now*0.5))*0.4
 
 	// Occasionally change direction with a natural pattern
-	if rand.Float64() < changeProbability {
-		// More intelligent NPCs make smaller, more controlled turns
-		// Less intelligent NPCs make more chaotic turns
-		maxTurn := math.Pi / 8 * (1.0 - npc.TacticalIQ*0.5 + 0.5)
-		rotationChange := (rand.Float64() - 0.5) * maxTurn
+	if rand.Float64() < changeProbability || distFromCenter > MAP_BOUND * 0.8 {
+		// Calculate angle toward center
+		centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
+		
+		// Blend between random direction and center direction based on distance
+		if rand.Float64() < centerBias || distFromCenter > MAP_BOUND {
+			// Move directly toward center if too far from map bounds or based on center bias
+			npc.TargetRotation = centerAngle
+			
+			// Log boundary correction
+			if distFromCenter > MAP_BOUND {
+				log.Info("NPC reached map boundary, turning back toward center", 
+					"id", npc.ID, 
+					"distance", distFromCenter)
+			} else {
+				log.Debug("NPC gravitating toward center", 
+					"id", npc.ID, 
+					"distance", distFromCenter,
+					"centerBias", centerBias)
+			}
+		} else {
+			// More intelligent NPCs make smaller, more controlled turns
+			// Less intelligent NPCs make more chaotic turns
+			maxTurn := math.Pi / 8 * (1.0 - npc.TacticalIQ*0.5 + 0.5)
+			rotationChange := (rand.Float64() - 0.5) * maxTurn
 
-		// Store target rotation for gradual turning (like client)
-		npc.TargetRotation = normalizeAngle(state.TankRotation + rotationChange)
+			// Store target rotation for gradual turning (like client)
+			npc.TargetRotation = normalizeAngle(state.TankRotation + rotationChange)
 
-		// Log direction changes occasionally
-		if rand.Float64() < 0.1 {
-			log.Debug("NPC changing direction", 
-				"id", npc.ID, 
-				"current", state.TankRotation, 
-				"target", npc.TargetRotation, 
-				"change", rotationChange)
+			// Log direction changes occasionally
+			if rand.Float64() < 0.1 {
+				log.Debug("NPC changing direction", 
+					"id", npc.ID, 
+					"current", state.TankRotation, 
+					"target", npc.TargetRotation, 
+					"change", rotationChange)
+			}
 		}
 	}
 
@@ -876,7 +1169,9 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 
 		// Determine turn speed based on TacticalIQ and angle difference
 		// Smarter NPCs turn more smoothly and precisely
-		turnSpeed := 0.01 * (0.8 + npc.TacticalIQ*0.4)
+		// Increase turn speed when far from center to get NPCs back to playable area faster
+		baseTurnSpeed := 0.01 * (0.8 + npc.TacticalIQ*0.4)
+		turnSpeed := baseTurnSpeed * (1.0 + centerBias)
 
 		// Apply smooth interpolation like client
 		if math.Abs(angleDiff) > 0.01 {
@@ -916,7 +1211,10 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 	// Add smooth speed variations like client-side
 	// Higher TacticalIQ = more consistent speed
 	speedVariation := 1.0 + (math.Sin(now*0.7) * 0.1 * (1.0 - npc.TacticalIQ*0.5))
-	state.Velocity = baseSpeed * npc.MoveSpeed * speedVariation
+	
+	// Increase speed when far from center to help NPCs get back to playable area faster
+	centerSpeedBoost := 1.0 + (centerBias * 0.5) // Up to 50% speed boost
+	state.Velocity = baseSpeed * npc.MoveSpeed * speedVariation * centerSpeedBoost
 
 	// IMPORTANT: Actually update the position based on rotation and velocity
 	moveX := math.Cos(state.TankRotation) * state.Velocity
@@ -929,24 +1227,6 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 	// Update track animation (for client visualization)
 	state.TrackRotation = state.Velocity * 5.0
 
-	// Boundary checking - keep NPCs within reasonable game area
-	const MAP_BOUND = 2400.0 // 2400 unit radius around center for 5000x5000 map
-
-	// If we're getting too far from center, turn back
-	distFromCenter := math.Sqrt(state.Position.X*state.Position.X + state.Position.Z*state.Position.Z)
-	if distFromCenter > MAP_BOUND {
-		// Calculate angle toward center
-		centerAngle := math.Atan2(-state.Position.Z, -state.Position.X)
-
-		// Set target rotation toward center (for smooth turning)
-		npc.TargetRotation = centerAngle
-
-		// Log boundary correction
-		log.Info("NPC reached map boundary, turning back toward center", 
-			"id", npc.ID, 
-			"distance", distFromCenter)
-	}
-
 	// Log movement occasionally to reduce log spam
 	if rand.Float64() < 0.01 {
 		log.Debug("NPC moving randomly", 
@@ -954,7 +1234,9 @@ func (c *NPCController) moveRandomly(npc *NPCTank, state *PlayerState) {
 			"posX", state.Position.X, 
 			"posZ", state.Position.Z, 
 			"rotation", state.TankRotation, 
-			"velocity", state.Velocity)
+			"velocity", state.Velocity,
+			"distFromCenter", distFromCenter,
+			"centerBias", centerBias)
 	}
 }
 
