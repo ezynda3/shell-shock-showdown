@@ -1,4 +1,4 @@
-module github.com/mark3labs/pro-saaskit
+module tank-game
 
 go 1.23.4
 

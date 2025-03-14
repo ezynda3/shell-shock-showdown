@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
-	"github.com/mark3labs/pro-saaskit/game"
+	"tank-game/game"
 )
 
 // ShellPhysics handles shell trajectory and collision calculations

@@ -6,8 +6,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/mark3labs/pro-saaskit/game"
-	"github.com/mark3labs/pro-saaskit/game/shared"
+	"tank-game/game"
+	"tank-game/game/shared"
 )
 
 // We now use the shared.PhysicsManagerInterface defined in game/shared

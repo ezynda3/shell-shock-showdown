@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
-	"github.com/mark3labs/pro-saaskit/game/shared"
+	"tank-game/game/shared"
 	"github.com/nats-io/nats.go/jetstream"
 )
 

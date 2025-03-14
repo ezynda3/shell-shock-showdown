@@ -1,7 +1,7 @@
 package physics
 
 import (
-	"github.com/mark3labs/pro-saaskit/game"
+	"tank-game/game"
 )
 
 // ColliderType represents the type of collider

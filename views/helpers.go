@@ -1,7 +1,7 @@
 package views
 
 import (
-	"github.com/mark3labs/pro-saaskit/game"
+	"tank-game/game"
 )
 
 // InitGameMap returns the initialized game map

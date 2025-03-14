@@ -4,8 +4,8 @@ import (
 	"math"
 
 	"github.com/charmbracelet/log"
-	"github.com/mark3labs/pro-saaskit/game"
-	"github.com/mark3labs/pro-saaskit/game/shared"
+	"tank-game/game"
+	"tank-game/game/shared"
 )
 
 // Global physics manager instance is defined in physics.go

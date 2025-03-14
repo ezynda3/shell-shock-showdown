@@ -2,8 +2,8 @@ package physics
 
 import (
 	"github.com/charmbracelet/log"
-	"github.com/mark3labs/pro-saaskit/game"
-	"github.com/mark3labs/pro-saaskit/game/shared"
+	"tank-game/game"
+	"tank-game/game/shared"
 )
 
 // PhysicsEngine is an interface that all physics managers must implement

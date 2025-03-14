@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/mark3labs/pro-saaskit/middleware"
-	"github.com/mark3labs/pro-saaskit/views"
+	"tank-game/middleware"
+	"tank-game/views"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/auth"
 	"github.com/pocketbase/pocketbase/tools/router"

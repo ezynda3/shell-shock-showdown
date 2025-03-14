@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
-	"github.com/mark3labs/pro-saaskit/game"
-	"github.com/mark3labs/pro-saaskit/middleware"
-	"github.com/mark3labs/pro-saaskit/views"
+	"tank-game/game"
+	"tank-game/middleware"
+	"tank-game/views"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
